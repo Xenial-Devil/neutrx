@@ -15,6 +15,7 @@ export interface NeutrxErrorOptions {
 }
 
 export class NeutrxError extends Error {
+    readonly __isNeutrxError!: true;
     code: string;
     timestamp: string;
     requestId: string | null;
@@ -34,6 +35,12 @@ export class NeutrxError extends Error {
         this.method = options.method ?? null;
         this.retryable = options.retryable ?? false;
         this.context = options.context ?? {};
+        Object.defineProperty(this, '__isNeutrxError', {
+            value: true,
+            enumerable: false,
+            configurable: false,
+            writable: false,
+        });
 
         if (process.env.NODE_ENV === 'production') {
             this.stack = `${this.name}: ${message}`;
@@ -59,6 +66,14 @@ export class NeutrxError extends Error {
     override toString(): string {
         return `[${this.name}] ${this.code}: ${this.message}`;
     }
+}
+
+export function isNeutrxError(error: unknown): error is NeutrxError {
+    return Boolean(
+        error
+        && typeof error === 'object'
+        && (error as { readonly __isNeutrxError?: unknown }).__isNeutrxError === true
+    );
 }
 
 export class NeutrxNetworkError extends NeutrxError {

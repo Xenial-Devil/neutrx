@@ -22,9 +22,11 @@ export {
     NeutrxSecurityError,
     NeutrxServerError,
     NeutrxTimeoutError,
+    isNeutrxError,
 } from './core/NeutrxError.js';
 export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
+export { fetchAdapter } from './adapters/fetch.js';
 export type { NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
 export type { AxiosInterceptorManager, AxiosInterceptors, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
 export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
@@ -58,6 +60,8 @@ export type {
     RequestBody,
     RequestConfig,
     RequestAdapter,
+    RequestAdapterConfig,
+    RequestAdapterName,
     RedirectContext,
     ResilienceConfig,
     ResponseType,

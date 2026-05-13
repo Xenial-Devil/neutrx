@@ -28,6 +28,8 @@ export type TransformRequest = (data: RequestBody | undefined, headers: Headers)
 export type TransformResponse = (data: ParsedResponseData, headers: Headers, status: number) => ParsedResponseData;
 export type LookupFunction = NonNullable<RequestOptions['lookup']>;
 export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse | Promise<RawHttpResponse>;
+export type RequestAdapterName = 'http' | 'fetch';
+export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
 
 export interface ProxyConfig {
     readonly protocol?: 'http' | 'https';
@@ -105,27 +107,30 @@ export interface ClientConfig {
     readonly paramsSerializer?: ParamsSerializer;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
-    readonly adapter?: RequestAdapter;
+    readonly adapter?: RequestAdapterConfig;
     readonly proxy?: ProxyConfig | false;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
+    readonly socketPath?: string;
+    readonly decompress?: boolean;
     readonly security?: SecurityConfig;
     readonly resilience?: ResilienceConfig;
     readonly performance?: PerformanceConfig;
 }
 
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'transformRequest' | 'transformResponse' | 'adapter' | 'proxy' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'security' | 'resilience' | 'performance'>> {
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'transformRequest' | 'transformResponse' | 'adapter' | 'proxy' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'security' | 'resilience' | 'performance'>> {
     readonly baseURL?: string;
     readonly headers?: Headers;
     readonly paramsSerializer?: ParamsSerializer;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
-    readonly adapter?: RequestAdapter;
+    readonly adapter?: RequestAdapterConfig;
     readonly proxy?: ProxyConfig | false;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
+    readonly socketPath?: string;
     readonly security: Required<Omit<SecurityConfig, 'rateLimit'>> & { readonly rateLimit?: RateLimitConfig };
     readonly resilience: Required<Omit<ResilienceConfig, 'shouldRetry' | 'onRetry' | 'retryableStatuses' | 'retryableCodes'>> & {
         readonly retryableStatuses: readonly number[];
@@ -154,12 +159,14 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly paramsSerializer?: ParamsSerializer;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
-    readonly adapter?: RequestAdapter;
+    readonly adapter?: RequestAdapterConfig;
     readonly proxy?: ProxyConfig | false;
     readonly beforeRedirect?: (context: RedirectContext) => void | Promise<void>;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
+    readonly socketPath?: string;
+    readonly decompress?: boolean;
     readonly followRedirects?: boolean;
     readonly cache?: boolean;
     readonly signal?: AbortSignal;
@@ -182,8 +189,10 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly validateStatus: (status: number) => boolean;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
-    readonly adapter?: RequestAdapter;
+    readonly adapter?: RequestAdapterConfig;
     readonly proxy?: ProxyConfig | false;
+    readonly socketPath?: string;
+    readonly decompress: boolean;
     readonly followRedirects: boolean;
     readonly requestId: string;
     readonly startTime: number;

@@ -1,18 +1,28 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import http from 'node:http';
+import zlib from 'node:zlib';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import test from 'node:test';
 import type * as PackageEntry from '../src/index.js';
 import type { LookupFunction } from '../src/index.js';
 
-const builtEntry = '../../dist/index.js';
+const builtEntry = '../../dist/esm/index.js';
+const require = createRequire(import.meta.url);
 
 void test('package exports load from built output', async () => {
     const mod = await import(builtEntry) as typeof PackageEntry;
     assert.equal(typeof mod.default, 'function');
     assert.equal(typeof mod.default.create, 'function');
     assert.equal(typeof mod.default.get, 'function');
+    assert.equal(mod.VERSION, '1.0.0');
+});
+
+void test('CommonJS build can be required', () => {
+    const mod = require('../../dist/cjs/index.js') as typeof PackageEntry;
+    assert.equal(typeof mod.default, 'function');
+    assert.equal(typeof mod.default.create, 'function');
     assert.equal(mod.VERSION, '1.0.0');
 });
 
@@ -260,6 +270,110 @@ void test('custom adapter participates in Neutrx parsing and validation', async 
 
     const response = await api.get('https://example.com/users', { params: { page: 2 } });
     assert.deepEqual(response.data, { method: 'GET', url: 'https://example.com/users?page=2' });
+});
+
+void test('named fetch adapter works through native fetch', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const server = http.createServer((_request, response) => {
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ ok: true }));
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            adapter: 'fetch',
+            baseURL: `http://127.0.0.1:${address.port}`,
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+
+        const response = await api.get('/fetch');
+        assert.deepEqual(response.data, { ok: true });
+    } finally {
+        await close(server);
+    }
+});
+
+void test('isNeutrxError narrows Neutrx errors', async () => {
+    const { default: Neutrx, isNeutrxError } = await import(builtEntry) as typeof PackageEntry;
+    const api = Neutrx.create({ security: { enforceHTTPS: false, enableSSRFProtection: false } });
+
+    try {
+        await api.request({ url: 'http://example.com/', method: 'TRACE' as never });
+        assert.fail('request should throw');
+    } catch (error: unknown) {
+        assert.equal(isNeutrxError(error), true);
+        assert.equal(Object.keys(error as object).includes('__isNeutrxError'), false);
+    }
+});
+
+void test('getUri builds final URL without dispatching', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const api = Neutrx.create({
+        baseURL: 'https://api.example.com/v1',
+        paramsSerializer: params => `page=${String(params.page)}`,
+    });
+
+    assert.equal(api.getUri({ url: '/users', params: { page: 2 } }), 'https://api.example.com/v1/users?page=2');
+});
+
+void test('decompress false keeps compressed response bytes', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const payload = Buffer.from(JSON.stringify({ ok: true }));
+    const zipped = zlib.gzipSync(payload);
+    const server = http.createServer((_request, response) => {
+        response.setHeader('content-type', 'application/json');
+        response.setHeader('content-encoding', 'gzip');
+        response.end(zipped);
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            decompress: false,
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+
+        const response = await api.get<Buffer>('/gzip', { responseType: 'buffer' });
+        assert.equal(Buffer.compare(response.data, zipped), 0);
+    } finally {
+        await close(server);
+    }
+});
+
+void test('synchronous request interceptors run before async chain begins', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const order: string[] = [];
+    const api = Neutrx.create({
+        adapter: config => {
+            order.push(String(config.headers['X-Sync']));
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: { 'content-type': 'application/json' },
+                data: Buffer.from('{}'),
+                config,
+            };
+        },
+    });
+
+    api.useRequest(config => {
+        order.push('sync');
+        return { ...config, headers: { ...config.headers, 'X-Sync': 'yes' } };
+    }, undefined, { synchronous: true });
+    api.useRequest(async config => {
+        await Promise.resolve();
+        order.push('async');
+        return config;
+    });
+
+    await api.get('https://example.com/');
+    assert.deepEqual(order, ['sync', 'async', 'yes']);
 });
 
 void test('FormData bodies serialize as multipart with boundary and length', async () => {

@@ -105,15 +105,46 @@ export default class InterceptorChain {
 
     async runRequest<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): Promise<InternalRequestConfig<TBody>> {
         let current: InternalRequestConfig = config;
+        let asyncChain: Promise<InternalRequestConfig> | null = null;
+
         for (const { onFulfilled, onRejected, options } of this.#request.values()) {
             if (options?.runWhen && !options.runWhen(current)) continue;
-            try {
-                current = onFulfilled ? await onFulfilled(current) : current;
-            } catch (error: unknown) {
-                if (!onRejected) throw normalizeError(error);
-                current = await onRejected(normalizeError(error));
+
+            if (options?.synchronous && asyncChain === null) {
+                try {
+                    const result = onFulfilled ? onFulfilled(current) : current;
+                    if (isPromiseLike(result)) {
+                        asyncChain = result;
+                    } else {
+                        current = result;
+                    }
+                } catch (error: unknown) {
+                    if (!onRejected) throw normalizeError(error);
+                    const result = onRejected(normalizeError(error));
+                    if (isPromiseLike(result)) {
+                        asyncChain = result;
+                    } else {
+                        current = result;
+                    }
+                }
+                continue;
             }
+
+            asyncChain ??= Promise.resolve(current);
+            asyncChain = asyncChain.then(async configValue => {
+                try {
+                    return onFulfilled ? await onFulfilled(configValue) : configValue;
+                } catch (error: unknown) {
+                    if (!onRejected) throw normalizeError(error);
+                    return onRejected(normalizeError(error));
+                }
+            });
         }
+
+        if (asyncChain) {
+            current = await asyncChain;
+        }
+
         return current as InternalRequestConfig<TBody>;
     }
 
@@ -149,4 +180,10 @@ export default class InterceptorChain {
 function normalizeError(error: unknown): Error {
     if (error instanceof Error) return error;
     return new Error(String(error));
+}
+
+function isPromiseLike<TValue>(value: TValue | Promise<TValue>): value is Promise<TValue> {
+    return value !== null
+        && typeof value === 'object'
+        && typeof (value as { readonly then?: unknown }).then === 'function';
 }

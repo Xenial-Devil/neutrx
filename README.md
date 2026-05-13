@@ -11,7 +11,7 @@ Neutrx is a security-first TypeScript HTTP client for Node.js. It keeps the dail
 - Circuit breaker and bulkhead isolation for safer outbound calls under load.
 - In-memory GET cache with HTTP cache header support.
 - Upload and download progress callbacks, including real-time streamed progress.
-- Axios-style params serializers, transforms, interceptors, and custom adapters.
+- Axios-style params serializers, transforms, interceptors, custom adapters, and built-in `http`/`fetch` adapter selection.
 - Native body serializers for JSON, URLSearchParams, ArrayBuffer, Blob, FormData, buffers, and streams.
 - Custom HTTP/HTTPS agents, DNS lookup hooks, and HTTP proxy config.
 - Metrics snapshots and Prometheus output.
@@ -36,7 +36,7 @@ For this repository:
 ```bash
 # Install this repository's dependencies.
 npm install # Installs packages from package-lock.json.
-# Run typecheck, build, and tests together.
+# Run typecheck, lint, build, and tests together.
 npm run validate # Verifies the repository end to end.
 ```
 
@@ -177,10 +177,12 @@ Useful config fields:
 - `paramsSerializer`: custom query string serializer.
 - `transformRequest`: request body/header transform or transform array.
 - `transformResponse`: response data transform or transform array.
-- `adapter`: custom transport adapter for tests or non-standard runtimes.
+- `adapter`: `'http'`, `'fetch'`, or a custom transport adapter for tests or non-standard runtimes.
 - `proxy`: HTTP proxy config for HTTP requests, or `false` to disable an inherited proxy.
 - `httpAgent` / `httpsAgent`: custom Node agents for CA, mTLS, DNS cache, or tunneling.
 - `lookup`: custom DNS lookup function; resolved addresses are still checked by SSRF protection.
+- `socketPath`: UNIX socket path for local IPC APIs supported by the Node HTTP adapter.
+- `decompress`: set `false` to keep compressed response bytes instead of decoding gzip, deflate, or brotli.
 - `cache`: set `false` to skip GET cache.
 - `signal`: AbortController signal.
 - `onUploadProgress`: upload progress callback.
@@ -581,12 +583,15 @@ import { // Imports typed error classes.
   NeutrxHTTPError, // HTTP status error class.
   NeutrxTimeoutError, // Timeout error class.
   NeutrxSSRFError, // SSRF protection error class.
+  isNeutrxError, // Type guard for unknown catch values.
 } from 'neutrx'; // Imports errors from package.
 
 try { // Starts error-handled request block.
   await api.get('/users'); // Sends request that may throw.
 } catch (error) { // Handles any thrown error.
-  if (error instanceof NeutrxHTTPError) { // Checks for HTTP status error.
+  if (!isNeutrxError(error)) { // Narrows unknown non-Neutrx values.
+    throw error; // Rethrows unexpected errors.
+  } else if (error instanceof NeutrxHTTPError) { // Checks for HTTP status error.
     console.error(error.status, error.response?.data); // Prints status and response body.
   } else if (error instanceof NeutrxTimeoutError) { // Checks for timeout error.
     console.error('timeout'); // Prints timeout message.
@@ -625,7 +630,7 @@ npm run typecheck # Runs TypeScript without emitting files.
 npm run lint # Checks code style and unsafe TypeScript patterns.
 # Compile and run tests.
 npm test # Builds test output and runs node:test.
-# Run typecheck, build, and tests.
+# Run typecheck, lint, build, and tests.
 npm run validate # Runs the main validation pipeline.
 ```
 
@@ -670,7 +675,7 @@ Keep secrets in `.env` or your deployment secret manager. Do not commit secret f
 
 ## Troubleshooting
 
-- `Cannot find module dist/index.js`: run `npm run build`.
+- `Cannot find module dist/esm/index.js`: run `npm run build`.
 - Editor shows stale TypeScript errors: restart the TypeScript server or reload VS Code.
 - Localhost requests fail: SSRF/private IP protection is enabled by default. Disable it only for trusted local development.
 - HTTP URLs fail in production: HTTPS enforcement is enabled in production.

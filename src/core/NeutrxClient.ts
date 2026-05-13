@@ -18,6 +18,7 @@ import CacheEngine from '../performance/CacheEngine.js';
 import MetricsCollector from '../monitoring/MetricsCollector.js';
 import type { MetricsSnapshot } from '../monitoring/MetricsCollector.js';
 import { PluginManager, type NeutrxPlugin } from '../plugins/PluginManager.js';
+import { fetchAdapter } from '../adapters/fetch.js';
 
 import {
     NeutrxConnectTimeoutError,
@@ -56,6 +57,7 @@ import type {
     RawHttpResponse,
     RequestBody,
     RequestConfig,
+    RequestAdapterName,
     ResponseType,
     TransformRequest,
     TransformResponse,
@@ -434,8 +436,12 @@ export default class NeutrxClient extends EventEmitter {
         return this;
     }
 
-    useRequest(onFulfilled?: Parameters<InterceptorChain['addRequest']>[0], onRejected?: Parameters<InterceptorChain['addRequest']>[1]): number {
-        return this.#interceptors.addRequest(onFulfilled, onRejected);
+    useRequest(
+        onFulfilled?: Parameters<InterceptorChain['addRequest']>[0],
+        onRejected?: Parameters<InterceptorChain['addRequest']>[1],
+        options?: Parameters<InterceptorChain['addRequest']>[2]
+    ): number {
+        return this.#interceptors.addRequest(onFulfilled, onRejected, options);
     }
 
     useResponse(onFulfilled?: Parameters<InterceptorChain['addResponse']>[0], onRejected?: Parameters<InterceptorChain['addResponse']>[1]): number {
@@ -500,6 +506,10 @@ export default class NeutrxClient extends EventEmitter {
         return this.#bulkhead.getStats();
     }
 
+    getUri(config: string | RequestConfig): string {
+        return this.#buildURL(typeof config === 'string' ? { url: config } : config);
+    }
+
     create(config: ClientConfig = {}): NeutrxClient {
         return new NeutrxClient(mergeConfig(this.#config, config));
     }
@@ -513,8 +523,11 @@ export default class NeutrxClient extends EventEmitter {
     }
 
     async #dispatch(config: InternalRequestConfig): Promise<RawHttpResponse> {
-        const adapter = config.adapter ?? this.#config.adapter;
-        if (adapter) return adapter(config);
+        const adapter = config.adapter ?? this.#config.adapter ?? detectAdapter();
+        const selectedAdapter: unknown = adapter;
+        if (typeof adapter === 'function') return adapter(config);
+        if (adapter === 'fetch') return fetchAdapter(config);
+        if (adapter !== 'http') throw new NeutrxSecurityError(`Unknown adapter: ${String(selectedAdapter)}`, { code: 'UNKNOWN_ADAPTER' });
         return this.#http(config);
     }
 
@@ -527,26 +540,46 @@ export default class NeutrxClient extends EventEmitter {
         }
 
         const proxy = resolveProxy(runtimeConfig.proxy ?? this.#config.proxy);
+        if (runtimeConfig.socketPath && proxy) {
+            throw new NeutrxSecurityError('socketPath cannot be combined with proxy', { code: 'SOCKET_PROXY_CONFLICT' });
+        }
         if (proxy) await this.#validateProxyTarget(url, runtimeConfig);
         const requestTarget = proxy ? proxyRequestTarget(url, runtimeConfig.headers, proxy) : directRequestTarget(url, runtimeConfig.headers);
         for (const [key, value] of Object.entries(requestTarget.headers)) {
             this.#security.validateHeader(key, value);
         }
-        const lookup = await this.#createLookup(requestTarget.url, runtimeConfig, requestTarget.isProxied);
+        const lookup = runtimeConfig.socketPath
+            ? undefined
+            : await this.#createLookup(requestTarget.url, runtimeConfig, requestTarget.isProxied);
 
         return new Promise((resolve, reject) => {
             const isHTTPS = requestTarget.url.protocol === 'https:';
             const maxSize = runtimeConfig.maxContentLength;
+            let settled = false;
+            const fail = (error: Error): void => {
+                if (settled) return;
+                settled = true;
+                reject(error);
+            };
+
+            if (runtimeConfig.socketPath && isHTTPS) {
+                fail(new NeutrxSecurityError('socketPath supports HTTP only', { code: 'SOCKET_HTTPS_UNSUPPORTED' }));
+                return;
+            }
 
             const options: RequestOptions = {
-                hostname: requestTarget.url.hostname,
-                port: requestTarget.url.port || (isHTTPS ? 443 : 80),
                 path: requestTarget.path,
                 method: runtimeConfig.method,
                 headers: toOutgoingHeaders(requestTarget.headers),
-                agent: isHTTPS
-                    ? runtimeConfig.httpsAgent ?? this.#config.httpsAgent ?? this.#agents.https
-                    : runtimeConfig.httpAgent ?? this.#config.httpAgent ?? this.#agents.http,
+                ...(runtimeConfig.socketPath
+                    ? { socketPath: runtimeConfig.socketPath }
+                    : {
+                        hostname: requestTarget.url.hostname,
+                        port: requestTarget.url.port || (isHTTPS ? 443 : 80),
+                        agent: isHTTPS
+                            ? runtimeConfig.httpsAgent ?? this.#config.httpsAgent ?? this.#agents.https
+                            : runtimeConfig.httpAgent ?? this.#config.httpAgent ?? this.#agents.http,
+                    }),
                 ...(lookup ? { lookup } : {}),
                 ...(isHTTPS
                     ? {
@@ -559,13 +592,6 @@ export default class NeutrxClient extends EventEmitter {
             };
 
             const transport = isHTTPS ? https : http;
-            let settled = false;
-            const fail = (error: Error): void => {
-                if (settled) return;
-                settled = true;
-                reject(error);
-            };
-
             const req = transport.request(options, response => {
                 void this.#handleHttpResponse(response, runtimeConfig, maxSize).then(result => {
                     if (settled) return;
@@ -712,7 +738,7 @@ export default class NeutrxClient extends EventEmitter {
     async #parse<TData extends ParsedResponseData>(raw: RawHttpResponse, config: InternalRequestConfig): Promise<NeutrxResponse<TData>> {
         let data: Buffer | IncomingMessage = raw.data;
 
-        if (Buffer.isBuffer(data)) {
+        if (config.decompress && Buffer.isBuffer(data)) {
             const encoding = headerToString(raw.headers['content-encoding']);
             try {
                 if (encoding.includes('br')) data = await brotliDecompress(data);
@@ -776,6 +802,8 @@ export default class NeutrxClient extends EventEmitter {
             httpAgent: config.httpAgent ?? this.#config.httpAgent,
             httpsAgent: config.httpsAgent ?? this.#config.httpsAgent,
             lookup: config.lookup ?? this.#config.lookup,
+            socketPath: config.socketPath ?? this.#config.socketPath,
+            decompress: config.decompress ?? this.#config.decompress,
             followRedirects: config.followRedirects !== false,
             requestId,
             startTime: Date.now(),
@@ -794,7 +822,8 @@ export default class NeutrxClient extends EventEmitter {
     #buildURL(config: RequestConfig): string {
         let url = config.url;
         if (!/^https?:\/\//i.test(url)) {
-            const base = config.baseURL ?? this.#config.baseURL ?? '';
+            const hasSocketPath = Boolean(config.socketPath ?? this.#config.socketPath);
+            const base = config.baseURL ?? this.#config.baseURL ?? (hasSocketPath ? 'http://unix' : '');
             url = `${base.endsWith('/') ? base.slice(0, -1) : base}${url.startsWith('/') ? url : `/${url}`}`;
         }
 
@@ -922,6 +951,8 @@ export default class NeutrxClient extends EventEmitter {
             ...(custom.httpAgent ? { httpAgent: custom.httpAgent } : {}),
             ...(custom.httpsAgent ? { httpsAgent: custom.httpsAgent } : {}),
             ...(custom.lookup ? { lookup: custom.lookup } : {}),
+            ...(custom.socketPath ? { socketPath: custom.socketPath } : {}),
+            decompress: custom.decompress ?? true,
             security: {
                 enforceHTTPS: custom.security?.enforceHTTPS ?? true,
                 validateCertificate: custom.security?.validateCertificate ?? true,
@@ -1441,4 +1472,9 @@ function mergeConfig(base: NormalizedClientConfig, override: ClientConfig): Clie
 function withoutBody(config: InternalRequestConfig): InternalRequestConfig {
     const entries = Object.entries(config).filter(([key]) => key !== 'data');
     return Object.fromEntries(entries) as InternalRequestConfig;
+}
+
+function detectAdapter(): RequestAdapterName {
+    if (typeof globalThis.fetch === 'function' && typeof process === 'undefined') return 'fetch';
+    return 'http';
 }

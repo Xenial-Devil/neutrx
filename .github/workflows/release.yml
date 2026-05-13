@@ -1,37 +1,157 @@
-# name: Release to npm
+name: Release and Publish
 
-# on:
-#   release:
-#     types: [published]
+on:
+  push:
+    branches:
+      - main
 
-# permissions:
-#   contents: read
-#   id-token: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    concurrency: release
+    permissions:
+      contents: write
+      issues: write
+      packages: write
+      pull-requests: write
+      id-token: write
 
-# jobs:
-#   publish:
-#     name: Validate and publish
-#     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "25"
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
 
-#       - name: Setup Node.js
-#         uses: actions/setup-node@v6
-#         with:
-#           node-version: 24.x
-#           registry-url: https://registry.npmjs.org
-#           package-manager-cache: false
+      - name: Install dependencies
+        run: npm ci
 
-#       - name: Install dependencies
-#         run: npm ci
+      - name: Lint
+        run: npm run lint
 
-#       - name: Validate package
-#         run: npm run validate
+      - name: Typecheck
+        run: npm run typecheck
 
-#       - name: Inspect package contents
-#         run: npm pack --dry-run
+      - name: Test
+        run: npm test
 
-#       - name: Publish to npm
-#         run: npm publish --access public
+      - name: Coverage
+        run: npm run coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Validate package
+        run: npm run package:validate
+
+      - name: Run semantic-release
+        id: release
+        run: |
+          npx --yes \
+            --package semantic-release \
+            --package @semantic-release/git \
+            --package @semantic-release/npm \
+            --package @semantic-release/github \
+            --package @semantic-release/commit-analyzer \
+            --package @semantic-release/release-notes-generator \
+            --package @semantic-release/changelog \
+            --package @semantic-release/exec \
+            semantic-release --branches main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Get latest tag
+        id: latest_tag
+        run: |
+          if git describe --tags --abbrev=0 > /dev/null 2>&1; then
+            LATEST_TAG=$(git describe --tags --abbrev=0)
+          else
+            LATEST_TAG="v0.0.0"
+          fi
+          echo "LATEST_TAG=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Update GitHub release notes
+        if: steps.latest_tag.outputs.LATEST_TAG != 'v0.0.0'
+        run: |
+          LATEST_TAG="${{ steps.latest_tag.outputs.LATEST_TAG }}"
+          REPO="${{ github.repository }}"
+          BUILD_ID="${{ github.run_id }}"
+          COMMIT_SHA="${{ github.sha }}"
+
+          RELEASE_NOTES=$(gh release view "$LATEST_TAG" --repo "$REPO" --json body -q '.body' 2>/dev/null || echo "")
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD)
+            FILES_CHANGED=$(git diff --name-only "$PREV_TAG"..HEAD | head -20)
+          else
+            COMMITS=$(git log --pretty=format:"- %s (%h)" -10)
+            FILES_CHANGED=$(git diff --name-only HEAD~10..HEAD 2>/dev/null | head -20)
+          fi
+
+          NODE_VERSION=$(node -v)
+          RELEASE_DATE=$(date +'%Y-%m-%d %H:%M:%S UTC')
+          PACKAGE_SIZE=$(npm pack --dry-run 2>&1 | grep "total files" || echo "N/A")
+
+          cat > release_notes.md <<EOF
+          $RELEASE_NOTES
+
+          ---
+
+          ## Installation
+
+          \`\`\`bash
+          npm install neutrx
+          # or
+          yarn add neutrx
+          # or
+          pnpm add neutrx
+          \`\`\`
+
+          ## Changes in this release
+
+          ### Commits
+          $COMMITS
+
+          ### Changed files
+          \`\`\`
+          ${FILES_CHANGED}
+          \`\`\`
+
+          ## Technical details
+
+          | Detail | Value |
+          | ------ | ----- |
+          | Release date | $RELEASE_DATE |
+          | Node.js | $NODE_VERSION |
+          | Package preview | $PACKAGE_SIZE |
+          | Build ID | [$BUILD_ID](https://github.com/$REPO/actions/runs/$BUILD_ID) |
+          | Commit | \`${COMMIT_SHA:0:7}\` |
+
+          ## Links
+
+          - [Documentation](https://github.com/$REPO#readme)
+          - [NPM package](https://www.npmjs.com/package/neutrx)
+          - [Changelog](https://github.com/$REPO/blob/main/CHANGELOG.md)
+          - [Report issues](https://github.com/$REPO/issues)
+          EOF
+
+          gh release edit "$LATEST_TAG" \
+            --repo "$REPO" \
+            --notes-file release_notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release complete
+        run: |
+          echo "Release complete"
+          echo "Package: Neutrx"
+          echo "NPM: https://www.npmjs.com/package/neutrx"
