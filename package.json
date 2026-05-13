@@ -12,13 +12,35 @@
   "homepage": "https://github.com/Xenial-Devil/neutrx#readme",
   "type": "module",
   "main": "./dist/cjs/index.js",
-  "module": "./dist/esm/index.js",
-  "types": "./dist/types/index.d.ts",
+  "module": "./dist/esm/browser.js",
+  "browser": "./dist/esm/browser.js",
+  "types": "./dist/types/browser.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/types/browser.d.ts",
+      "browser": {
+        "types": "./dist/types/browser.d.ts",
+        "default": "./dist/esm/browser.js"
+      },
+      "node": {
+        "types": "./dist/types/index.d.ts",
+        "import": "./dist/esm/index.js",
+        "require": "./dist/cjs/index.js"
+      },
+      "import": "./dist/esm/browser.js",
+      "require": "./dist/cjs/index.js",
+      "default": "./dist/esm/browser.js"
+    },
+    "./node": {
       "types": "./dist/types/index.d.ts",
       "import": "./dist/esm/index.js",
-      "require": "./dist/cjs/index.js"
+      "require": "./dist/cjs/index.js",
+      "default": "./dist/esm/index.js"
+    },
+    "./browser": {
+      "types": "./dist/types/browser.d.ts",
+      "import": "./dist/esm/browser.js",
+      "default": "./dist/esm/browser.js"
     },
     "./plugins": {
       "types": "./dist/types/plugins/PluginManager.d.ts",
@@ -32,8 +54,12 @@
     },
     "./adapters": {
       "types": "./dist/types/adapters/index.d.ts",
+      "browser": "./dist/esm/adapters/browser.js",
       "import": "./dist/esm/adapters/index.js",
       "require": "./dist/cjs/adapters/index.js"
+    },
+    "./package.json": {
+      "default": "./package.json"
     }
   },
   "files": [
@@ -42,7 +68,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=18.0.0"
   },
   "publishConfig": {
     "access": "public"
@@ -54,13 +80,20 @@
     "build:esm": "tsc -p tsconfig.build.json",
     "build:cjs": "tsc -p tsconfig.cjs.json && npm run build:cjs:pkg",
     "build:cjs:pkg": "node -e \"const fs=require('node:fs'); fs.mkdirSync('dist/cjs', { recursive: true }); fs.writeFileSync('dist/cjs/package.json', JSON.stringify({ type: 'commonjs' }))\"",
-    "build:types": "tsc -p tsconfig.types.json",
+    "build:types": "tsc -p tsconfig.types.json && node scripts/generate-browser-types.cjs",
     "start": "node -e \"import('./dist/esm/index.js').then(({ default: Neutrx }) => console.log(Neutrx.name))\"",
-    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/*.test.js",
+    "set-version": "node scripts/set-version.cjs",
+    "test:compile": "tsc -p tsconfig.test.json",
+    "test:run": "node --test dist-tests/tests/*.test.js",
+    "test": "npm run build && npm run test:compile && npm run test:run",
+    "coverage": "npm run build && npm run test:compile && node --test --experimental-test-coverage dist-tests/tests/*.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src/**/*.ts examples/**/*.ts tests/**/*.ts",
     "audit": "npm audit --audit-level=high",
-    "validate": "npm run typecheck && npm run lint && npm run build && npm test"
+    "package:validate": "npm run build && node scripts/validate-package.cjs",
+    "release:validate": "npm run validate",
+    "validate": "npm run typecheck && npm run lint && npm test && npm run package:validate",
+    "ci": "npm run lint && npm run typecheck && npm test && npm run coverage && npm run package:validate"
   },
   "keywords": [
     "neutrx",

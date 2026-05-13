@@ -736,7 +736,7 @@ export default class NeutrxClient extends EventEmitter {
     }
 
     async #parse<TData extends ParsedResponseData>(raw: RawHttpResponse, config: InternalRequestConfig): Promise<NeutrxResponse<TData>> {
-        let data: Buffer | IncomingMessage = raw.data;
+        let data: Buffer | IncomingMessage = normalizeNodeResponseData(raw.data);
 
         if (config.decompress && Buffer.isBuffer(data)) {
             const encoding = headerToString(raw.headers['content-encoding']);
@@ -1082,6 +1082,21 @@ function parseResponseData(data: Buffer | IncomingMessage, type: ResponseType, h
         }
     }
     return text;
+}
+
+function normalizeNodeResponseData(data: RawHttpResponse['data']): Buffer | IncomingMessage {
+    if (Buffer.isBuffer(data)) return data;
+    if (isIncomingMessageLike(data)) return data;
+    if (typeof data === 'string') return Buffer.from(data);
+    if (data instanceof ArrayBuffer) return Buffer.from(data);
+    if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    return Buffer.from('');
+}
+
+function isIncomingMessageLike(data: RawHttpResponse['data']): data is IncomingMessage {
+    return data !== null
+        && typeof data === 'object'
+        && 'pipe' in data;
 }
 
 function safeReviver(key: string, value: JsonValue): JsonValue | undefined {

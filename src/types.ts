@@ -15,7 +15,7 @@ export type QueryParams = Record<string, QueryValue>;
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
 export type ResponseType = 'json' | 'text' | 'buffer' | 'stream';
 export type RequestBody = JsonValue | string | Buffer | Uint8Array | ArrayBuffer | URLSearchParams | Readable | Blob | FormData;
-export type ParsedResponseData = JsonValue | string | Buffer | IncomingMessage | null;
+export type ParsedResponseData = JsonValue | string | Buffer | Uint8Array | ArrayBuffer | IncomingMessage | ReadableStream<Uint8Array> | null;
 export type ProgressEvent = { readonly loaded: number; readonly total?: number; readonly percent?: number };
 export type ParamsSerializer =
     | ((params: QueryParams) => string)
@@ -204,7 +204,7 @@ export interface RawHttpResponse {
     readonly status: number;
     readonly statusText: string;
     readonly headers: Headers;
-    readonly data: Buffer | IncomingMessage;
+    readonly data: string | Buffer | Uint8Array | ArrayBuffer | IncomingMessage | ReadableStream<Uint8Array> | null;
     readonly config: InternalRequestConfig;
 }
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import http from 'node:http';
 import zlib from 'node:zlib';
@@ -9,21 +10,52 @@ import type * as PackageEntry from '../src/index.js';
 import type { LookupFunction } from '../src/index.js';
 
 const builtEntry = '../../dist/esm/index.js';
+const browserEntry = '../../dist/esm/browser.js';
 const require = createRequire(import.meta.url);
+const packageJson = require('../../package.json') as { readonly version: string };
 
 void test('package exports load from built output', async () => {
     const mod = await import(builtEntry) as typeof PackageEntry;
     assert.equal(typeof mod.default, 'function');
     assert.equal(typeof mod.default.create, 'function');
     assert.equal(typeof mod.default.get, 'function');
-    assert.equal(mod.VERSION, '1.0.0');
+    assert.equal(mod.VERSION, packageJson.version);
 });
 
 void test('CommonJS build can be required', () => {
     const mod = require('../../dist/cjs/index.js') as typeof PackageEntry;
     assert.equal(typeof mod.default, 'function');
     assert.equal(typeof mod.default.create, 'function');
-    assert.equal(mod.VERSION, '1.0.0');
+    assert.equal(mod.VERSION, packageJson.version);
+});
+
+void test('browser build uses fetch without Node core imports', async () => {
+    for (const file of [
+        'dist/esm/browser.js',
+        'dist/esm/core/BrowserClient.js',
+        'dist/esm/core/BrowserNeutrx.js',
+        'dist/esm/adapters/browser.js',
+    ]) {
+        assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /node:/);
+    }
+
+    const originalFetch = globalThis.fetch;
+    const globalWithFetch = globalThis as typeof globalThis & { fetch: typeof fetch };
+    globalWithFetch.fetch = (_input: string | URL | Request, init?: RequestInit): Promise<Response> => Promise.resolve(new Response(
+        JSON.stringify({ ok: true, method: init?.method ?? 'GET' }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+    ));
+
+    try {
+        const mod = await import(browserEntry) as typeof PackageEntry;
+        const api = mod.default.create({ baseURL: 'https://browser.example' });
+        const response = await api.get<{ readonly ok: boolean; readonly method: string }>('/health');
+
+        assert.equal(mod.VERSION, packageJson.version);
+        assert.deepEqual(response.data, { ok: true, method: 'GET' });
+    } finally {
+        globalWithFetch.fetch = originalFetch;
+    }
 });
 
 void test('mock plugin returns typed response through axios-style callable client', async () => {

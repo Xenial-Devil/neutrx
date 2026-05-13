@@ -42,7 +42,7 @@ export class NeutrxError extends Error {
             writable: false,
         });
 
-        if (process.env.NODE_ENV === 'production') {
+        if (isProduction()) {
             this.stack = `${this.name}: ${message}`;
         } else {
             Error.captureStackTrace?.(this, this.constructor);
@@ -378,4 +378,8 @@ function headerToString(value: Headers[string] | undefined): string | null {
     if (value == null) return null;
     if (Array.isArray(value)) return value.join(', ');
     return String(value);
+}
+
+function isProduction(): boolean {
+    return typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
 }
