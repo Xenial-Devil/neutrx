@@ -1,0 +1,62 @@
+{
+  "name": "neutrx",
+  "version": "1.0.0",
+  "description": "Security-first TypeScript HTTP client with retry, circuit breaker, bulkhead, cache, metrics, and plugins.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./plugins": {
+      "types": "./dist/plugins/PluginManager.d.ts",
+      "import": "./dist/plugins/PluginManager.js"
+    },
+    "./errors": {
+      "types": "./dist/core/NeutrxError.d.ts",
+      "import": "./dist/core/NeutrxError.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "clean": "node -e \"const fs=require('node:fs'); fs.rmSync('dist', { recursive: true, force: true }); fs.rmSync('dist-tests', { recursive: true, force: true })\"",
+    "dev": "npm run build -- --watch",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "start": "node -e \"import('./dist/index.js').then(({ default: Neutrx }) => console.log(Neutrx.name))\"",
+    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src/**/*.ts examples/**/*.ts tests/**/*.ts",
+    "audit": "npm audit --audit-level=high",
+    "validate": "npm run typecheck && npm run build && npm test"
+  },
+  "keywords": [
+    "neutrx",
+    "http",
+    "https",
+    "typescript",
+    "security",
+    "ssrf",
+    "circuit-breaker",
+    "retry",
+    "cache",
+    "fetch-alternative"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.6.0"
+  }
+}
