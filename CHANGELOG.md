@@ -1,3 +1,14 @@
+# 1.0.0 (2026-05-13)
+
+
+### Features
+
+* add BrowserNeutrx client implementation ([11acbc1](https://github.com/Xenial-Devil/neutrx/commit/11acbc17e484c60c8ac4198d8ddc5bf4b6299bd9))
+* enhance NeutrxClient with DNS lookup and request size validation ([34cd0ab](https://github.com/Xenial-Devil/neutrx/commit/34cd0aba5be071ae25540ecf22e91cf9febe68f1))
+* enhance NeutrxClient with support for custom adapters, proxy configuration, and multipart/form-data serialization ([62d62eb](https://github.com/Xenial-Devil/neutrx/commit/62d62eb83650e6de47741c7aa1636eb65a3b2289))
+* enhance release workflow and CI integration ([9d97929](https://github.com/Xenial-Devil/neutrx/commit/9d97929046e9dd64e4c7fb63a1d970ebae38ec32))
+* implement resilience patterns including Bulkhead, Circuit Breaker, Retry Engine, and Rate Limiter ([ef08390](https://github.com/Xenial-Devil/neutrx/commit/ef083902d85d0f9d9f7786192638d94a60b6626d))
+
 # Changelog
 
 All notable changes to this project will be documented here.
