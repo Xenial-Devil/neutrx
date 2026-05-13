@@ -290,6 +290,21 @@ export class NeutrxResponseSizeError extends NeutrxError {
     }
 }
 
+export class NeutrxRequestSizeError extends NeutrxError {
+    size: number;
+    limit: number;
+
+    constructor(size: number, limit: number, options: NeutrxErrorOptions = {}) {
+        super(`Request body size ${size}b exceeds limit ${limit}b`, {
+            ...options,
+            code: 'REQUEST_TOO_LARGE',
+            retryable: false,
+        });
+        this.size = size;
+        this.limit = limit;
+    }
+}
+
 export interface NodeLikeError extends Error {
     readonly code?: string;
     readonly errno?: string | number;

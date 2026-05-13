@@ -1,5 +1,7 @@
 import http, { type ClientRequest, type IncomingHttpHeaders, type IncomingMessage, type RequestOptions } from 'node:http';
 import https from 'node:https';
+import { lookup as dnsLookup } from 'node:dns/promises';
+import net from 'node:net';
 import type { PeerCertificate } from 'node:tls';
 import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
@@ -8,7 +10,7 @@ import { EventEmitter } from 'node:events';
 
 import SecurityManager from '../security/SecurityManager.js';
 import { RateLimiter } from '../security/RateLimiter.js';
-import InterceptorChain from '../interceptors/InterceptorChain.js';
+import InterceptorChain, { type AxiosInterceptors } from '../interceptors/InterceptorChain.js';
 import CircuitBreaker from '../resilience/CircuitBreaker.js';
 import { RetryEngine } from '../resilience/RetryEngine.js';
 import Bulkhead from '../resilience/Bulkhead.js';
@@ -19,8 +21,11 @@ import { PluginManager, type NeutrxPlugin } from '../plugins/PluginManager.js';
 
 import {
     NeutrxConnectTimeoutError,
+    NeutrxError,
     NeutrxErrorFactory,
+    NeutrxRequestSizeError,
     NeutrxResponseSizeError,
+    NeutrxSecurityError,
     NeutrxResponseTimeoutError,
 } from './NeutrxError.js';
 import type {
@@ -36,6 +41,7 @@ import type {
     HttpMethod,
     InternalRequestConfig,
     JsonValue,
+    LookupFunction,
     MockController,
     NeutrxResponse,
     NormalizedClientConfig,
@@ -44,10 +50,13 @@ import type {
     PaginationPage,
     ParsedResponseData,
     QueryValue,
+    QueryParams,
     RawHttpResponse,
     RequestBody,
     RequestConfig,
     ResponseType,
+    TransformRequest,
+    TransformResponse,
     SseHandle,
 } from '../types.js';
 
@@ -67,6 +76,7 @@ const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
 
 type BodylessRequestConfig = Omit<RequestConfig, 'url' | 'method' | 'data'>;
 type BodyRequestConfig<TBody extends RequestBody> = Omit<RequestConfig<TBody>, 'url' | 'method' | 'data'>;
+type ResolvedAddress = { readonly address: string; readonly family: number };
 
 export default class NeutrxClient extends EventEmitter {
     configureOAuth2?: (config: OAuth2Config) => void;
@@ -77,6 +87,7 @@ export default class NeutrxClient extends EventEmitter {
         options?: { readonly operationName?: string; readonly headers?: Headers }
     ) => Promise<GraphQLResult<TData>>;
     mock?: MockController;
+    readonly interceptors: AxiosInterceptors;
 
     #config: NormalizedClientConfig;
     #security: SecurityManager;
@@ -105,6 +116,7 @@ export default class NeutrxClient extends EventEmitter {
         this.#plugins = new PluginManager(this);
         this.#defaultHeaders = this.#buildDefaultHeaders();
         this.#agents = this.#setupAgents();
+        this.interceptors = this.#interceptors.managers();
     }
 
     get<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
@@ -495,9 +507,11 @@ export default class NeutrxClient extends EventEmitter {
         this.removeAllListeners();
     }
 
-    #http(config: InternalRequestConfig): Promise<RawHttpResponse> {
+    async #http(config: InternalRequestConfig): Promise<RawHttpResponse> {
+        const url = new URL(config.url);
+        const lookup = await this.#createLookup(url, config);
+
         return new Promise((resolve, reject) => {
-            const url = new URL(config.url);
             const isHTTPS = url.protocol === 'https:';
             const maxSize = config.maxContentLength;
 
@@ -507,7 +521,10 @@ export default class NeutrxClient extends EventEmitter {
                 path: `${url.pathname}${url.search}`,
                 method: config.method,
                 headers: toOutgoingHeaders(config.headers),
-                agent: isHTTPS ? this.#agents.https : this.#agents.http,
+                agent: isHTTPS
+                    ? config.httpsAgent ?? this.#config.httpsAgent ?? this.#agents.https
+                    : config.httpAgent ?? this.#config.httpAgent ?? this.#agents.http,
+                ...(lookup ? { lookup } : {}),
                 ...(isHTTPS
                     ? {
                         rejectUnauthorized: this.#config.security.validateCertificate,
@@ -549,7 +566,8 @@ export default class NeutrxClient extends EventEmitter {
 
             req.on('error', error => {
                 clearTimeout(connectTimer);
-                fail(NeutrxErrorFactory.fromNodeError(normalizeError(error), config));
+                const normalized = normalizeError(error);
+                fail(normalized instanceof NeutrxError ? normalized : NeutrxErrorFactory.fromNodeError(normalized, config));
             });
 
             config.signal?.addEventListener('abort', () => {
@@ -566,6 +584,11 @@ export default class NeutrxClient extends EventEmitter {
 
                 if (body !== null) {
                     const total = Buffer.byteLength(body);
+                    if (total > config.maxBodyLength) {
+                        req.destroy();
+                        fail(new NeutrxRequestSizeError(total, config.maxBodyLength));
+                        return;
+                    }
                     req.write(body, () => {
                         reportUploadProgress(config, total, total);
                     });
@@ -574,6 +597,20 @@ export default class NeutrxClient extends EventEmitter {
 
             req.end();
         });
+    }
+
+    async #createLookup(url: URL, config: InternalRequestConfig): Promise<LookupFunction | undefined> {
+        const customLookup = config.lookup ?? this.#config.lookup;
+        if (customLookup) return wrapLookup(customLookup, this.#security, config.url);
+
+        if (net.isIP(url.hostname)) return undefined;
+
+        const records = await dnsLookup(url.hostname, { all: true, verbatim: true });
+        for (const record of records) {
+            this.#security.validateResolvedAddress(config.url, record.address);
+        }
+
+        return createPinnedLookup(records);
     }
 
     async #handleHttpResponse(response: IncomingMessage, config: InternalRequestConfig, maxSize: number): Promise<RawHttpResponse> {
@@ -586,10 +623,22 @@ export default class NeutrxClient extends EventEmitter {
             const redirectUrl = new URL(location, config.url).href;
             this.#security.validateURL(redirectUrl);
 
-            const redirectedMethod = response.statusCode === 303 ? 'GET' : config.method;
+            response.resume();
+
+            const redirectedMethod = shouldRedirectWithGet(response.statusCode, config.method) ? 'GET' : config.method;
+            const headers = stripRedirectHeaders(config.headers, config.url, redirectUrl, redirectedMethod !== config.method);
             const redirectedConfig = redirectedMethod === 'GET'
-                ? withoutBody({ ...config, url: redirectUrl, method: redirectedMethod, hops })
-                : { ...config, url: redirectUrl, method: redirectedMethod, hops };
+                ? withoutBody({ ...config, url: redirectUrl, method: redirectedMethod, headers, hops })
+                : { ...config, url: redirectUrl, method: redirectedMethod, headers, hops };
+
+            await config.beforeRedirect?.({
+                statusCode: response.statusCode,
+                location,
+                fromURL: config.url,
+                toURL: redirectUrl,
+                headers: redirectedConfig.headers,
+            });
+
             return this.#http(redirectedConfig);
         }
 
@@ -598,6 +647,7 @@ export default class NeutrxClient extends EventEmitter {
         const statusText = response.statusMessage ?? '';
 
         if (config.responseType === 'stream') {
+            attachStreamDownloadProgress(response, config);
             return { status, statusText, headers: rawHeaders, data: response, config };
         }
 
@@ -605,6 +655,9 @@ export default class NeutrxClient extends EventEmitter {
         let received = 0;
 
         return new Promise((resolve, reject) => {
+            const total = getContentLength(rawHeaders);
+            reportDownloadProgress(config, received, total);
+
             response.on('data', chunk => {
                 const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
                 received += buffer.length;
@@ -614,6 +667,7 @@ export default class NeutrxClient extends EventEmitter {
                     return;
                 }
                 chunks.push(buffer);
+                reportDownloadProgress(config, received, total);
             });
 
             response.on('end', () => {
@@ -642,7 +696,7 @@ export default class NeutrxClient extends EventEmitter {
             status: raw.status,
             statusText: raw.statusText,
             headers: raw.headers,
-            data: parsed,
+            data: applyResponseTransforms(parsed, raw.headers, raw.status, config.transformResponse) as TData,
             config,
             timing: { duration: Date.now() - config.startTime },
             requestId: config.requestId,
@@ -657,23 +711,49 @@ export default class NeutrxClient extends EventEmitter {
 
     #buildRC<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): InternalRequestConfig<TBody> {
         const method = normalizeMethod(config.method ?? 'GET');
-        return {
+        const headers = this.#buildHeaders(config, requestId);
+        const transformedData = applyRequestTransforms(
+            config.data,
+            headers,
+            mergeTransformRequest(this.#config.transformRequest, config.transformRequest)
+        );
+
+        if (transformedData !== undefined && !hasHeader(headers, 'Content-Type')) {
+            headers['Content-Type'] = this.#detectContentType(transformedData);
+        }
+
+        const requestConfig = {
             ...config,
             url: this.#buildURL(config),
             method,
-            headers: this.#buildHeaders(config, requestId),
+            headers,
             timeout: config.timeout ?? this.#config.timeout,
             connectTimeout: config.connectTimeout ?? this.#config.connectTimeout,
             maxRedirects: config.maxRedirects ?? this.#config.maxRedirects,
             maxContentLength: config.maxContentLength ?? this.#config.maxContentLength,
+            maxBodyLength: config.maxBodyLength ?? this.#config.maxBodyLength,
             responseType: config.responseType ?? 'json',
             responseEncoding: config.responseEncoding ?? 'utf8',
             validateStatus: config.validateStatus ?? this.#config.validateStatus,
+            paramsSerializer: config.paramsSerializer ?? this.#config.paramsSerializer,
+            transformRequest: mergeTransformRequest(this.#config.transformRequest, config.transformRequest),
+            transformResponse: mergeTransformResponse(this.#config.transformResponse, config.transformResponse),
+            httpAgent: config.httpAgent ?? this.#config.httpAgent,
+            httpsAgent: config.httpsAgent ?? this.#config.httpsAgent,
+            lookup: config.lookup ?? this.#config.lookup,
             followRedirects: config.followRedirects !== false,
             requestId,
             startTime: Date.now(),
             hops: 0,
         };
+
+        if (transformedData === undefined) {
+            delete (requestConfig as { data?: RequestBody }).data;
+        } else {
+            (requestConfig as { data?: RequestBody }).data = transformedData;
+        }
+
+        return requestConfig as InternalRequestConfig<TBody>;
     }
 
     #buildURL(config: RequestConfig): string {
@@ -685,8 +765,10 @@ export default class NeutrxClient extends EventEmitter {
 
         if (config.params && Object.keys(config.params).length > 0) {
             const parsed = new URL(url);
-            for (const [key, value] of Object.entries(config.params)) {
-                appendSearchParam(parsed, key, value);
+            const serializer = config.paramsSerializer ?? this.#config.paramsSerializer;
+            const serialized = serializeParams(config.params, serializer);
+            if (serialized) {
+                parsed.search = serialized.startsWith('?') ? serialized.slice(1) : serialized;
             }
             url = parsed.toString();
         }
@@ -702,10 +784,6 @@ export default class NeutrxClient extends EventEmitter {
             'X-Request-ID': requestId,
         };
 
-        if (config.data !== undefined && !hasHeader(headers, 'Content-Type')) {
-            headers['Content-Type'] = this.#detectContentType(config.data);
-        }
-
         return headers;
     }
 
@@ -720,7 +798,7 @@ export default class NeutrxClient extends EventEmitter {
 
     #detectContentType(data: RequestBody): string {
         if (typeof data === 'string') return 'text/plain';
-        if (Buffer.isBuffer(data) || data instanceof Readable) return 'application/octet-stream';
+        if (Buffer.isBuffer(data) || data instanceof Readable || data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return 'application/octet-stream';
         if (data instanceof URLSearchParams) return 'application/x-www-form-urlencoded';
         return 'application/json';
     }
@@ -729,6 +807,8 @@ export default class NeutrxClient extends EventEmitter {
         const data = config.data;
         if (data === undefined) return null;
         if (typeof data === 'string' || Buffer.isBuffer(data)) return data;
+        if (data instanceof ArrayBuffer) return Buffer.from(data);
+        if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
         if (data instanceof Readable) return data;
         if (data instanceof URLSearchParams) return data.toString();
 
@@ -744,11 +824,22 @@ export default class NeutrxClient extends EventEmitter {
         const total = getContentLength(config.headers);
         let loaded = 0;
 
+        if (total !== undefined && total > config.maxBodyLength) {
+            req.destroy();
+            fail(new NeutrxRequestSizeError(total, config.maxBodyLength));
+            return;
+        }
+
         reportUploadProgress(config, loaded, total);
 
         body.on('data', (chunk: unknown) => {
             body.pause();
             const buffer = toUploadBuffer(chunk);
+            if (loaded + buffer.length > config.maxBodyLength) {
+                req.destroy();
+                fail(new NeutrxRequestSizeError(loaded + buffer.length, config.maxBodyLength));
+                return;
+            }
             req.write(buffer, () => {
                 loaded += buffer.length;
                 reportUploadProgress(config, loaded, total);
@@ -780,9 +871,16 @@ export default class NeutrxClient extends EventEmitter {
             connectTimeout: custom.connectTimeout ?? 10_000,
             maxRedirects: custom.maxRedirects ?? 5,
             maxContentLength: custom.maxContentLength ?? 52_428_800,
+            maxBodyLength: custom.maxBodyLength ?? Number.POSITIVE_INFINITY,
             validateStatus: custom.validateStatus ?? ((status: number): boolean => status >= 200 && status < 300),
             ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
             ...(custom.headers ? { headers: custom.headers } : {}),
+            ...(custom.paramsSerializer ? { paramsSerializer: custom.paramsSerializer } : {}),
+            ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
+            ...(custom.transformResponse ? { transformResponse: normalizeArray(custom.transformResponse) } : {}),
+            ...(custom.httpAgent ? { httpAgent: custom.httpAgent } : {}),
+            ...(custom.httpsAgent ? { httpsAgent: custom.httpsAgent } : {}),
+            ...(custom.lookup ? { lookup: custom.lookup } : {}),
             security: {
                 enforceHTTPS: custom.security?.enforceHTTPS ?? true,
                 validateCertificate: custom.security?.validateCertificate ?? true,
@@ -840,7 +938,61 @@ function normalizeMethod(method: string): HttpMethod {
     if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(normalized)) {
         return normalized as HttpMethod;
     }
-    return 'GET';
+    throw new NeutrxSecurityError(`Invalid HTTP method: ${method}`, { code: 'INVALID_METHOD' });
+}
+
+function normalizeArray<TValue>(value: TValue | readonly TValue[]): readonly TValue[] {
+    return (Array.isArray(value) ? value : [value]) as readonly TValue[];
+}
+
+function mergeTransformRequest(
+    base?: readonly TransformRequest[],
+    override?: TransformRequest | readonly TransformRequest[]
+): readonly TransformRequest[] | undefined {
+    const merged = [
+        ...(base ?? []),
+        ...(override ? normalizeArray(override) : []),
+    ];
+    return merged.length > 0 ? merged : undefined;
+}
+
+function mergeTransformResponse(
+    base?: readonly TransformResponse[],
+    override?: TransformResponse | readonly TransformResponse[]
+): readonly TransformResponse[] | undefined {
+    const merged = [
+        ...(base ?? []),
+        ...(override ? normalizeArray(override) : []),
+    ];
+    return merged.length > 0 ? merged : undefined;
+}
+
+function applyRequestTransforms(
+    data: RequestBody | undefined,
+    headers: Headers,
+    transforms?: readonly TransformRequest[]
+): RequestBody | undefined {
+    return (transforms ?? []).reduce<RequestBody | undefined>((current, transform) => transform(current, headers), data);
+}
+
+function applyResponseTransforms(
+    data: ParsedResponseData,
+    headers: Headers,
+    status: number,
+    transforms?: readonly TransformResponse[]
+): ParsedResponseData {
+    return (transforms ?? []).reduce<ParsedResponseData>((current, transform) => transform(current, headers, status), data);
+}
+
+function serializeParams(params: QueryParams, serializer?: RequestConfig['paramsSerializer']): string {
+    if (typeof serializer === 'function') return serializer(params);
+    if (serializer?.serialize) return serializer.serialize(params);
+
+    const encoded = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+        appendSearchParam(encoded, key, value, serializer?.encode);
+    }
+    return encoded.toString();
 }
 
 function parseResponseData(data: Buffer | IncomingMessage, type: ResponseType, headers: Headers, encoding: BufferEncoding): ParsedResponseData {
@@ -865,13 +1017,14 @@ function safeReviver(key: string, value: JsonValue): JsonValue | undefined {
     return value;
 }
 
-function appendSearchParam(url: URL, key: string, value: QueryValue): void {
+function appendSearchParam(params: URLSearchParams, key: string, value: QueryValue, encode?: (value: string) => string): void {
     if (value == null) return;
+    const encodedKey = encode ? encode(key) : key;
     if (Array.isArray(value)) {
-        value.forEach(item => url.searchParams.append(key, String(item)));
+        value.forEach(item => params.append(encodedKey, encode ? encode(String(item)) : String(item)));
         return;
     }
-    url.searchParams.set(key, String(value));
+    params.set(encodedKey, encode ? encode(String(value)) : String(value));
 }
 
 function toOutgoingHeaders(headers: Headers): RequestOptions['headers'] {
@@ -927,8 +1080,144 @@ function reportUploadProgress(config: InternalRequestConfig, loaded: number, tot
     config.onUploadProgress({ loaded });
 }
 
+function reportDownloadProgress(config: InternalRequestConfig, loaded: number, total?: number): void {
+    if (!config.onDownloadProgress) return;
+
+    if (total !== undefined && total > 0) {
+        config.onDownloadProgress({
+            loaded,
+            total,
+            percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))),
+        });
+        return;
+    }
+
+    config.onDownloadProgress({ loaded });
+}
+
+function attachStreamDownloadProgress(response: IncomingMessage, config: InternalRequestConfig): void {
+    if (!config.onDownloadProgress) return;
+
+    const total = getContentLength(normalizeIncomingHeaders(response.headers));
+    let loaded = 0;
+    reportDownloadProgress(config, loaded, total);
+    response.on('data', chunk => {
+        loaded += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk));
+        reportDownloadProgress(config, loaded, total);
+    });
+}
+
+function shouldRedirectWithGet(statusCode: number, method: HttpMethod): boolean {
+    if (statusCode === 303 && method !== 'HEAD') return true;
+    return (statusCode === 301 || statusCode === 302) && method === 'POST';
+}
+
+function stripRedirectHeaders(headers: Headers, fromURL: string, toURL: string, bodyDropped: boolean): Headers {
+    const from = new URL(fromURL);
+    const to = new URL(toURL);
+    const crossOrigin = from.origin !== to.origin;
+    const protocolDowngrade = from.protocol === 'https:' && to.protocol === 'http:';
+    const stripped = new Set(['authorization', 'cookie', 'proxy-authorization']);
+
+    if (crossOrigin) stripped.add('host');
+    if (bodyDropped) {
+        stripped.add('content-type');
+        stripped.add('content-length');
+        stripped.add('transfer-encoding');
+    }
+
+    const next: Headers = {};
+    for (const [key, value] of Object.entries(headers)) {
+        const normalized = key.toLowerCase();
+        if ((crossOrigin || protocolDowngrade) && stripped.has(normalized)) continue;
+        if (bodyDropped && stripped.has(normalized)) continue;
+        next[key] = value;
+    }
+    return next;
+}
+
+function createPinnedLookup(records: readonly ResolvedAddress[]): LookupFunction {
+    const pinned = [...records];
+
+    return ((hostname: string, options: unknown, callback?: unknown): void => {
+        const done = (typeof options === 'function' ? options : callback) as LookupCallback | undefined;
+        if (!done) return;
+
+        const lookupOptions = typeof options === 'function' ? undefined : options;
+        const family = typeof lookupOptions === 'number'
+            ? lookupOptions
+            : isLookupOptions(lookupOptions) && typeof lookupOptions.family === 'number'
+                ? lookupOptions.family
+                : undefined;
+        const all = isLookupOptions(lookupOptions) && lookupOptions.all === true;
+        const matches = family ? pinned.filter(record => record.family === family) : pinned;
+
+        if (matches.length === 0) {
+            const error = Object.assign(new Error(`DNS resolution failed: ${hostname}`), { code: 'ENOTFOUND' });
+            done(error);
+            return;
+        }
+
+        if (all) {
+            done(null, matches.map(record => ({ address: record.address, family: record.family })));
+            return;
+        }
+
+        const selected = matches[0];
+        if (!selected) return;
+        done(null, selected.address, selected.family);
+    }) as LookupFunction;
+}
+
+function wrapLookup(lookup: LookupFunction, security: SecurityManager, url: string): LookupFunction {
+    return ((hostname: string, options: unknown, callback?: unknown): void => {
+        const done = (typeof options === 'function' ? options : callback) as LookupCallback | undefined;
+        if (!done) return;
+
+        const wrappedDone: LookupCallback = (error, address, family) => {
+            if (error) {
+                done(error);
+                return;
+            }
+
+            try {
+                if (Array.isArray(address)) {
+                    address.forEach(item => security.validateResolvedAddress(url, item.address));
+                } else if (typeof address === 'string') {
+                    security.validateResolvedAddress(url, address);
+                }
+            } catch (validationError: unknown) {
+                done(normalizeError(validationError));
+                return;
+            }
+
+            done(null, address, family);
+        };
+
+        if (typeof options === 'function') {
+            (lookup as unknown as (lookupHostname: string, lookupCallback: LookupCallback) => void)(hostname, wrappedDone);
+            return;
+        }
+
+        lookup(hostname, options as Parameters<LookupFunction>[1], wrappedDone);
+    }) as LookupFunction;
+}
+
+type LookupCallback = (error: NodeJS.ErrnoException | null, address?: string | ResolvedAddress[], family?: number) => void;
+
+function isLookupOptions(value: unknown): value is { readonly family?: number; readonly all?: boolean } {
+    return value !== null && typeof value === 'object';
+}
+
 function isFormRecord(value: RequestBody): value is Record<string, JsonValue> {
-    return value !== null && typeof value === 'object' && !Buffer.isBuffer(value) && !(value instanceof URLSearchParams) && !(value instanceof Readable) && !Array.isArray(value);
+    return value !== null
+        && typeof value === 'object'
+        && !Buffer.isBuffer(value)
+        && !(value instanceof URLSearchParams)
+        && !(value instanceof Readable)
+        && !(value instanceof ArrayBuffer)
+        && !ArrayBuffer.isView(value)
+        && !Array.isArray(value);
 }
 
 function toFormEntries(data: Record<string, JsonValue>): Record<string, string> {

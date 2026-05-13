@@ -15,6 +15,7 @@ export {
     NeutrxNetworkError,
     NeutrxPrototypePollutionError,
     NeutrxRateLimitError,
+    NeutrxRequestSizeError,
     NeutrxResponseSizeError,
     NeutrxResponseTimeoutError,
     NeutrxSSRFError,
@@ -25,6 +26,7 @@ export {
 export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
 export type { NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
+export type { AxiosInterceptorManager, AxiosInterceptors, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
 export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export { ALGORITHMS } from './security/RateLimiter.js';
@@ -41,6 +43,7 @@ export type {
     HttpMethod,
     JsonObject,
     JsonValue,
+    LookupFunction,
     MockController,
     MockResponse,
     NeutrxResponse,
@@ -49,13 +52,17 @@ export type {
     PaginationPage,
     ParsedResponseData,
     PerformanceConfig,
+    ProgressEvent,
     QueryParams,
     RequestBody,
     RequestConfig,
+    RedirectContext,
     ResilienceConfig,
     ResponseType,
     SecurityConfig,
     SseHandle,
+    TransformRequest,
+    TransformResponse,
 } from './types.js';
 
 export const VERSION = '1.0.0';

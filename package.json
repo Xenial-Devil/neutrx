@@ -2,6 +2,14 @@
   "name": "neutrx",
   "version": "1.0.0",
   "description": "Security-first TypeScript HTTP client with retry, circuit breaker, bulkhead, cache, metrics, and plugins.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Xenial-Devil/neutrx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Xenial-Devil/neutrx/issues"
+  },
+  "homepage": "https://github.com/Xenial-Devil/neutrx#readme",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -26,6 +34,9 @@
   ],
   "engines": {
     "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "clean": "node -e \"const fs=require('node:fs'); fs.rmSync('dist', { recursive: true, force: true }); fs.rmSync('dist-tests', { recursive: true, force: true })\"",

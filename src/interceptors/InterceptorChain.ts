@@ -5,9 +5,30 @@ type RequestRejected = (error: Error) => InternalRequestConfig | Promise<Interna
 type ResponseFulfilled = (response: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>;
 type ResponseRejected = (error: Error) => NeutrxResponse | Error | Promise<NeutrxResponse | Error>;
 
+export interface RequestInterceptorOptions {
+    readonly synchronous?: boolean;
+    readonly runWhen?: (config: InternalRequestConfig) => boolean;
+}
+
+export interface AxiosInterceptorManager<TValue> {
+    use(
+        onFulfilled?: (value: TValue) => TValue | Promise<TValue>,
+        onRejected?: (error: Error) => TValue | Error | Promise<TValue | Error>,
+        options?: RequestInterceptorOptions
+    ): number;
+    eject(id: number): void;
+    clear(): void;
+}
+
+export interface AxiosInterceptors {
+    readonly request: AxiosInterceptorManager<InternalRequestConfig>;
+    readonly response: AxiosInterceptorManager<NeutrxResponse>;
+}
+
 interface RequestInterceptor {
     readonly onFulfilled?: RequestFulfilled;
     readonly onRejected?: RequestRejected;
+    readonly options?: RequestInterceptorOptions;
 }
 
 interface ResponseInterceptor {
@@ -20,12 +41,13 @@ export default class InterceptorChain {
     #response = new Map<number, ResponseInterceptor>();
     #counter = 0;
 
-    addRequest(onFulfilled?: RequestFulfilled, onRejected?: RequestRejected): number {
+    addRequest(onFulfilled?: RequestFulfilled, onRejected?: RequestRejected, options?: RequestInterceptorOptions): number {
         const id = this.#counter;
         this.#counter += 1;
         this.#request.set(id, {
             ...(onFulfilled ? { onFulfilled } : {}),
             ...(onRejected ? { onRejected } : {}),
+            ...(options ? { options } : {}),
         });
         return id;
     }
@@ -45,9 +67,40 @@ export default class InterceptorChain {
         this.#response.delete(id);
     }
 
+    clearRequest(): void {
+        this.#request.clear();
+    }
+
+    clearResponse(): void {
+        this.#response.clear();
+    }
+
+    managers(): AxiosInterceptors {
+        return {
+            request: {
+                use: (onFulfilled, onRejected, options) => this.addRequest(
+                    onFulfilled as RequestFulfilled | undefined,
+                    onRejected as RequestRejected | undefined,
+                    options
+                ),
+                eject: id => this.#request.delete(id),
+                clear: () => this.clearRequest(),
+            },
+            response: {
+                use: (onFulfilled, onRejected) => this.addResponse(
+                    onFulfilled as ResponseFulfilled | undefined,
+                    onRejected as ResponseRejected | undefined
+                ),
+                eject: id => this.#response.delete(id),
+                clear: () => this.clearResponse(),
+            },
+        };
+    }
+
     async runRequest<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): Promise<InternalRequestConfig<TBody>> {
         let current: InternalRequestConfig = config;
-        for (const { onFulfilled, onRejected } of this.#request.values()) {
+        for (const { onFulfilled, onRejected, options } of this.#request.values()) {
+            if (options?.runWhen && !options.runWhen(current)) continue;
             try {
                 current = onFulfilled ? await onFulfilled(current) : current;
             } catch (error: unknown) {

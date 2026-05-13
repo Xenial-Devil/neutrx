@@ -1,4 +1,5 @@
-import type { IncomingMessage } from 'node:http';
+import type { Agent as HttpAgent, IncomingMessage, RequestOptions } from 'node:http';
+import type { Agent as HttpsAgent } from 'node:https';
 import type { Readable } from 'node:stream';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -13,8 +14,27 @@ export type QueryParams = Record<string, QueryValue>;
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
 export type ResponseType = 'json' | 'text' | 'buffer' | 'stream';
-export type RequestBody = JsonValue | string | Buffer | URLSearchParams | Readable;
+export type RequestBody = JsonValue | string | Buffer | Uint8Array | ArrayBuffer | URLSearchParams | Readable;
 export type ParsedResponseData = JsonValue | string | Buffer | IncomingMessage | null;
+export type ProgressEvent = { readonly loaded: number; readonly total?: number; readonly percent?: number };
+export type ParamsSerializer =
+    | ((params: QueryParams) => string)
+    | {
+        readonly encode?: (value: string) => string;
+        readonly serialize?: (params: QueryParams) => string;
+        readonly indexes?: boolean | null;
+    };
+export type TransformRequest = (data: RequestBody | undefined, headers: Headers) => RequestBody | undefined;
+export type TransformResponse = (data: ParsedResponseData, headers: Headers, status: number) => ParsedResponseData;
+export type LookupFunction = NonNullable<RequestOptions['lookup']>;
+
+export interface RedirectContext {
+    readonly statusCode: number;
+    readonly location: string;
+    readonly fromURL: string;
+    readonly toURL: string;
+    readonly headers: Headers;
+}
 
 export interface SecurityConfig {
     readonly enforceHTTPS?: boolean;
@@ -70,16 +90,29 @@ export interface ClientConfig {
     readonly connectTimeout?: number;
     readonly maxRedirects?: number;
     readonly maxContentLength?: number;
+    readonly maxBodyLength?: number;
     readonly headers?: Headers;
     readonly validateStatus?: (status: number) => boolean;
+    readonly paramsSerializer?: ParamsSerializer;
+    readonly transformRequest?: TransformRequest | readonly TransformRequest[];
+    readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly httpAgent?: HttpAgent;
+    readonly httpsAgent?: HttpsAgent;
+    readonly lookup?: LookupFunction;
     readonly security?: SecurityConfig;
     readonly resilience?: ResilienceConfig;
     readonly performance?: PerformanceConfig;
 }
 
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'security' | 'resilience' | 'performance'>> {
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'transformRequest' | 'transformResponse' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'security' | 'resilience' | 'performance'>> {
     readonly baseURL?: string;
     readonly headers?: Headers;
+    readonly paramsSerializer?: ParamsSerializer;
+    readonly transformRequest?: readonly TransformRequest[];
+    readonly transformResponse?: readonly TransformResponse[];
+    readonly httpAgent?: HttpAgent;
+    readonly httpsAgent?: HttpsAgent;
+    readonly lookup?: LookupFunction;
     readonly security: Required<Omit<SecurityConfig, 'rateLimit'>> & { readonly rateLimit?: RateLimitConfig };
     readonly resilience: Required<Omit<ResilienceConfig, 'shouldRetry' | 'onRetry' | 'retryableStatuses' | 'retryableCodes'>> & {
         readonly retryableStatuses: readonly number[];
@@ -101,14 +134,23 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly connectTimeout?: number;
     readonly maxRedirects?: number;
     readonly maxContentLength?: number;
+    readonly maxBodyLength?: number;
     readonly responseType?: ResponseType;
     readonly responseEncoding?: BufferEncoding;
     readonly validateStatus?: (status: number) => boolean;
+    readonly paramsSerializer?: ParamsSerializer;
+    readonly transformRequest?: TransformRequest | readonly TransformRequest[];
+    readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly beforeRedirect?: (context: RedirectContext) => void | Promise<void>;
+    readonly httpAgent?: HttpAgent;
+    readonly httpsAgent?: HttpsAgent;
+    readonly lookup?: LookupFunction;
     readonly followRedirects?: boolean;
     readonly cache?: boolean;
     readonly signal?: AbortSignal;
     readonly skipOAuth?: boolean;
-    readonly onUploadProgress?: (event: { readonly loaded: number; readonly total?: number; readonly percent?: number }) => void;
+    readonly onUploadProgress?: (event: ProgressEvent) => void;
+    readonly onDownloadProgress?: (event: ProgressEvent) => void;
 }
 
 export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> extends RequestConfig<TBody> {
@@ -119,9 +161,12 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly connectTimeout: number;
     readonly maxRedirects: number;
     readonly maxContentLength: number;
+    readonly maxBodyLength: number;
     readonly responseType: ResponseType;
     readonly responseEncoding: BufferEncoding;
     readonly validateStatus: (status: number) => boolean;
+    readonly transformRequest?: readonly TransformRequest[];
+    readonly transformResponse?: readonly TransformResponse[];
     readonly followRedirects: boolean;
     readonly requestId: string;
     readonly startTime: number;

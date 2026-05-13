@@ -125,6 +125,13 @@ export default class SecurityManager {
         this.#validateHeaders({ [key]: value });
     }
 
+    validateResolvedAddress(url: string, address: string): void {
+        if (!this.#config.enableSSRFProtection || !this.#config.blockPrivateIPs) return;
+        if (isPrivateOrInternalHost(address)) {
+            throw new NeutrxSSRFError(url, `Resolved private/internal address: ${address}`);
+        }
+    }
+
     pinCertificate(hostname: string, fingerprint: string): void {
         const clean = fingerprint.replace(/[: ]/g, '').toLowerCase();
         if (!/^[a-f0-9]{64}$/.test(clean)) {
@@ -222,7 +229,7 @@ export default class SecurityManager {
     #sanitizeBody<TBody extends RequestBody>(value: TBody): TBody {
         if (typeof value === 'string') return this.#sanitizeString(value) as TBody;
         if (value === null || typeof value !== 'object') return value;
-        if (Buffer.isBuffer(value) || value instanceof URLSearchParams || value instanceof Readable) return value;
+        if (Buffer.isBuffer(value) || value instanceof URLSearchParams || value instanceof Readable || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value;
         return this.#sanitizeJson(value) as TBody;
     }
 
