@@ -198,7 +198,7 @@ void test('axios-style interceptors, serializers, transforms, and download progr
         assert.ok(isAddressInfo(address));
         const api = Neutrx.create({
             baseURL: `http://127.0.0.1:${address.port}`,
-            paramsSerializer: params => `custom=${params.custom}`,
+            paramsSerializer: params => `custom=${String(params.custom)}`,
             security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
         });
 
@@ -246,6 +246,100 @@ void test('axios-style interceptors, serializers, transforms, and download progr
     }
 });
 
+void test('custom adapter participates in Neutrx parsing and validation', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const api = Neutrx.create({
+        adapter: config => ({
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/json' },
+            data: Buffer.from(JSON.stringify({ method: config.method, url: config.url })),
+            config,
+        }),
+    });
+
+    const response = await api.get('https://example.com/users', { params: { page: 2 } });
+    assert.deepEqual(response.data, { method: 'GET', url: 'https://example.com/users?page=2' });
+});
+
+void test('FormData bodies serialize as multipart with boundary and length', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const captured: { contentType?: string; length?: string; body?: string } = {};
+    const server = http.createServer((request, response) => {
+        const contentType = headerValue(request.headers['content-type']);
+        const length = headerValue(request.headers['content-length']);
+        if (contentType !== undefined) captured.contentType = contentType;
+        if (length !== undefined) captured.length = length;
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+            captured.body = Buffer.concat(chunks).toString('utf8');
+            response.setHeader('content-type', 'application/json');
+            response.end(JSON.stringify({ ok: true }));
+        });
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+        const form = new FormData();
+        form.set('name', 'Ada');
+        form.set('file', new Blob(['hello'], { type: 'text/plain' }), 'hello.txt');
+
+        await api.post('/multipart', form);
+
+        assert.match(captured.contentType ?? '', /^multipart\/form-data; boundary=----neutrx-/);
+        assert.ok(Number(captured.length) > 0);
+        assert.match(captured.body ?? '', /name="name"\r\n\r\nAda/);
+        assert.match(captured.body ?? '', /filename="hello.txt"\r\nContent-Type: text\/plain/);
+        assert.match(captured.body ?? '', /\r\nhello\r\n/);
+    } finally {
+        await close(server);
+    }
+});
+
+void test('HTTP proxy config sends absolute-form requests with proxy auth', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const captured: { url?: string; host?: string; auth?: string } = {};
+    const proxy = http.createServer((request, response) => {
+        const host = headerValue(request.headers.host);
+        const auth = headerValue(request.headers['proxy-authorization']);
+        if (request.url !== undefined) captured.url = request.url;
+        if (host !== undefined) captured.host = host;
+        if (auth !== undefined) captured.auth = auth;
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ proxied: true }));
+    });
+    await listen(proxy);
+
+    try {
+        const address = proxy.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            proxy: {
+                host: '127.0.0.1',
+                port: address.port,
+                auth: { username: 'proxy-user', password: 'proxy-pass' },
+            },
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+
+        const response = await api.get('http://127.0.0.1:65530/resource?x=1');
+
+        assert.deepEqual(response.data, { proxied: true });
+        assert.equal(captured.url, 'http://127.0.0.1:65530/resource?x=1');
+        assert.equal(captured.host, '127.0.0.1:65530');
+        assert.equal(captured.auth, `Basic ${Buffer.from('proxy-user:proxy-pass').toString('base64')}`);
+    } finally {
+        await close(proxy);
+    }
+});
+
 function isAddressInfo(address: string | AddressInfo | null): address is AddressInfo {
     return address !== null && typeof address === 'object';
 }
@@ -260,4 +354,9 @@ function close(server: http.Server): Promise<void> {
     return new Promise(resolve => {
         server.close(() => resolve());
     });
+}
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+    if (Array.isArray(value)) return value.join(', ');
+    return value;
 }

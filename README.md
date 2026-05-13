@@ -10,7 +10,10 @@ Neutrx is a security-first TypeScript HTTP client for Node.js. It keeps the dail
 - Retry engine with fixed, linear, exponential, and Fibonacci strategies.
 - Circuit breaker and bulkhead isolation for safer outbound calls under load.
 - In-memory GET cache with HTTP cache header support.
-- Upload progress callbacks, including real-time streamed upload progress.
+- Upload and download progress callbacks, including real-time streamed progress.
+- Axios-style params serializers, transforms, interceptors, and custom adapters.
+- Native body serializers for JSON, URLSearchParams, ArrayBuffer, Blob, FormData, buffers, and streams.
+- Custom HTTP/HTTPS agents, DNS lookup hooks, and HTTP proxy config.
 - Metrics snapshots and Prometheus output.
 - Request/response interceptors and plugin hooks.
 - Built-in OAuth2, GraphQL, and mock plugins.
@@ -168,11 +171,20 @@ Useful config fields:
 - `connectTimeout`: socket connect timeout in milliseconds.
 - `maxRedirects`: redirect limit.
 - `maxContentLength`: response size limit in bytes.
+- `maxBodyLength`: request body size limit in bytes.
 - `responseType`: `json`, `text`, `buffer`, or `stream`.
 - `validateStatus`: custom success status function.
+- `paramsSerializer`: custom query string serializer.
+- `transformRequest`: request body/header transform or transform array.
+- `transformResponse`: response data transform or transform array.
+- `adapter`: custom transport adapter for tests or non-standard runtimes.
+- `proxy`: HTTP proxy config for HTTP requests, or `false` to disable an inherited proxy.
+- `httpAgent` / `httpsAgent`: custom Node agents for CA, mTLS, DNS cache, or tunneling.
+- `lookup`: custom DNS lookup function; resolved addresses are still checked by SSRF protection.
 - `cache`: set `false` to skip GET cache.
 - `signal`: AbortController signal.
 - `onUploadProgress`: upload progress callback.
+- `onDownloadProgress`: download progress callback.
 
 ## Upload Progress
 

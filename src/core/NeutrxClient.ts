@@ -38,6 +38,7 @@ import type {
     ConcurrentResult,
     GraphQLResult,
     Headers,
+    HeaderValue,
     HttpMethod,
     InternalRequestConfig,
     JsonValue,
@@ -49,6 +50,7 @@ import type {
     PaginationOptions,
     PaginationPage,
     ParsedResponseData,
+    ProxyConfig,
     QueryValue,
     QueryParams,
     RawHttpResponse,
@@ -77,6 +79,9 @@ const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
 type BodylessRequestConfig = Omit<RequestConfig, 'url' | 'method' | 'data'>;
 type BodyRequestConfig<TBody extends RequestBody> = Omit<RequestConfig<TBody>, 'url' | 'method' | 'data'>;
 type ResolvedAddress = { readonly address: string; readonly family: number };
+type RuntimeRequestConfig = InternalRequestConfig & { headers: Headers };
+type SerializedBody = string | Buffer | Readable | null;
+type NormalizedProxyConfig = Required<Pick<ProxyConfig, 'protocol' | 'host'>> & Pick<ProxyConfig, 'port' | 'auth' | 'headers'>;
 
 export default class NeutrxClient extends EventEmitter {
     configureOAuth2?: (config: OAuth2Config) => void;
@@ -336,7 +341,7 @@ export default class NeutrxClient extends EventEmitter {
             const { result: response, attempts } = await this.#retryEngine.execute(
                 async (attempt): Promise<NeutrxResponse<TData>> => {
                     if (attempt > 0) this.#metrics.recordRetry(rc.url, attempt);
-                    const raw = await this.#bulkhead.execute(domain, () => this.#http(rc));
+                    const raw = await this.#bulkhead.execute(domain, () => this.#dispatch(rc));
                     return this.#parse<TData>(raw, rc);
                 },
                 { url: rc.url }
@@ -507,23 +512,41 @@ export default class NeutrxClient extends EventEmitter {
         this.removeAllListeners();
     }
 
+    async #dispatch(config: InternalRequestConfig): Promise<RawHttpResponse> {
+        const adapter = config.adapter ?? this.#config.adapter;
+        if (adapter) return adapter(config);
+        return this.#http(config);
+    }
+
     async #http(config: InternalRequestConfig): Promise<RawHttpResponse> {
-        const url = new URL(config.url);
-        const lookup = await this.#createLookup(url, config);
+        const runtimeConfig: RuntimeRequestConfig = { ...config, headers: { ...config.headers } };
+        const url = new URL(runtimeConfig.url);
+        const body = runtimeConfig.data === undefined ? null : await this.#serialize(runtimeConfig);
+        if (body !== null && !(body instanceof Readable) && !hasHeader(runtimeConfig.headers, 'Content-Length')) {
+            setHeader(runtimeConfig.headers, 'Content-Length', Buffer.byteLength(body));
+        }
+
+        const proxy = resolveProxy(runtimeConfig.proxy ?? this.#config.proxy);
+        if (proxy) await this.#validateProxyTarget(url, runtimeConfig);
+        const requestTarget = proxy ? proxyRequestTarget(url, runtimeConfig.headers, proxy) : directRequestTarget(url, runtimeConfig.headers);
+        for (const [key, value] of Object.entries(requestTarget.headers)) {
+            this.#security.validateHeader(key, value);
+        }
+        const lookup = await this.#createLookup(requestTarget.url, runtimeConfig, requestTarget.isProxied);
 
         return new Promise((resolve, reject) => {
-            const isHTTPS = url.protocol === 'https:';
-            const maxSize = config.maxContentLength;
+            const isHTTPS = requestTarget.url.protocol === 'https:';
+            const maxSize = runtimeConfig.maxContentLength;
 
             const options: RequestOptions = {
-                hostname: url.hostname,
-                port: url.port || (isHTTPS ? 443 : 80),
-                path: `${url.pathname}${url.search}`,
-                method: config.method,
-                headers: toOutgoingHeaders(config.headers),
+                hostname: requestTarget.url.hostname,
+                port: requestTarget.url.port || (isHTTPS ? 443 : 80),
+                path: requestTarget.path,
+                method: runtimeConfig.method,
+                headers: toOutgoingHeaders(requestTarget.headers),
                 agent: isHTTPS
-                    ? config.httpsAgent ?? this.#config.httpsAgent ?? this.#agents.https
-                    : config.httpAgent ?? this.#config.httpAgent ?? this.#agents.http,
+                    ? runtimeConfig.httpsAgent ?? this.#config.httpsAgent ?? this.#agents.https
+                    : runtimeConfig.httpAgent ?? this.#config.httpAgent ?? this.#agents.http,
                 ...(lookup ? { lookup } : {}),
                 ...(isHTTPS
                     ? {
@@ -544,7 +567,7 @@ export default class NeutrxClient extends EventEmitter {
             };
 
             const req = transport.request(options, response => {
-                void this.#handleHttpResponse(response, config, maxSize).then(result => {
+                void this.#handleHttpResponse(response, runtimeConfig, maxSize).then(result => {
                     if (settled) return;
                     settled = true;
                     resolve(result);
@@ -553,44 +576,43 @@ export default class NeutrxClient extends EventEmitter {
 
             const connectTimer = setTimeout(() => {
                 req.destroy();
-                fail(new NeutrxConnectTimeoutError(config.url, config.connectTimeout));
-            }, config.connectTimeout);
+                fail(new NeutrxConnectTimeoutError(runtimeConfig.url, runtimeConfig.connectTimeout));
+            }, runtimeConfig.connectTimeout);
 
             req.on('socket', socket => {
                 clearTimeout(connectTimer);
-                socket.setTimeout(config.timeout, () => {
+                socket.setTimeout(runtimeConfig.timeout, () => {
                     req.destroy();
-                    fail(new NeutrxResponseTimeoutError(config.url, config.timeout));
+                    fail(new NeutrxResponseTimeoutError(runtimeConfig.url, runtimeConfig.timeout));
                 });
             });
 
             req.on('error', error => {
                 clearTimeout(connectTimer);
                 const normalized = normalizeError(error);
-                fail(normalized instanceof NeutrxError ? normalized : NeutrxErrorFactory.fromNodeError(normalized, config));
+                fail(normalized instanceof NeutrxError ? normalized : NeutrxErrorFactory.fromNodeError(normalized, runtimeConfig));
             });
 
-            config.signal?.addEventListener('abort', () => {
+            runtimeConfig.signal?.addEventListener('abort', () => {
                 req.destroy();
                 fail(Object.assign(new Error('Request aborted'), { name: 'AbortError' }));
             }, { once: true });
 
-            if (config.data !== undefined) {
-                const body = this.#serialize(config);
+            if (runtimeConfig.data !== undefined) {
                 if (body instanceof Readable) {
-                    this.#writeStreamBody(req, body, config, fail);
+                    this.#writeStreamBody(req, body, runtimeConfig, fail);
                     return;
                 }
 
                 if (body !== null) {
                     const total = Buffer.byteLength(body);
-                    if (total > config.maxBodyLength) {
+                    if (total > runtimeConfig.maxBodyLength) {
                         req.destroy();
-                        fail(new NeutrxRequestSizeError(total, config.maxBodyLength));
+                        fail(new NeutrxRequestSizeError(total, runtimeConfig.maxBodyLength));
                         return;
                     }
                     req.write(body, () => {
-                        reportUploadProgress(config, total, total);
+                        reportUploadProgress(runtimeConfig, total, total);
                     });
                 }
             }
@@ -599,15 +621,25 @@ export default class NeutrxClient extends EventEmitter {
         });
     }
 
-    async #createLookup(url: URL, config: InternalRequestConfig): Promise<LookupFunction | undefined> {
+    async #validateProxyTarget(url: URL, config: InternalRequestConfig): Promise<void> {
+        if (net.isIP(url.hostname)) return;
+        const records = await dnsLookup(url.hostname, { all: true, verbatim: true });
+        for (const record of records) {
+            this.#security.validateResolvedAddress(config.url, record.address);
+        }
+    }
+
+    async #createLookup(url: URL, config: InternalRequestConfig, isProxy = false): Promise<LookupFunction | undefined> {
         const customLookup = config.lookup ?? this.#config.lookup;
-        if (customLookup) return wrapLookup(customLookup, this.#security, config.url);
+        if (customLookup) return wrapLookup(customLookup, this.#security, config.url, isProxy);
 
         if (net.isIP(url.hostname)) return undefined;
 
         const records = await dnsLookup(url.hostname, { all: true, verbatim: true });
-        for (const record of records) {
-            this.#security.validateResolvedAddress(config.url, record.address);
+        if (!isProxy) {
+            for (const record of records) {
+                this.#security.validateResolvedAddress(config.url, record.address);
+            }
         }
 
         return createPinnedLookup(records);
@@ -719,7 +751,8 @@ export default class NeutrxClient extends EventEmitter {
         );
 
         if (transformedData !== undefined && !hasHeader(headers, 'Content-Type')) {
-            headers['Content-Type'] = this.#detectContentType(transformedData);
+            const contentType = this.#detectContentType(transformedData);
+            if (contentType) headers['Content-Type'] = contentType;
         }
 
         const requestConfig = {
@@ -738,6 +771,8 @@ export default class NeutrxClient extends EventEmitter {
             paramsSerializer: config.paramsSerializer ?? this.#config.paramsSerializer,
             transformRequest: mergeTransformRequest(this.#config.transformRequest, config.transformRequest),
             transformResponse: mergeTransformResponse(this.#config.transformResponse, config.transformResponse),
+            adapter: config.adapter ?? this.#config.adapter,
+            proxy: config.proxy ?? this.#config.proxy,
             httpAgent: config.httpAgent ?? this.#config.httpAgent,
             httpsAgent: config.httpsAgent ?? this.#config.httpsAgent,
             lookup: config.lookup ?? this.#config.lookup,
@@ -796,14 +831,16 @@ export default class NeutrxClient extends EventEmitter {
         };
     }
 
-    #detectContentType(data: RequestBody): string {
+    #detectContentType(data: RequestBody): string | undefined {
         if (typeof data === 'string') return 'text/plain';
+        if (isFormDataLike(data)) return undefined;
+        if (isBlobLike(data)) return data.type || 'application/octet-stream';
         if (Buffer.isBuffer(data) || data instanceof Readable || data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return 'application/octet-stream';
         if (data instanceof URLSearchParams) return 'application/x-www-form-urlencoded';
         return 'application/json';
     }
 
-    #serialize(config: InternalRequestConfig): string | Buffer | Readable | null {
+    async #serialize(config: RuntimeRequestConfig): Promise<SerializedBody> {
         const data = config.data;
         if (data === undefined) return null;
         if (typeof data === 'string' || Buffer.isBuffer(data)) return data;
@@ -811,6 +848,8 @@ export default class NeutrxClient extends EventEmitter {
         if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
         if (data instanceof Readable) return data;
         if (data instanceof URLSearchParams) return data.toString();
+        if (isBlobLike(data)) return Buffer.from(await data.arrayBuffer());
+        if (isFormDataLike(data)) return serializeMultipart(data, config.headers);
 
         const contentType = headerToString(config.headers['Content-Type'] ?? config.headers['content-type']);
         if (contentType.includes('application/x-www-form-urlencoded') && isFormRecord(data)) {
@@ -878,6 +917,8 @@ export default class NeutrxClient extends EventEmitter {
             ...(custom.paramsSerializer ? { paramsSerializer: custom.paramsSerializer } : {}),
             ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
             ...(custom.transformResponse ? { transformResponse: normalizeArray(custom.transformResponse) } : {}),
+            ...(custom.adapter ? { adapter: custom.adapter } : {}),
+            ...(custom.proxy !== undefined ? { proxy: custom.proxy } : {}),
             ...(custom.httpAgent ? { httpAgent: custom.httpAgent } : {}),
             ...(custom.httpsAgent ? { httpsAgent: custom.httpsAgent } : {}),
             ...(custom.lookup ? { lookup: custom.lookup } : {}),
@@ -1051,6 +1092,11 @@ function hasHeader(headers: Headers, key: string): boolean {
     return Object.keys(headers).some(header => header.toLowerCase() === lower);
 }
 
+function setHeader(headers: Headers, key: string, value: HeaderValue): void {
+    const existing = Object.keys(headers).find(header => header.toLowerCase() === key.toLowerCase());
+    headers[existing ?? key] = value;
+}
+
 function getContentLength(headers: Headers): number | undefined {
     const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === 'content-length');
     const value = entry ? headerToString(entry[1]) : '';
@@ -1136,10 +1182,72 @@ function stripRedirectHeaders(headers: Headers, fromURL: string, toURL: string, 
     return next;
 }
 
+function resolveProxy(proxy: ProxyConfig | false | undefined): NormalizedProxyConfig | undefined {
+    if (!proxy) return undefined;
+    const rawProtocol: unknown = proxy.protocol ?? 'http';
+    if (rawProtocol !== 'http' && rawProtocol !== 'https') {
+        throw new NeutrxSecurityError(`Unsupported proxy protocol: ${String(rawProtocol)}`, { code: 'UNSUPPORTED_PROXY_PROTOCOL' });
+    }
+    const protocol = rawProtocol;
+    return {
+        protocol,
+        host: proxy.host,
+        ...(proxy.port !== undefined ? { port: proxy.port } : {}),
+        ...(proxy.auth !== undefined ? { auth: proxy.auth } : {}),
+        ...(proxy.headers ? { headers: proxy.headers } : {}),
+    };
+}
+
+function directRequestTarget(targetURL: URL, headers: Headers): { readonly url: URL; readonly path: string; readonly headers: Headers; readonly isProxied: false } {
+    return {
+        url: targetURL,
+        path: `${targetURL.pathname}${targetURL.search}`,
+        headers,
+        isProxied: false,
+    };
+}
+
+function proxyRequestTarget(
+    targetURL: URL,
+    requestHeaders: Headers,
+    proxy: NormalizedProxyConfig
+): { readonly url: URL; readonly path: string; readonly headers: Headers; readonly isProxied: true } {
+    if (targetURL.protocol === 'https:') {
+        throw new NeutrxSecurityError('HTTPS proxy CONNECT is not built in; pass a tunneling httpsAgent for HTTPS proxying', { code: 'HTTPS_PROXY_AGENT_REQUIRED' });
+    }
+
+    const proxyURL = new URL(`${proxy.protocol}://${proxy.host}`);
+    if (proxy.port !== undefined) proxyURL.port = String(proxy.port);
+
+    const headers: Headers = { ...(proxy.headers ?? {}) };
+    if (proxy.auth !== undefined) {
+        headers['Proxy-Authorization'] = proxyAuthHeader(proxy.auth);
+    }
+    if (!hasHeader(requestHeaders, 'Host')) {
+        headers.Host = targetURL.host;
+    }
+
+    return {
+        url: proxyURL,
+        path: targetURL.href,
+        headers: mergeProxyHeaders(requestHeaders, headers),
+        isProxied: true,
+    };
+}
+
+function mergeProxyHeaders(headers: Headers, proxyHeaders: Headers): Headers {
+    return { ...headers, ...proxyHeaders };
+}
+
+function proxyAuthHeader(auth: NonNullable<ProxyConfig['auth']>): string {
+    if (typeof auth === 'string') return auth;
+    return `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`;
+}
+
 function createPinnedLookup(records: readonly ResolvedAddress[]): LookupFunction {
     const pinned = [...records];
 
-    return ((hostname: string, options: unknown, callback?: unknown): void => {
+    const lookup: LookupFunction = (hostname: string, options: unknown, callback?: unknown): void => {
         const done = (typeof options === 'function' ? options : callback) as LookupCallback | undefined;
         if (!done) return;
 
@@ -1166,11 +1274,13 @@ function createPinnedLookup(records: readonly ResolvedAddress[]): LookupFunction
         const selected = matches[0];
         if (!selected) return;
         done(null, selected.address, selected.family);
-    }) as LookupFunction;
+    };
+
+    return lookup;
 }
 
-function wrapLookup(lookup: LookupFunction, security: SecurityManager, url: string): LookupFunction {
-    return ((hostname: string, options: unknown, callback?: unknown): void => {
+function wrapLookup(lookup: LookupFunction, security: SecurityManager, url: string, isProxy = false): LookupFunction {
+    const wrapped: LookupFunction = (hostname: string, options: unknown, callback?: unknown): void => {
         const done = (typeof options === 'function' ? options : callback) as LookupCallback | undefined;
         if (!done) return;
 
@@ -1181,9 +1291,9 @@ function wrapLookup(lookup: LookupFunction, security: SecurityManager, url: stri
             }
 
             try {
-                if (Array.isArray(address)) {
+                if (Array.isArray(address) && !isProxy) {
                     address.forEach(item => security.validateResolvedAddress(url, item.address));
-                } else if (typeof address === 'string') {
+                } else if (typeof address === 'string' && !isProxy) {
                     security.validateResolvedAddress(url, address);
                 }
             } catch (validationError: unknown) {
@@ -1200,7 +1310,9 @@ function wrapLookup(lookup: LookupFunction, security: SecurityManager, url: stri
         }
 
         lookup(hostname, options as Parameters<LookupFunction>[1], wrappedDone);
-    }) as LookupFunction;
+    };
+
+    return wrapped;
 }
 
 type LookupCallback = (error: NodeJS.ErrnoException | null, address?: string | ResolvedAddress[], family?: number) => void;
@@ -1217,6 +1329,8 @@ function isFormRecord(value: RequestBody): value is Record<string, JsonValue> {
         && !(value instanceof Readable)
         && !(value instanceof ArrayBuffer)
         && !ArrayBuffer.isView(value)
+        && !isBlobLike(value)
+        && !isFormDataLike(value)
         && !Array.isArray(value);
 }
 
@@ -1227,6 +1341,64 @@ function toFormEntries(data: Record<string, JsonValue>): Record<string, string> 
         entries[key] = typeof value === 'string' ? value : JSON.stringify(value);
     }
     return entries;
+}
+
+async function serializeMultipart(data: FormData, headers: Headers): Promise<Buffer> {
+    const boundary = multipartBoundary(headers);
+    const chunks: Buffer[] = [];
+
+    for (const [name, value] of data.entries()) {
+        chunks.push(Buffer.from(`--${boundary}\r\n`));
+        if (isBlobLike(value)) {
+            const filename = multipartFilename(value);
+            const contentType = value.type || 'application/octet-stream';
+            chunks.push(Buffer.from(
+                `Content-Disposition: form-data; name="${escapeMultipart(name)}"; filename="${escapeMultipart(filename)}"\r\n`
+                + `Content-Type: ${contentType}\r\n\r\n`
+            ));
+            chunks.push(Buffer.from(await value.arrayBuffer()));
+            chunks.push(Buffer.from('\r\n'));
+            continue;
+        }
+
+        chunks.push(Buffer.from(
+            `Content-Disposition: form-data; name="${escapeMultipart(name)}"\r\n\r\n${String(value)}\r\n`
+        ));
+    }
+
+    chunks.push(Buffer.from(`--${boundary}--\r\n`));
+    return Buffer.concat(chunks);
+}
+
+function multipartBoundary(headers: Headers): string {
+    const contentType = headerToString(headers['Content-Type'] ?? headers['content-type']);
+    const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
+    if (match?.[1] || match?.[2]) return match[1] ?? match[2] ?? '';
+
+    const boundary = `----neutrx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    setHeader(headers, 'Content-Type', `multipart/form-data; boundary=${boundary}`);
+    return boundary;
+}
+
+function multipartFilename(value: Blob): string {
+    const maybeFile = value as Blob & { readonly name?: string };
+    return maybeFile.name ?? 'blob';
+}
+
+function escapeMultipart(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '%22').replace(/[\r\n]/g, ' ');
+}
+
+function isBlobLike(value: unknown): value is Blob {
+    return value !== null
+        && typeof value === 'object'
+        && typeof (value as { readonly arrayBuffer?: unknown }).arrayBuffer === 'function'
+        && typeof (value as { readonly size?: unknown }).size === 'number'
+        && typeof (value as { readonly type?: unknown }).type === 'string';
+}
+
+function isFormDataLike(value: unknown): value is FormData {
+    return typeof FormData !== 'undefined' && value instanceof FormData;
 }
 
 function dig(value: ParsedResponseData, path: string): ParsedResponseData {

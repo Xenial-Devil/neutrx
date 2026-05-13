@@ -229,7 +229,15 @@ export default class SecurityManager {
     #sanitizeBody<TBody extends RequestBody>(value: TBody): TBody {
         if (typeof value === 'string') return this.#sanitizeString(value) as TBody;
         if (value === null || typeof value !== 'object') return value;
-        if (Buffer.isBuffer(value) || value instanceof URLSearchParams || value instanceof Readable || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value;
+        if (
+            Buffer.isBuffer(value)
+            || value instanceof URLSearchParams
+            || value instanceof Readable
+            || value instanceof ArrayBuffer
+            || ArrayBuffer.isView(value)
+            || isBlobLike(value)
+            || isFormDataLike(value)
+        ) return value;
         return this.#sanitizeJson(value) as TBody;
     }
 
@@ -308,8 +316,12 @@ function isJsonContainer(value: ParsedResponseData): value is JsonValue {
 function serializeForSignature(data: RequestBody): string {
     if (typeof data === 'string') return data;
     if (Buffer.isBuffer(data)) return data.toString('base64');
+    if (data instanceof ArrayBuffer) return Buffer.from(data).toString('base64');
+    if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('base64');
     if (data instanceof URLSearchParams) return data.toString();
     if (data instanceof Readable) return '[stream]';
+    if (isBlobLike(data)) return `[blob:${data.size}]`;
+    if (isFormDataLike(data)) return '[form-data]';
     return JSON.stringify(data);
 }
 
@@ -350,4 +362,16 @@ function isPrivateIPv4(ip: string): boolean {
 function isPrivateIPv6(ip: string): boolean {
     const normalized = ip.toLowerCase();
     return normalized === '::1' || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe80:');
+}
+
+function isBlobLike(value: unknown): value is Blob {
+    return value !== null
+        && typeof value === 'object'
+        && typeof (value as { readonly arrayBuffer?: unknown }).arrayBuffer === 'function'
+        && typeof (value as { readonly size?: unknown }).size === 'number'
+        && typeof (value as { readonly type?: unknown }).type === 'string';
+}
+
+function isFormDataLike(value: unknown): value is FormData {
+    return typeof FormData !== 'undefined' && value instanceof FormData;
 }

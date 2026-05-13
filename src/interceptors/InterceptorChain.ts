@@ -78,18 +78,24 @@ export default class InterceptorChain {
     managers(): AxiosInterceptors {
         return {
             request: {
-                use: (onFulfilled, onRejected, options) => this.addRequest(
-                    onFulfilled as RequestFulfilled | undefined,
-                    onRejected as RequestRejected | undefined,
-                    options
-                ),
+                use: (onFulfilled, onRejected, options) => {
+                    const requestRejected: RequestRejected | undefined = onRejected
+                        ? async (error): Promise<InternalRequestConfig> => {
+                            const result = await onRejected(error);
+                            if (result instanceof Error) throw result;
+                            return result;
+                        }
+                        : undefined;
+
+                    return this.addRequest(onFulfilled, requestRejected, options);
+                },
                 eject: id => this.#request.delete(id),
                 clear: () => this.clearRequest(),
             },
             response: {
                 use: (onFulfilled, onRejected) => this.addResponse(
-                    onFulfilled as ResponseFulfilled | undefined,
-                    onRejected as ResponseRejected | undefined
+                    onFulfilled,
+                    onRejected
                 ),
                 eject: id => this.#response.delete(id),
                 clear: () => this.clearResponse(),

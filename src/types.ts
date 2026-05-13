@@ -14,7 +14,7 @@ export type QueryParams = Record<string, QueryValue>;
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
 export type ResponseType = 'json' | 'text' | 'buffer' | 'stream';
-export type RequestBody = JsonValue | string | Buffer | Uint8Array | ArrayBuffer | URLSearchParams | Readable;
+export type RequestBody = JsonValue | string | Buffer | Uint8Array | ArrayBuffer | URLSearchParams | Readable | Blob | FormData;
 export type ParsedResponseData = JsonValue | string | Buffer | IncomingMessage | null;
 export type ProgressEvent = { readonly loaded: number; readonly total?: number; readonly percent?: number };
 export type ParamsSerializer =
@@ -27,6 +27,15 @@ export type ParamsSerializer =
 export type TransformRequest = (data: RequestBody | undefined, headers: Headers) => RequestBody | undefined;
 export type TransformResponse = (data: ParsedResponseData, headers: Headers, status: number) => ParsedResponseData;
 export type LookupFunction = NonNullable<RequestOptions['lookup']>;
+export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse | Promise<RawHttpResponse>;
+
+export interface ProxyConfig {
+    readonly protocol?: 'http' | 'https';
+    readonly host: string;
+    readonly port?: number;
+    readonly auth?: { readonly username: string; readonly password: string } | string;
+    readonly headers?: Headers;
+}
 
 export interface RedirectContext {
     readonly statusCode: number;
@@ -96,6 +105,8 @@ export interface ClientConfig {
     readonly paramsSerializer?: ParamsSerializer;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly adapter?: RequestAdapter;
+    readonly proxy?: ProxyConfig | false;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
@@ -104,12 +115,14 @@ export interface ClientConfig {
     readonly performance?: PerformanceConfig;
 }
 
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'transformRequest' | 'transformResponse' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'security' | 'resilience' | 'performance'>> {
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'transformRequest' | 'transformResponse' | 'adapter' | 'proxy' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'security' | 'resilience' | 'performance'>> {
     readonly baseURL?: string;
     readonly headers?: Headers;
     readonly paramsSerializer?: ParamsSerializer;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
+    readonly adapter?: RequestAdapter;
+    readonly proxy?: ProxyConfig | false;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
@@ -141,6 +154,8 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly paramsSerializer?: ParamsSerializer;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly adapter?: RequestAdapter;
+    readonly proxy?: ProxyConfig | false;
     readonly beforeRedirect?: (context: RedirectContext) => void | Promise<void>;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
@@ -167,6 +182,8 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly validateStatus: (status: number) => boolean;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
+    readonly adapter?: RequestAdapter;
+    readonly proxy?: ProxyConfig | false;
     readonly followRedirects: boolean;
     readonly requestId: string;
     readonly startTime: number;
