@@ -21,17 +21,16 @@
     "skipLibCheck": false,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
     "paths": {
-      "neutrx": ["src/index.ts"],
-      "neutrx/node": ["src/index.ts"],
-      "neutrx/browser": ["src/browser.ts"],
-      "neutrx/plugins": ["src/plugins/PluginManager.ts"],
-      "neutrx/errors": ["src/core/NeutrxError.ts"],
-      "neutrx/headers": ["src/core/headers.ts"],
-      "neutrx/instrumentation": ["src/monitoring/OpenTelemetryInstrumentation.ts"],
-      "neutrx/adapters": ["src/adapters/index.ts"],
-      "neutrx/package.json": ["package.json"]
+      "neutrx": ["./src/index.ts"],
+      "neutrx/node": ["./src/index.ts"],
+      "neutrx/browser": ["./src/browser.ts"],
+      "neutrx/plugins": ["./src/plugins/PluginManager.ts"],
+      "neutrx/errors": ["./src/core/NeutrxError.ts"],
+      "neutrx/headers": ["./src/core/headers.ts"],
+      "neutrx/instrumentation": ["./src/monitoring/OpenTelemetryInstrumentation.ts"],
+      "neutrx/adapters": ["./src/adapters/index.ts"],
+      "neutrx/package.json": ["./package.json"]
     }
   },
   "include": ["src/**/*.ts", "examples/**/*.ts", "tests/**/*.ts"],
