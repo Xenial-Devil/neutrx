@@ -27,6 +27,9 @@ export {
 export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
 export { fetchAdapter } from './adapters/fetch.js';
+export { http2Adapter } from './adapters/http2.js';
+export { NeutrxHeaders } from './core/headers.js';
+export { OpenTelemetryInstrumentation } from './monitoring/OpenTelemetryInstrumentation.js';
 export type { NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
 export type { AxiosInterceptorManager, AxiosInterceptors, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
 export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
@@ -40,9 +43,14 @@ export type {
     ClientConfig,
     ConcurrentOptions,
     ConcurrentResult,
+    FetchCredentials,
+    FetchImplementation,
+    FormSerializerOptions,
     GraphQLResult,
     Headers,
+    Http2Options,
     HttpMethod,
+    InstrumentationConfig,
     JsonObject,
     JsonValue,
     LookupFunction,

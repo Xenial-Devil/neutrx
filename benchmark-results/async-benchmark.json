@@ -1,0 +1,109 @@
+{
+  "name": "Async Workflow Benchmark",
+  "notes": [
+    "Benchmarks public concurrency helpers, pagination, GraphQL plugin, and cached OAuth2 hook.",
+    "Uses custom adapters/fetch to avoid external network variability."
+  ],
+  "startedAt": "2026-05-14T06:49:23.410Z",
+  "node": "v25.8.2",
+  "results": [
+    {
+      "name": "concurrent 25 GET limit 5",
+      "category": "concurrent",
+      "inputSize": "25 req",
+      "iterations": 107,
+      "logicalOperations": 107,
+      "totalMs": 909.0323999999999,
+      "opsPerSecond": 117.70757565956946,
+      "avgMs": 8.495629906542055,
+      "minMs": 4.253100000000018,
+      "maxMs": 19.292599999999993,
+      "memoryDeltaBytes": 62152,
+      "notes": ""
+    },
+    {
+      "name": "sequential 25 GET",
+      "category": "async",
+      "inputSize": "25 req",
+      "iterations": 52,
+      "logicalOperations": 52,
+      "totalMs": 908.2638000000004,
+      "opsPerSecond": 57.252089095701024,
+      "avgMs": 17.466611538461546,
+      "minMs": 13.15689999999995,
+      "maxMs": 27.41780000000017,
+      "memoryDeltaBytes": -42112,
+      "notes": ""
+    },
+    {
+      "name": "race 5 GET",
+      "category": "async",
+      "inputSize": "5 req",
+      "iterations": 182,
+      "logicalOperations": 182,
+      "totalMs": 701.3089000000023,
+      "opsPerSecond": 259.5147445013166,
+      "avgMs": 3.8533456043956167,
+      "minMs": 2.9987999999998465,
+      "maxMs": 5.897599999999784,
+      "memoryDeltaBytes": 39088,
+      "notes": ""
+    },
+    {
+      "name": "hedged 5 GET delay 0",
+      "category": "async",
+      "inputSize": "5 req",
+      "iterations": 671,
+      "logicalOperations": 671,
+      "totalMs": 699.8307999999943,
+      "opsPerSecond": 958.8031849984388,
+      "avgMs": 1.0429669150521523,
+      "minMs": 0.7808999999997468,
+      "maxMs": 2.80580000000009,
+      "memoryDeltaBytes": 7102256,
+      "notes": ""
+    },
+    {
+      "name": "paginate 10 pages",
+      "category": "pagination",
+      "inputSize": "10 pages",
+      "iterations": 284,
+      "logicalOperations": 284,
+      "totalMs": 900.6317999999937,
+      "opsPerSecond": 315.33419095350837,
+      "avgMs": 3.171238732394344,
+      "minMs": 1.8041999999995824,
+      "maxMs": 6.3128999999999,
+      "memoryDeltaBytes": 6248,
+      "notes": ""
+    },
+    {
+      "name": "GraphQLPlugin gql request",
+      "category": "plugin",
+      "inputSize": "small",
+      "iterations": 2172,
+      "logicalOperations": 2172,
+      "totalMs": 698.3846999999969,
+      "opsPerSecond": 3110.0337679219056,
+      "avgMs": 0.32153991712707036,
+      "minMs": 0.20090000000072905,
+      "maxMs": 1.0906000000004497,
+      "memoryDeltaBytes": 252464,
+      "notes": ""
+    },
+    {
+      "name": "OAuth2Plugin cached token GET",
+      "category": "plugin",
+      "inputSize": "small",
+      "iterations": 1297,
+      "logicalOperations": 1297,
+      "totalMs": 698.6133999999938,
+      "opsPerSecond": 1856.5346728247862,
+      "avgMs": 0.5386379336931333,
+      "minMs": 0.3726999999998952,
+      "maxMs": 1.470299999999952,
+      "memoryDeltaBytes": 52264,
+      "notes": ""
+    }
+  ]
+}

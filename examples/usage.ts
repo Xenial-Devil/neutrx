@@ -1,3 +1,4 @@
+import { NeutrxHeaders } from '../src/index.js';
 import api from './api.js';
 
 api.mock?.enable().register('/users/new', {
@@ -28,11 +29,18 @@ api.mock?.enable().register('/users/new', {
 });
 
 async function run(): Promise<void> {
+    const requestHeaders = new NeutrxHeaders()
+        .setAccept('application/json')
+        .setBearerAuth('example-token');
+
     const users = await api.get<readonly { readonly id: number; readonly name: string }[]>('/users');
     console.log(users.data);
 
-    const created = await api.post<{ readonly id: number; readonly name: string }>('/users/new', { name: 'Alan Turing' });
+    const created = await api.post<{ readonly id: number; readonly name: string }>('/users/new', { name: 'Alan Turing' }, {
+        headers: requestHeaders.toJSON(),
+    });
     console.log(created.data);
+    console.log(requestHeaders.redactSensitive());
 
     const replaced = await api.put<{ readonly id: number; readonly name: string }>('/users/2', { name: 'Grace Hopper' });
     console.log(replaced.data);
@@ -48,6 +56,42 @@ async function run(): Promise<void> {
 
     const healthHead = await api.head<null>('/health');
     console.log(healthHead.status);
+
+    const browserStyle = await api.get('/users', {
+        adapter: 'fetch',
+        credentials: 'include',
+        xsrfCookieName: 'XSRF-TOKEN',
+        xsrfHeaderName: 'X-XSRF-TOKEN',
+        withXSRFToken: true,
+        responseType: 'json',
+    });
+    console.log(browserStyle.status);
+
+    const http2Ready = await api.get('/users', {
+        httpVersion: '2',
+        http2Options: {
+            sessionTimeout: 30_000,
+            maxSessions: 4,
+        },
+    });
+    console.log(http2Ready.status);
+
+    const formCreated = await api.post('/users/new', {
+        user: {
+            name: 'Katherine Johnson',
+            roles: ['admin', 'analyst'],
+        },
+    }, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+        formSerializer: {
+            dots: true,
+            indexes: true,
+            maxDepth: 4,
+        },
+    });
+    console.log(formCreated.status);
 
     const { results, errors } = await api.concurrent([
         { method: 'GET', url: '/users' },

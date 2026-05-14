@@ -13,10 +13,14 @@ export type QueryValue = string | number | boolean | readonly (string | number |
 export type QueryParams = Record<string, QueryValue>;
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
-export type ResponseType = 'json' | 'text' | 'buffer' | 'stream';
-export type RequestBody = JsonValue | string | Buffer | Uint8Array | ArrayBuffer | URLSearchParams | Readable | Blob | FormData;
-export type ParsedResponseData = JsonValue | string | Buffer | Uint8Array | ArrayBuffer | IncomingMessage | ReadableStream<Uint8Array> | null;
+export type ResponseType = 'json' | 'text' | 'buffer' | 'arrayBuffer' | 'blob' | 'formData' | 'stream';
+export type RequestObjectBody = Record<string, unknown>;
+export type ResponseObjectData = Record<string, unknown>;
+export type RequestBody = JsonValue | RequestObjectBody | string | Buffer | Uint8Array | ArrayBuffer | URLSearchParams | Readable | Blob | FormData;
+export type ParsedResponseData = JsonValue | ResponseObjectData | string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | ReadableStream<Uint8Array> | null;
 export type ProgressEvent = { readonly loaded: number; readonly total?: number; readonly percent?: number };
+export type FetchCredentials = 'include' | 'omit' | 'same-origin';
+export type FetchImplementation = typeof fetch;
 export type ParamsSerializer =
     | ((params: QueryParams) => string)
     | {
@@ -24,11 +28,17 @@ export type ParamsSerializer =
         readonly serialize?: (params: QueryParams) => string;
         readonly indexes?: boolean | null;
     };
+export interface FormSerializerOptions {
+    readonly dots?: boolean;
+    readonly indexes?: boolean | null;
+    readonly metaTokens?: boolean;
+    readonly maxDepth?: number;
+}
 export type TransformRequest = (data: RequestBody | undefined, headers: Headers) => RequestBody | undefined;
 export type TransformResponse = (data: ParsedResponseData, headers: Headers, status: number) => ParsedResponseData;
 export type LookupFunction = NonNullable<RequestOptions['lookup']>;
 export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse | Promise<RawHttpResponse>;
-export type RequestAdapterName = 'http' | 'fetch';
+export type RequestAdapterName = 'http' | 'fetch' | 'http2';
 export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
 
 export interface ProxyConfig {
@@ -48,10 +58,21 @@ export interface RedirectContext {
 }
 
 export interface SecurityConfig {
+    readonly profile?: 'strict' | 'balanced' | 'development';
+    readonly allowedHosts?: readonly string[];
+    readonly deniedHosts?: readonly string[];
+    readonly allowedProtocols?: readonly string[];
     readonly enforceHTTPS?: boolean;
     readonly validateCertificate?: boolean;
     readonly enableSSRFProtection?: boolean;
     readonly blockPrivateIPs?: boolean;
+    readonly blockLinkLocalIPs?: boolean;
+    readonly blockLoopbackIPs?: boolean;
+    readonly blockMetadataIPs?: boolean;
+    readonly blockDangerousPorts?: boolean;
+    readonly reResolveOnRedirect?: boolean;
+    readonly blockRedirectToPrivateIP?: boolean;
+    readonly allowLocalhost?: boolean;
     readonly sanitizeInputs?: boolean;
     readonly sanitizeOutputs?: boolean;
     readonly rateLimit?: RateLimitConfig;
@@ -95,6 +116,20 @@ export interface PerformanceConfig {
     readonly respectCacheHeaders?: boolean;
 }
 
+export interface Http2Options {
+    readonly sessionTimeout?: number;
+    readonly rejectUnauthorized?: boolean;
+    readonly maxSessions?: number;
+}
+
+export interface InstrumentationConfig {
+    readonly openTelemetry?: boolean;
+    readonly tracerName?: string;
+    readonly propagateTraceHeaders?: boolean;
+    readonly recordRequestBodySize?: boolean;
+    readonly recordResponseBodySize?: boolean;
+}
+
 export interface ClientConfig {
     readonly baseURL?: string;
     readonly timeout?: number;
@@ -105,9 +140,19 @@ export interface ClientConfig {
     readonly headers?: Headers;
     readonly validateStatus?: (status: number) => boolean;
     readonly paramsSerializer?: ParamsSerializer;
+    readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
     readonly adapter?: RequestAdapterConfig;
+    readonly fetch?: FetchImplementation;
+    readonly httpVersion?: 1 | 2 | '1.1' | '2';
+    readonly http2Options?: Http2Options;
+    readonly withCredentials?: boolean;
+    readonly credentials?: FetchCredentials;
+    readonly xsrfCookieName?: string | null;
+    readonly xsrfHeaderName?: string | null;
+    readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
+    readonly instrumentation?: InstrumentationConfig;
     readonly proxy?: ProxyConfig | false;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
@@ -119,19 +164,34 @@ export interface ClientConfig {
     readonly performance?: PerformanceConfig;
 }
 
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'transformRequest' | 'transformResponse' | 'adapter' | 'proxy' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'security' | 'resilience' | 'performance'>> {
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'security' | 'resilience' | 'performance'>> {
     readonly baseURL?: string;
     readonly headers?: Headers;
     readonly paramsSerializer?: ParamsSerializer;
+    readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
     readonly adapter?: RequestAdapterConfig;
+    readonly fetch?: FetchImplementation;
+    readonly httpVersion?: 1 | 2 | '1.1' | '2';
+    readonly http2Options?: Http2Options;
+    readonly withCredentials?: boolean;
+    readonly credentials?: FetchCredentials;
+    readonly xsrfCookieName?: string | null;
+    readonly xsrfHeaderName?: string | null;
+    readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
+    readonly instrumentation?: InstrumentationConfig;
     readonly proxy?: ProxyConfig | false;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
     readonly socketPath?: string;
-    readonly security: Required<Omit<SecurityConfig, 'rateLimit'>> & { readonly rateLimit?: RateLimitConfig };
+    readonly security: Required<Omit<SecurityConfig, 'rateLimit' | 'allowedHosts' | 'deniedHosts' | 'allowedProtocols'>> & {
+        readonly allowedHosts?: readonly string[];
+        readonly deniedHosts?: readonly string[];
+        readonly allowedProtocols?: readonly string[];
+        readonly rateLimit?: RateLimitConfig;
+    };
     readonly resilience: Required<Omit<ResilienceConfig, 'shouldRetry' | 'onRetry' | 'retryableStatuses' | 'retryableCodes'>> & {
         readonly retryableStatuses: readonly number[];
         readonly retryableCodes: readonly string[];
@@ -157,9 +217,19 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly responseEncoding?: BufferEncoding;
     readonly validateStatus?: (status: number) => boolean;
     readonly paramsSerializer?: ParamsSerializer;
+    readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
     readonly adapter?: RequestAdapterConfig;
+    readonly fetch?: FetchImplementation;
+    readonly httpVersion?: 1 | 2 | '1.1' | '2';
+    readonly http2Options?: Http2Options;
+    readonly withCredentials?: boolean;
+    readonly credentials?: FetchCredentials;
+    readonly xsrfCookieName?: string | null;
+    readonly xsrfHeaderName?: string | null;
+    readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
+    readonly instrumentation?: InstrumentationConfig;
     readonly proxy?: ProxyConfig | false;
     readonly beforeRedirect?: (context: RedirectContext) => void | Promise<void>;
     readonly httpAgent?: HttpAgent;
@@ -187,9 +257,19 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly responseType: ResponseType;
     readonly responseEncoding: BufferEncoding;
     readonly validateStatus: (status: number) => boolean;
+    readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
     readonly adapter?: RequestAdapterConfig;
+    readonly fetch?: FetchImplementation;
+    readonly httpVersion?: 1 | 2 | '1.1' | '2';
+    readonly http2Options?: Http2Options;
+    readonly withCredentials?: boolean;
+    readonly credentials?: FetchCredentials;
+    readonly xsrfCookieName?: string | null;
+    readonly xsrfHeaderName?: string | null;
+    readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
+    readonly instrumentation?: InstrumentationConfig;
     readonly proxy?: ProxyConfig | false;
     readonly socketPath?: string;
     readonly decompress: boolean;
@@ -204,7 +284,7 @@ export interface RawHttpResponse {
     readonly status: number;
     readonly statusText: string;
     readonly headers: Headers;
-    readonly data: string | Buffer | Uint8Array | ArrayBuffer | IncomingMessage | ReadableStream<Uint8Array> | null;
+    readonly data: string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | ReadableStream<Uint8Array> | null;
     readonly config: InternalRequestConfig;
 }
 

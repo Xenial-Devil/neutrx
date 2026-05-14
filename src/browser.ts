@@ -23,6 +23,7 @@ export {
     isNeutrxError,
 } from './core/NeutrxError.js';
 export { default as BrowserClient, default as NeutrxClient } from './core/BrowserClient.js';
+export { NeutrxHeaders } from './core/headers.js';
 export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export type { NeutrxInstance, NeutrxStatic } from './core/BrowserNeutrx.js';
@@ -34,9 +35,14 @@ export type {
     ClientConfig,
     ConcurrentOptions,
     ConcurrentResult,
+    FetchCredentials,
+    FetchImplementation,
+    FormSerializerOptions,
     GraphQLResult,
     Headers,
+    Http2Options,
     HttpMethod,
+    InstrumentationConfig,
     JsonObject,
     JsonValue,
     MockController,

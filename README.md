@@ -1,27 +1,31 @@
 # Neutrx
 
-Neutrx is a security-first TypeScript HTTP client for Node.js. It keeps the daily API simple like axios while adding safer defaults: SSRF guardrails, input/output sanitization, retries, circuit breaking, bulkhead isolation, caching, metrics, interceptors, OAuth2, GraphQL, mocks, streaming, uploads, downloads, SSE, and concurrency helpers.
+Neutrx is a security-first TypeScript HTTP client for Node.js and modern fetch runtimes. It keeps the daily API simple like axios while adding safer defaults: SSRF guardrails, input/output sanitization, retries, circuit breaking, bulkhead isolation, caching, metrics, interceptors, OAuth2, GraphQL, mocks, streaming, uploads, downloads, SSE, and concurrency helpers.
 
 ## Highlights
 
 - Axios-style default client and configured instances.
 - Strict TypeScript API with generated declaration files.
+- First-class `NeutrxHeaders` with case-insensitive lookup, safe normalization, `Set-Cookie` helpers, and sensitive-header redaction.
 - Secure defaults for HTTPS, SSRF protection, private IP blocking, header validation, certificate validation, and response sanitization.
 - Retry engine with fixed, linear, exponential, and Fibonacci strategies.
 - Circuit breaker and bulkhead isolation for safer outbound calls under load.
 - In-memory GET cache with HTTP cache header support.
 - Upload and download progress callbacks, including real-time streamed progress.
-- Axios-style params serializers, transforms, interceptors, custom adapters, and built-in `http`/`fetch` adapter selection.
-- Native body serializers for JSON, URLSearchParams, ArrayBuffer, Blob, FormData, buffers, and streams.
-- Custom HTTP/HTTPS agents, DNS lookup hooks, and HTTP proxy config.
+- Axios-style params serializers, transforms, interceptors, custom adapters, and built-in `http`/`fetch`/`http2` adapter selection.
+- Browser fetch support for credentials, XSRF cookie/header injection, AbortController cancellation, timeout, streams, Blob, FormData, and custom fetch implementations.
+- Native body serializers for JSON, URLSearchParams, ArrayBuffer, Blob, FormData, nested multipart objects, buffers, and streams.
+- Custom HTTP/HTTPS agents, DNS lookup hooks, env proxy detection, and HTTPS proxy CONNECT tunneling.
+- Optional HTTP/2 transport with session reuse.
+- Optional OpenTelemetry spans and trace propagation without requiring OpenTelemetry as a hard dependency.
 - Metrics snapshots and Prometheus output.
 - Request/response interceptors and plugin hooks.
 - Built-in OAuth2, GraphQL, and mock plugins.
-- Dependency-free runtime built on native Node.js HTTP/HTTPS modules.
+- No required runtime dependencies.
 
 ## Requirements
 
-- Node.js 22 or newer.
+- Node.js 18 or newer.
 - TypeScript 5.6 or newer for development.
 
 ## Installation
@@ -74,11 +78,25 @@ const api = neutrx.create({ // Creates one reusable configured client instance.
   headers: { // Defines headers sent on every request.
     Accept: 'application/json', // Tells servers JSON is preferred.
   }, // Ends default headers.
+  formSerializer: { // Controls nested object to FormData serialization.
+    dots: true, // Uses user.name instead of user[name] for nested keys.
+    indexes: false, // Uses repeated array keys without numeric indexes.
+    maxDepth: 8, // Stops overly deep multipart payloads.
+  }, // Ends form serializer config.
+  instrumentation: { // Enables optional OpenTelemetry integration when packages exist.
+    openTelemetry: true, // Creates a span for each request.
+    tracerName: 'neutrx-app', // Uses this tracer name.
+    propagateTraceHeaders: true, // Injects trace context headers.
+  }, // Ends instrumentation config.
   security: { // Enables and tunes security guardrails.
+    profile: 'balanced', // Uses production-safe defaults without the strictest allow-list posture.
     enforceHTTPS: true, // Requires HTTPS in production.
     validateCertificate: true, // Verifies TLS certificates.
     enableSSRFProtection: true, // Blocks SSRF-style unsafe targets.
     blockPrivateIPs: true, // Blocks localhost/private/internal IP targets.
+    blockMetadataIPs: true, // Blocks metadata service IPs such as 169.254.169.254.
+    reResolveOnRedirect: true, // Re-checks DNS and host policy after redirects.
+    blockRedirectToPrivateIP: true, // Blocks redirects into private/internal addresses.
     sanitizeInputs: true, // Removes unsafe keys and strings from request bodies.
     sanitizeOutputs: true, // Sanitizes unsafe response data.
     rateLimit: { // Configures client-side rate limiting.
@@ -172,13 +190,20 @@ Useful config fields:
 - `maxRedirects`: redirect limit.
 - `maxContentLength`: response size limit in bytes.
 - `maxBodyLength`: request body size limit in bytes.
-- `responseType`: `json`, `text`, `buffer`, or `stream`.
+- `responseType`: `json`, `text`, `buffer`, `arrayBuffer`, `blob`, `formData`, or `stream`.
 - `validateStatus`: custom success status function.
 - `paramsSerializer`: custom query string serializer.
+- `formSerializer`: nested object to FormData serializer options.
 - `transformRequest`: request body/header transform or transform array.
 - `transformResponse`: response data transform or transform array.
-- `adapter`: `'http'`, `'fetch'`, or a custom transport adapter for tests or non-standard runtimes.
-- `proxy`: HTTP proxy config for HTTP requests, or `false` to disable an inherited proxy.
+- `adapter`: `'http'`, `'fetch'`, `'http2'`, or a custom transport adapter for tests or non-standard runtimes.
+- `httpVersion`: `1`, `'1.1'`, `2`, or `'2'`; HTTP/1.1 remains the default.
+- `http2Options`: HTTP/2 session timeout, TLS verification, and session cap options.
+- `fetch`: custom fetch implementation for browsers, tests, workers, or non-standard runtimes.
+- `credentials` / `withCredentials`: fetch credential mode.
+- `xsrfCookieName`, `xsrfHeaderName`, `withXSRFToken`: browser XSRF cookie to header behavior.
+- `instrumentation`: optional OpenTelemetry span and trace propagation config.
+- `proxy`: HTTP/HTTPS proxy config, env proxy fallback, or `false` to disable inherited proxy settings.
 - `httpAgent` / `httpsAgent`: custom Node agents for CA, mTLS, DNS cache, or tunneling.
 - `lookup`: custom DNS lookup function; resolved addresses are still checked by SSRF protection.
 - `socketPath`: UNIX socket path for local IPC APIs supported by the Node HTTP adapter.
@@ -187,6 +212,117 @@ Useful config fields:
 - `signal`: AbortController signal.
 - `onUploadProgress`: upload progress callback.
 - `onDownloadProgress`: download progress callback.
+
+## Headers
+
+`NeutrxHeaders` accepts plain objects, iterables, existing headers, and browser `Headers`-like objects. Lookups are case-insensitive, original casing is preserved, invalid names are rejected, and CRLF value injection is blocked.
+
+```ts
+import { NeutrxHeaders } from 'neutrx'; // Imports header helper.
+
+const headers = new NeutrxHeaders({ // Creates normalized headers.
+  'content-type': 'application/json', // Keeps original casing until overwritten.
+}); // Ends header construction.
+
+headers.setBearerAuth(process.env.API_TOKEN ?? ''); // Sets Authorization safely.
+headers.setContentType('application/json'); // Sets Content-Type.
+headers.setAccept('application/json'); // Sets Accept.
+
+console.log(headers.get('Content-Type')); // Reads case-insensitively.
+console.log(headers.redactSensitive()); // Redacts Authorization, Cookie, Set-Cookie, and Proxy-Authorization.
+
+await api.get('/users', { // Sends request with plain-object headers.
+  headers: headers.toJSON(), // Converts back to Neutrx's public header shape.
+}); // Ends request.
+```
+
+`Set-Cookie` values stay as arrays when duplicated:
+
+```ts
+const cookies = NeutrxHeaders.concat(
+  { 'Set-Cookie': ['a=1'] },
+  { 'set-cookie': ['b=2'] }
+).getSetCookie(); // Returns ['a=1', 'b=2'].
+```
+
+## Browser Fetch And XSRF
+
+Use `adapter: 'fetch'` in browsers, workers, and tests that provide fetch. Neutrx supports `credentials`, `withCredentials`, AbortController signals, timeout through AbortController, streamed download progress when `ReadableStream` is available, custom fetch implementations, and browser response types.
+
+```ts
+const response = await api.get('/session', { // Sends browser-style fetch request.
+  adapter: 'fetch', // Uses fetch instead of Node http transport.
+  credentials: 'include', // Includes cookies.
+  xsrfCookieName: 'XSRF-TOKEN', // Reads this cookie in standard browser environments.
+  xsrfHeaderName: 'X-XSRF-TOKEN', // Writes token to this request header.
+  withXSRFToken: config => config.method !== 'GET', // Controls same-origin/default injection.
+  responseType: 'json', // Supports json, text, arrayBuffer, blob, formData, and stream when available.
+  onDownloadProgress(event) { // Uses ReadableStream progress when possible.
+    console.log(event.loaded, event.total); // Prints loaded and optional total bytes.
+  }, // Ends progress callback.
+}); // Ends request.
+
+console.log(response.data); // Reads parsed response data.
+```
+
+By default, XSRF headers are injected only in standard browser environments and for safe same-origin behavior. Cross-origin XSRF injection requires explicit `withXSRFToken: true` or a function that returns `true`.
+
+## HTTP/2 And Proxy
+
+HTTP/1.1 is default. Request HTTP/2 only when the target supports it.
+
+```ts
+const h2 = await api.get('/reports', { // Sends request over HTTP/2.
+  httpVersion: '2', // Opts into HTTP/2.
+  http2Options: { // Tunes HTTP/2 sessions.
+    sessionTimeout: 30_000, // Closes idle sessions after 30 seconds.
+    maxSessions: 8, // Caps reused sessions.
+    rejectUnauthorized: true, // Verifies TLS certificates.
+  }, // Ends HTTP/2 options.
+}); // Ends request.
+
+console.log(h2.status); // Prints response status.
+```
+
+Proxy config supports explicit per-request values, `HTTP_PROXY`, `HTTPS_PROXY`, lowercase env variants, `NO_PROXY`, proxy auth, and `proxy: false`.
+
+```ts
+await api.get('https://api.example.com/users', { // Sends HTTPS request through CONNECT proxy.
+  proxy: { // Explicit config overrides env proxy.
+    protocol: 'http', // Uses an HTTP proxy.
+    host: 'proxy.internal', // Proxy host.
+    port: 8080, // Proxy port.
+    auth: { username: 'svc', password: process.env.PROXY_PASSWORD ?? '' }, // Adds Proxy-Authorization only to proxy hop.
+  }, // Ends proxy config.
+}); // Ends proxied request.
+
+await api.get('https://api.example.com/users', {
+  proxy: false, // Disables env proxy for this request.
+}); // Ends direct request.
+```
+
+## Body Serialization
+
+Neutrx serializes JSON, URLSearchParams, ArrayBuffer, Buffer, Blob/File where available, FormData, streams, and nested objects. When `Content-Type` is `multipart/form-data`, plain objects are converted to FormData and Node multipart boundaries are generated only when needed.
+
+```ts
+await api.post('/profile', { // Sends nested object as multipart form data.
+  user: {
+    name: 'Ada',
+    roles: ['admin', 'editor'],
+  },
+}, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  formSerializer: {
+    dots: true, // user.name
+    indexes: true, // roles[0], roles[1]
+    metaTokens: true, // Preserves object meta token behavior.
+    maxDepth: 6, // Blocks unbounded nesting.
+  },
+}); // Ends multipart request.
+
+await api.post('/search', new URLSearchParams({ q: 'neutrx' })); // Sends application/x-www-form-urlencoded.
+```
 
 ## Upload Progress
 
@@ -428,11 +564,28 @@ For trusted local development against localhost, explicitly relax the local-only
 const localApi = neutrx.create({ // Creates local-development client.
   baseURL: 'http://127.0.0.1:3000', // Points to local server.
   security: { // Overrides security checks for trusted local dev only.
+    profile: 'development', // Allows localhost-oriented development defaults.
     enforceHTTPS: false, // Allows HTTP.
-    enableSSRFProtection: false, // Allows local/private addresses.
-    blockPrivateIPs: false, // Allows 127.0.0.1/private IPs.
+    allowLocalhost: true, // Allows localhost names.
+    blockLoopbackIPs: false, // Allows 127.0.0.1 and ::1.
+    blockPrivateIPs: false, // Allows private IPs for local networks.
+    blockMetadataIPs: true, // Keeps metadata services blocked unless explicitly disabled.
   }, // Ends local security overrides.
 }); // Ends local client creation.
+```
+
+For strict allow-listing:
+
+```ts
+const lockedApi = neutrx.create({ // Creates stricter outbound client.
+  security: { // Applies host/protocol policy.
+    profile: 'strict', // Starts from safest profile.
+    allowedHosts: ['api.example.com'], // Only permits approved hosts.
+    deniedHosts: ['metadata.google.internal'], // Blocks known unsafe hostnames.
+    allowedProtocols: ['https:'], // Permits HTTPS only.
+    blockRedirectToPrivateIP: true, // Blocks redirect SSRF pivots.
+  }, // Ends strict security config.
+}); // Ends strict client.
 ```
 
 ## Caching
@@ -540,6 +693,24 @@ console.log(api.getBulkheadStats()); // Prints bulkhead concurrency stats.
 api.resetMetrics(); // Clears collected metrics.
 ```
 
+## OpenTelemetry
+
+OpenTelemetry is optional. If `@opentelemetry/api` is installed or a compatible test API is provided, Neutrx creates one span per request. If it is missing, requests continue normally.
+
+```ts
+const tracedApi = neutrx.create({ // Creates traced client.
+  instrumentation: { // Enables instrumentation.
+    openTelemetry: true, // Creates request spans.
+    tracerName: 'billing-client', // Uses custom tracer name.
+    propagateTraceHeaders: true, // Injects trace headers into outbound requests.
+    recordRequestBodySize: true, // Adds request body size attribute when available.
+    recordResponseBodySize: true, // Adds response body size attribute when available.
+  }, // Ends instrumentation config.
+}); // Ends traced client.
+
+await tracedApi.get('https://api.example.com/invoices'); // Records method, URL parts, status, retry count, cache, circuit, and bulkhead attributes.
+```
+
 ## Events
 
 ```ts
@@ -609,16 +780,20 @@ try { // Starts error-handled request block.
 neutrx/
   examples/              TypeScript usage examples
   src/
+    adapters/            HTTP/1.1, fetch, and HTTP/2 transports
     core/                Client, callable facade, and error classes
     interceptors/        Request and response interceptor chain
-    monitoring/          Metrics collector
+    monitoring/          Metrics collector and OpenTelemetry bridge
     performance/         Cache engine
     plugins/             Plugin manager and built-in plugins
     resilience/          Retry, circuit breaker, and bulkhead modules
     security/            Security manager and rate limiter
     index.ts             Public package entrypoint
     types.ts             Shared public/internal types
-  tests/                 TypeScript smoke tests
+  tests/
+    unit/                Core, adapter, security, resilience, performance, and plugin tests
+    compat/              Axios-like API compatibility tests
+    browser/             Browser-focused tests when available
 ```
 
 ## Development
@@ -630,6 +805,8 @@ npm run typecheck # Runs TypeScript without emitting files.
 npm run lint # Checks code style and unsafe TypeScript patterns.
 # Compile and run tests.
 npm test # Builds test output and runs node:test.
+# Run coverage where native Node coverage is stable.
+npm run coverage # Uses native coverage on Node 22+; Node 18/20 run tests without coverage fallback.
 # Run typecheck, lint, build, and tests.
 npm run validate # Runs the main validation pipeline.
 ```
@@ -669,6 +846,14 @@ CLIENT_ID= # Optional OAuth2 client ID used by examples.
 CLIENT_SECRET= # Optional OAuth2 client secret used by examples.
 # Optional signing secret used by request-signing examples.
 SIGNING_SECRET= # Optional signing secret used by request-signing examples.
+# Optional proxy env read by Neutrx Node requests.
+HTTP_PROXY= # HTTP proxy URL for HTTP targets.
+HTTPS_PROXY= # HTTP proxy URL or CONNECT proxy for HTTPS targets.
+NO_PROXY= # Comma-separated hosts, suffixes, or * to bypass proxy.
+# Optional explicit proxy values used by examples/api.ts.
+EXAMPLE_PROXY_HOST= # Explicit proxy host for examples.
+EXAMPLE_PROXY_PORT= # Explicit proxy port for examples.
+EXAMPLE_PROXY_AUTH= # Explicit proxy auth value for examples.
 ```
 
 Keep secrets in `.env` or your deployment secret manager. Do not commit secret files.

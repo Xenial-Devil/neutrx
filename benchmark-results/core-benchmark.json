@@ -1,0 +1,123 @@
+{
+  "name": "Core Public API Benchmark",
+  "notes": [
+    "Benchmarks public client creation, URL building, headers, mock plugin, cache hit, custom adapter request pipeline.",
+    "Network is bypassed except adapter parsing, so results isolate module overhead."
+  ],
+  "startedAt": "2026-05-14T06:49:05.271Z",
+  "node": "v25.8.2",
+  "results": [
+    {
+      "name": "create README-style client",
+      "category": "client",
+      "inputSize": "small",
+      "iterations": 1000,
+      "logicalOperations": 20000,
+      "totalMs": 269.53779999999864,
+      "opsPerSecond": 74201.09535657002,
+      "avgMs": 0.013476889999999932,
+      "minMs": 0.008465000000001055,
+      "maxMs": 0.04649499999999875,
+      "memoryDeltaBytes": 34064,
+      "notes": ""
+    },
+    {
+      "name": "getUri with small params",
+      "category": "url",
+      "inputSize": "5 params",
+      "iterations": 220,
+      "logicalOperations": 220000,
+      "totalMs": 699.6438000000007,
+      "opsPerSecond": 314445.7222375154,
+      "avgMs": 0.0031801990909090944,
+      "minMs": 0.0025244000000000143,
+      "maxMs": 0.007989700000000084,
+      "memoryDeltaBytes": -3256,
+      "notes": ""
+    },
+    {
+      "name": "getUri with medium params",
+      "category": "url",
+      "inputSize": "100 params",
+      "iterations": 227,
+      "logicalOperations": 22700,
+      "totalMs": 702.7862000000023,
+      "opsPerSecond": 32300.00816749095,
+      "avgMs": 0.03095974449339217,
+      "minMs": 0.02651500000000169,
+      "maxMs": 0.06911400000000185,
+      "memoryDeltaBytes": -920,
+      "notes": ""
+    },
+    {
+      "name": "NeutrxHeaders concat normalize redact",
+      "category": "headers",
+      "inputSize": "100 headers",
+      "iterations": 112,
+      "logicalOperations": 11200,
+      "totalMs": 702.6033999999972,
+      "opsPerSecond": 15940.714206620754,
+      "avgMs": 0.06273244642857118,
+      "minMs": 0.05086099999999988,
+      "maxMs": 0.09285300000000006,
+      "memoryDeltaBytes": 2024,
+      "notes": ""
+    },
+    {
+      "name": "GET through custom adapter",
+      "category": "request",
+      "inputSize": "small",
+      "iterations": 2798,
+      "logicalOperations": 2798,
+      "totalMs": 698.2723000000101,
+      "opsPerSecond": 4007.0327864931196,
+      "avgMs": 0.24956122230164765,
+      "minMs": 0.13369999999986248,
+      "maxMs": 0.8347999999996318,
+      "memoryDeltaBytes": -9944,
+      "notes": ""
+    },
+    {
+      "name": "POST transforms and interceptors",
+      "category": "request",
+      "inputSize": "small json",
+      "iterations": 2953,
+      "logicalOperations": 2953,
+      "totalMs": 698.1046999999953,
+      "opsPerSecond": 4230.0245221096775,
+      "avgMs": 0.23640524889942272,
+      "minMs": 0.12200000000029831,
+      "maxMs": 0.7619000000004235,
+      "memoryDeltaBytes": 57600,
+      "notes": ""
+    },
+    {
+      "name": "MockPlugin matched GET",
+      "category": "plugin",
+      "inputSize": "small",
+      "iterations": 5000,
+      "logicalOperations": 5000,
+      "totalMs": 48.884699999993245,
+      "opsPerSecond": 102281.49093685122,
+      "avgMs": 0.009776939999998648,
+      "minMs": 0.006699999999909778,
+      "maxMs": 0.4248999999999796,
+      "memoryDeltaBytes": 66064,
+      "notes": ""
+    },
+    {
+      "name": "GET cache hit",
+      "category": "cache",
+      "inputSize": "small",
+      "iterations": 5000,
+      "logicalOperations": 5000,
+      "totalMs": 134.7508999999809,
+      "opsPerSecond": 37105.50356250465,
+      "avgMs": 0.02695017999999618,
+      "minMs": 0.020300000000133878,
+      "maxMs": 0.70929999999953,
+      "memoryDeltaBytes": 47088,
+      "notes": ""
+    }
+  ]
+}

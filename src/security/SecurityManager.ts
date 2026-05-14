@@ -11,6 +11,7 @@ import {
     NeutrxSSRFError,
     NeutrxSecurityError,
 } from '../core/NeutrxError.js';
+import { assertHeadersSafe } from '../core/headers.js';
 import type { Headers, InternalRequestConfig, JsonValue, NeutrxResponse, ParsedResponseData, RequestBody, SecurityConfig } from '../types.js';
 
 const PRIVATE_HOST_PATTERNS = [
@@ -19,18 +20,26 @@ const PRIVATE_HOST_PATTERNS = [
 ];
 
 const DANGEROUS_PORTS = new Set([22, 23, 25, 53, 110, 143, 3306, 5432, 6379, 27017, 11211]);
-const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const MAX_URL_LENGTH = 2048;
-const MAX_HEADER_SIZE = 8192;
-const MAX_HEADER_COUNT = 100;
 const MAX_OBJECT_DEPTH = 10;
 
 interface NormalizedSecurityConfig {
+    readonly profile: 'strict' | 'balanced' | 'development';
+    readonly allowedHosts?: readonly string[];
+    readonly deniedHosts?: readonly string[];
+    readonly allowedProtocols: readonly string[];
     readonly enforceHTTPS: boolean;
     readonly validateCertificate: boolean;
     readonly enableSSRFProtection: boolean;
     readonly blockPrivateIPs: boolean;
+    readonly blockLinkLocalIPs: boolean;
+    readonly blockLoopbackIPs: boolean;
+    readonly blockMetadataIPs: boolean;
+    readonly blockDangerousPorts: boolean;
+    readonly reResolveOnRedirect: boolean;
+    readonly blockRedirectToPrivateIP: boolean;
+    readonly allowLocalhost: boolean;
     readonly sanitizeInputs: boolean;
     readonly sanitizeOutputs: boolean;
 }
@@ -43,11 +52,24 @@ export default class SecurityManager {
     #signingAlgo = 'sha256';
 
     constructor(config: SecurityConfig = {}) {
+        const profile = config.profile ?? 'balanced';
+        const defaults = profileDefaults(profile);
         this.#config = {
-            enforceHTTPS: config.enforceHTTPS ?? true,
+            profile,
+            ...(config.allowedHosts ? { allowedHosts: config.allowedHosts } : {}),
+            ...(config.deniedHosts ? { deniedHosts: config.deniedHosts } : {}),
+            allowedProtocols: config.allowedProtocols ?? defaults.allowedProtocols,
+            enforceHTTPS: config.enforceHTTPS ?? defaults.enforceHTTPS,
             validateCertificate: config.validateCertificate ?? true,
             enableSSRFProtection: config.enableSSRFProtection ?? true,
-            blockPrivateIPs: config.blockPrivateIPs ?? true,
+            blockPrivateIPs: config.blockPrivateIPs ?? defaults.blockPrivateIPs,
+            blockLinkLocalIPs: config.blockLinkLocalIPs ?? defaults.blockLinkLocalIPs,
+            blockLoopbackIPs: config.blockLoopbackIPs ?? defaults.blockLoopbackIPs,
+            blockMetadataIPs: config.blockMetadataIPs ?? defaults.blockMetadataIPs,
+            blockDangerousPorts: config.blockDangerousPorts ?? defaults.blockDangerousPorts,
+            reResolveOnRedirect: config.reResolveOnRedirect ?? true,
+            blockRedirectToPrivateIP: config.blockRedirectToPrivateIP ?? true,
+            allowLocalhost: config.allowLocalhost ?? defaults.allowLocalhost,
             sanitizeInputs: config.sanitizeInputs ?? true,
             sanitizeOutputs: config.sanitizeOutputs ?? true,
         };
@@ -105,7 +127,7 @@ export default class SecurityManager {
             throw new NeutrxSecurityError(`Malformed URL: ${url}`, { code: 'MALFORMED_URL' });
         }
 
-        if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
+        if (!this.#config.allowedProtocols.map(protocol => `${protocol.replace(/:$/, '')}:`).includes(parsed.protocol)) {
             throw new NeutrxInjectionError('Protocol', parsed.protocol);
         }
 
@@ -121,15 +143,24 @@ export default class SecurityManager {
         return parsed;
     }
 
+    validateRedirect(fromURL: string, toURL: string): void {
+        const from = new URL(fromURL);
+        const to = new URL(toURL);
+        if (this.#config.enforceHTTPS && from.protocol === 'https:' && to.protocol === 'http:') {
+            throw new NeutrxSecurityError('Redirect protocol downgrade blocked', { code: 'REDIRECT_PROTOCOL_DOWNGRADE' });
+        }
+        if (this.#config.blockRedirectToPrivateIP && this.#config.enableSSRFProtection) {
+            this.#validateSSRF(to);
+        }
+    }
+
     validateHeader(key: string, value: Headers[string]): void {
         this.#validateHeaders({ [key]: value });
     }
 
     validateResolvedAddress(url: string, address: string): void {
-        if (!this.#config.enableSSRFProtection || !this.#config.blockPrivateIPs) return;
-        if (isPrivateOrInternalHost(address)) {
-            throw new NeutrxSSRFError(url, `Resolved private/internal address: ${address}`);
-        }
+        if (!this.#config.enableSSRFProtection) return;
+        this.#assertHostAllowed(url, address, 'Resolved private/internal address');
     }
 
     pinCertificate(hostname: string, fingerprint: string): void {
@@ -162,19 +193,21 @@ export default class SecurityManager {
     }
 
     #validateSSRF(parsed: URL): void {
-        const hostname = parsed.hostname.toLowerCase();
+        const hostname = normalizeHostname(parsed.hostname);
 
-        if (this.#config.blockPrivateIPs && isPrivateOrInternalHost(hostname)) {
-            throw new NeutrxSSRFError(parsed.href, `Private/internal address: ${hostname}`);
+        if (this.#config.allowedHosts && !this.#config.allowedHosts.some(pattern => matchesHostPattern(hostname, pattern))) {
+            throw new NeutrxSSRFError(parsed.href, `Host is not allowed: ${hostname}`);
+        }
+        if (this.#config.deniedHosts?.some(pattern => matchesHostPattern(hostname, pattern))) {
+            throw new NeutrxSSRFError(parsed.href, `Host is denied: ${hostname}`);
         }
 
-        const decoded = safeDecodeURIComponent(hostname);
-        if (decoded !== hostname && this.#config.blockPrivateIPs && isPrivateOrInternalHost(decoded)) {
-            throw new NeutrxSSRFError(parsed.href, `URL-encoded bypass attempt: ${decoded}`);
+        for (const candidate of hostCandidates(hostname)) {
+            this.#assertHostAllowed(parsed.href, candidate, 'Private/internal address');
         }
 
         const port = Number.parseInt(parsed.port, 10);
-        if (Number.isFinite(port) && DANGEROUS_PORTS.has(port)) {
+        if (this.#config.blockDangerousPorts && Number.isFinite(port) && DANGEROUS_PORTS.has(port)) {
             throw new NeutrxSSRFError(parsed.href, `Dangerous port: ${port}`);
         }
     }
@@ -203,27 +236,7 @@ export default class SecurityManager {
     }
 
     #validateHeaders(headers: Headers): void {
-        const entries = Object.entries(headers);
-        if (entries.length > MAX_HEADER_COUNT) {
-            throw new NeutrxSecurityError(`Too many headers: ${entries.length}`, { code: 'TOO_MANY_HEADERS' });
-        }
-
-        let totalSize = 0;
-        for (const [key, value] of entries) {
-            if (!/^[a-zA-Z0-9\-_]+$/.test(key)) {
-                throw new NeutrxInjectionError('Header name', key);
-            }
-
-            const rendered = Array.isArray(value) ? value.join(',') : String(value);
-            if (/[\r\n]/.test(`${key}${rendered}`)) {
-                throw new NeutrxInjectionError('CRLF header injection', key);
-            }
-
-            totalSize += key.length + rendered.length;
-            if (totalSize > MAX_HEADER_SIZE) {
-                throw new NeutrxSecurityError('Headers too large', { code: 'HEADERS_TOO_LARGE' });
-            }
-        }
+        assertHeadersSafe(headers);
     }
 
     #sanitizeBody<TBody extends RequestBody>(value: TBody): TBody {
@@ -238,7 +251,7 @@ export default class SecurityManager {
             || isBlobLike(value)
             || isFormDataLike(value)
         ) return value;
-        return this.#sanitizeJson(value) as TBody;
+        return this.#sanitizeJson(value as JsonValue) as TBody;
     }
 
     #sanitizeJson(value: JsonValue, depth = 0): JsonValue {
@@ -278,6 +291,25 @@ export default class SecurityManager {
             }
         } catch (error: unknown) {
             if (error instanceof NeutrxSecurityError) throw error;
+        }
+    }
+
+    #assertHostAllowed(url: string, hostname: string, reasonPrefix: string): void {
+        const normalized = normalizeHostname(hostname);
+        if (!isPrivateOrInternalHost(normalized)) return;
+
+        const category = hostCategory(normalized);
+        if (category === 'metadata' && this.#config.blockMetadataIPs) {
+            throw new NeutrxSSRFError(url, `${reasonPrefix}: ${normalized}`);
+        }
+        if (category === 'loopback' && (this.#config.blockLoopbackIPs || (!this.#config.allowLocalhost && this.#config.blockPrivateIPs))) {
+            throw new NeutrxSSRFError(url, `${reasonPrefix}: ${normalized}`);
+        }
+        if (category === 'link-local' && this.#config.blockLinkLocalIPs) {
+            throw new NeutrxSSRFError(url, `${reasonPrefix}: ${normalized}`);
+        }
+        if (category === 'private' && this.#config.blockPrivateIPs) {
+            throw new NeutrxSSRFError(url, `${reasonPrefix}: ${normalized}`);
         }
     }
 
@@ -333,35 +365,143 @@ function safeDecodeURIComponent(value: string): string {
     }
 }
 
+function profileDefaults(profile: NormalizedSecurityConfig['profile']): Pick<NormalizedSecurityConfig,
+    'allowedProtocols'
+    | 'enforceHTTPS'
+    | 'blockPrivateIPs'
+    | 'blockLinkLocalIPs'
+    | 'blockLoopbackIPs'
+    | 'blockMetadataIPs'
+    | 'blockDangerousPorts'
+    | 'allowLocalhost'
+> {
+    if (profile === 'strict') {
+        return {
+            allowedProtocols: ['https'],
+            enforceHTTPS: true,
+            blockPrivateIPs: true,
+            blockLinkLocalIPs: true,
+            blockLoopbackIPs: true,
+            blockMetadataIPs: true,
+            blockDangerousPorts: true,
+            allowLocalhost: false,
+        };
+    }
+    if (profile === 'development') {
+        return {
+            allowedProtocols: ['http', 'https'],
+            enforceHTTPS: false,
+            blockPrivateIPs: false,
+            blockLinkLocalIPs: false,
+            blockLoopbackIPs: false,
+            blockMetadataIPs: true,
+            blockDangerousPorts: true,
+            allowLocalhost: true,
+        };
+    }
+    return {
+        allowedProtocols: ['http', 'https'],
+        enforceHTTPS: true,
+        blockPrivateIPs: true,
+        blockLinkLocalIPs: true,
+        blockLoopbackIPs: true,
+        blockMetadataIPs: true,
+        blockDangerousPorts: true,
+        allowLocalhost: false,
+    };
+}
+
+function normalizeHostname(hostname: string): string {
+    return hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+}
+
+function hostCandidates(hostname: string): string[] {
+    const candidates = new Set<string>([normalizeHostname(hostname)]);
+    const decoded = safeDecodeURIComponent(hostname);
+    candidates.add(normalizeHostname(decoded));
+    const normalizedIPv4 = parseIPv4Variant(decoded);
+    if (normalizedIPv4) candidates.add(normalizedIPv4);
+    return [...candidates];
+}
+
 function isPrivateOrInternalHost(hostname: string): boolean {
     if (PRIVATE_HOST_PATTERNS.some(pattern => pattern.test(hostname))) return true;
 
     const ipVersion = net.isIP(hostname);
     if (ipVersion === 0) return false;
-    if (ipVersion === 4) return isPrivateIPv4(hostname);
+    if (ipVersion === 4) return hostCategory(hostname) !== 'public';
     return isPrivateIPv6(hostname);
 }
 
-function isPrivateIPv4(ip: string): boolean {
+function hostCategory(hostname: string): 'public' | 'loopback' | 'link-local' | 'metadata' | 'private' {
+    if (/^localhost$/i.test(hostname)) return 'loopback';
+    if (/^metadata\.google\.internal$/i.test(hostname)) return 'metadata';
+    const ip = parseIPv4Variant(hostname) ?? hostname;
+    if (net.isIP(ip) === 4) return ipv4Category(ip);
+    if (net.isIP(ip) === 6) {
+        const normalized = ip.toLowerCase();
+        if (normalized === '::1') return 'loopback';
+        if (normalized.startsWith('fe80:')) return 'link-local';
+        if (normalized.startsWith('fc') || normalized.startsWith('fd')) return 'private';
+    }
+    return 'public';
+}
+
+function ipv4Category(ip: string): 'public' | 'loopback' | 'link-local' | 'metadata' | 'private' {
     const parts = ip.split('.').map(part => Number.parseInt(part, 10));
-    if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+    if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return 'public';
     const a = parts[0] ?? 0;
     const b = parts[1] ?? 0;
-    return (
-        a === 0 ||
-        a === 10 ||
-        a === 127 ||
-        (a === 100 && b >= 64 && b <= 127) ||
-        (a === 169 && b === 254) ||
-        (a === 172 && b >= 16 && b <= 31) ||
-        (a === 192 && b === 168) ||
-        (a === 169 && b === 254)
-    );
+    const c = parts[2] ?? 0;
+    const d = parts[3] ?? 0;
+    if (a === 169 && b === 254 && c === 169 && d === 254) return 'metadata';
+    if (a === 127) return 'loopback';
+    if (a === 169 && b === 254) return 'link-local';
+    if (a === 0 || a === 10 || (a === 100 && b >= 64 && b <= 127) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return 'private';
+    return 'public';
 }
 
 function isPrivateIPv6(ip: string): boolean {
     const normalized = ip.toLowerCase();
     return normalized === '::1' || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe80:');
+}
+
+function parseIPv4Variant(hostname: string): string | null {
+    const raw = hostname.toLowerCase();
+    if (/^0x[0-9a-f]+$/i.test(raw) || /^\d+$/.test(raw)) {
+        const numeric = Number.parseInt(raw, raw.startsWith('0x') ? 16 : 10);
+        return numberToIPv4(numeric);
+    }
+
+    const parts = raw.split('.');
+    if (parts.length !== 4) return null;
+    const parsed = parts.map(part => {
+        if (/^0x[0-9a-f]+$/i.test(part)) return Number.parseInt(part, 16);
+        if (/^0[0-7]+$/.test(part)) return Number.parseInt(part, 8);
+        if (/^\d+$/.test(part)) return Number.parseInt(part, 10);
+        return Number.NaN;
+    });
+    if (parsed.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+    return parsed.join('.');
+}
+
+function numberToIPv4(value: number): string | null {
+    if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) return null;
+    return [
+        (value >>> 24) & 255,
+        (value >>> 16) & 255,
+        (value >>> 8) & 255,
+        value & 255,
+    ].join('.');
+}
+
+function matchesHostPattern(hostname: string, pattern: string): boolean {
+    const normalized = normalizeHostname(hostname);
+    const raw = normalizeHostname(pattern);
+    if (raw === '*') return true;
+    if (raw.startsWith('*.')) return normalized === raw.slice(2) || normalized.endsWith(raw.slice(1));
+    if (raw.startsWith('.')) return normalized === raw.slice(1) || normalized.endsWith(raw);
+    return normalized === raw;
 }
 
 function isBlobLike(value: unknown): value is Blob {

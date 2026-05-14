@@ -17,6 +17,7 @@ import type {
     ClientConfig,
     ConcurrentOptions,
     ConcurrentResult,
+    FetchCredentials,
     GraphQLResult,
     Headers,
     HttpMethod,
@@ -63,6 +64,11 @@ type BrowserMetricsSnapshot = {
     readonly byEndpoint: Record<string, never>;
     readonly errors: BrowserErrorMetrics;
     readonly summary: { readonly total: number; readonly successRate: string; readonly errorRate: string; readonly cacheRate: string; readonly avgDuration: string; readonly p99: string };
+};
+type BrowserGlobal = typeof globalThis & {
+    readonly location?: { readonly href: string; readonly origin: string };
+    readonly document?: { readonly cookie: string };
+    readonly window?: unknown;
 };
 
 class TinyEmitter {
@@ -519,12 +525,14 @@ export default class BrowserClient extends TinyEmitter {
     }
 
     async #fetch(config: InternalRequestConfig): Promise<RawHttpResponse> {
-        if (typeof globalThis.fetch !== 'function') {
+        const fetchImpl = config.fetch ?? globalThis.fetch;
+        if (typeof fetchImpl !== 'function') {
             throw new NeutrxSecurityError('Fetch adapter requires globalThis.fetch', { code: 'FETCH_UNAVAILABLE' });
         }
 
         const runtimeConfig: RuntimeRequestConfig = { ...config, headers: { ...config.headers } };
         const body = bodyless(runtimeConfig.method) ? undefined : toFetchBody(runtimeConfig);
+        injectXsrfHeader(runtimeConfig);
         const headers = toFetchHeaders(runtimeConfig.headers);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), runtimeConfig.timeout);
@@ -536,12 +544,13 @@ export default class BrowserClient extends TinyEmitter {
                 method: runtimeConfig.method,
                 headers,
                 signal: controller.signal,
+                credentials: credentialsFor(runtimeConfig.withCredentials, runtimeConfig.credentials),
                 ...(body !== undefined ? { body } : {}),
             };
 
             if (body !== undefined && isStreamLike(body)) init.duplex = 'half';
 
-            const response = await globalThis.fetch(runtimeConfig.url, init);
+            const response = await fetchImpl(runtimeConfig.url, init);
             const total = contentLength(response.headers);
             const data = runtimeConfig.responseType === 'stream'
                 ? response.body
@@ -603,6 +612,12 @@ export default class BrowserClient extends TinyEmitter {
             if (contentType) headers['Content-Type'] = contentType;
         }
 
+        const xsrfCookieName = config.xsrfCookieName !== undefined
+            ? config.xsrfCookieName
+            : this.#config.xsrfCookieName !== undefined ? this.#config.xsrfCookieName : 'XSRF-TOKEN';
+        const xsrfHeaderName = config.xsrfHeaderName !== undefined
+            ? config.xsrfHeaderName
+            : this.#config.xsrfHeaderName !== undefined ? this.#config.xsrfHeaderName : 'X-XSRF-TOKEN';
         const requestConfig = {
             ...config,
             url: this.#buildURL(config),
@@ -617,9 +632,19 @@ export default class BrowserClient extends TinyEmitter {
             responseEncoding: config.responseEncoding ?? 'utf8',
             validateStatus: config.validateStatus ?? this.#config.validateStatus,
             paramsSerializer: config.paramsSerializer ?? this.#config.paramsSerializer,
+            formSerializer: config.formSerializer ?? this.#config.formSerializer,
             transformRequest: mergeTransformRequest(this.#config.transformRequest, config.transformRequest),
             transformResponse: mergeTransformResponse(this.#config.transformResponse, config.transformResponse),
             adapter: config.adapter ?? this.#config.adapter,
+            fetch: config.fetch ?? this.#config.fetch,
+            httpVersion: config.httpVersion ?? this.#config.httpVersion,
+            http2Options: config.http2Options ?? this.#config.http2Options,
+            withCredentials: config.withCredentials ?? this.#config.withCredentials,
+            credentials: config.credentials ?? this.#config.credentials,
+            xsrfCookieName,
+            xsrfHeaderName,
+            withXSRFToken: config.withXSRFToken ?? this.#config.withXSRFToken,
+            instrumentation: config.instrumentation ?? this.#config.instrumentation,
             proxy: false,
             decompress: false,
             followRedirects: config.followRedirects !== false,
@@ -749,15 +774,34 @@ export default class BrowserClient extends TinyEmitter {
             ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
             ...(custom.headers ? { headers: custom.headers } : {}),
             ...(custom.paramsSerializer ? { paramsSerializer: custom.paramsSerializer } : {}),
+            ...(custom.formSerializer ? { formSerializer: custom.formSerializer } : {}),
             ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
             ...(custom.transformResponse ? { transformResponse: normalizeArray(custom.transformResponse) } : {}),
             adapter: custom.adapter ?? 'fetch',
+            ...(custom.fetch ? { fetch: custom.fetch } : {}),
+            ...(custom.withCredentials !== undefined ? { withCredentials: custom.withCredentials } : {}),
+            ...(custom.credentials ? { credentials: custom.credentials } : {}),
+            ...(custom.xsrfCookieName !== undefined ? { xsrfCookieName: custom.xsrfCookieName } : {}),
+            ...(custom.xsrfHeaderName !== undefined ? { xsrfHeaderName: custom.xsrfHeaderName } : {}),
+            ...(custom.withXSRFToken !== undefined ? { withXSRFToken: custom.withXSRFToken } : {}),
+            ...(custom.instrumentation ? { instrumentation: custom.instrumentation } : {}),
             proxy: false,
             security: {
+                profile: custom.security?.profile ?? 'development',
+                allowedProtocols: custom.security?.allowedProtocols ?? ['http', 'https'],
+                ...(custom.security?.allowedHosts ? { allowedHosts: custom.security.allowedHosts } : {}),
+                ...(custom.security?.deniedHosts ? { deniedHosts: custom.security.deniedHosts } : {}),
                 enforceHTTPS: custom.security?.enforceHTTPS ?? false,
                 validateCertificate: custom.security?.validateCertificate ?? true,
                 enableSSRFProtection: false,
                 blockPrivateIPs: false,
+                blockLinkLocalIPs: false,
+                blockLoopbackIPs: false,
+                blockMetadataIPs: true,
+                blockDangerousPorts: true,
+                reResolveOnRedirect: true,
+                blockRedirectToPrivateIP: true,
+                allowLocalhost: true,
                 sanitizeInputs: custom.security?.sanitizeInputs ?? true,
                 sanitizeOutputs: custom.security?.sanitizeOutputs ?? true,
                 ...(custom.security?.rateLimit ? { rateLimit: custom.security.rateLimit } : {}),
@@ -1137,6 +1181,46 @@ function toFetchHeaders(headers: Headers): globalThis.Headers {
     return next;
 }
 
+function injectXsrfHeader(config: RuntimeRequestConfig): void {
+    if (!isStandardBrowserEnvironment() || !config.xsrfCookieName || !config.xsrfHeaderName) return;
+    const shouldInject = typeof config.withXSRFToken === 'function'
+        ? config.withXSRFToken(config)
+        : config.withXSRFToken === true || (config.withXSRFToken !== false && isSameOrigin(config.url));
+    if (!shouldInject) return;
+    const token = readCookie(config.xsrfCookieName);
+    if (token) config.headers[config.xsrfHeaderName] = token;
+}
+
+function credentialsFor(withCredentials: boolean | undefined, credentials: RuntimeRequestConfig['credentials']): FetchCredentials {
+    if (credentials) return credentials;
+    if (withCredentials === true) return 'include';
+    if (withCredentials === false) return 'omit';
+    return 'same-origin';
+}
+
+function isSameOrigin(url: string): boolean {
+    try {
+        const location = (globalThis as BrowserGlobal).location;
+        if (!location) return false;
+        return new URL(url, location.href).origin === location.origin;
+    } catch {
+        return false;
+    }
+}
+
+function readCookie(name: string): string | null {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = new RegExp(`(?:^|;\\s*)${escaped}=([^;]*)`).exec((globalThis as BrowserGlobal).document?.cookie ?? '');
+    return match ? decodeURIComponent(match[1] ?? '') : null;
+}
+
+function isStandardBrowserEnvironment(): boolean {
+    const browserGlobal = globalThis as BrowserGlobal;
+    return typeof browserGlobal.window !== 'undefined'
+        && typeof browserGlobal.document !== 'undefined'
+        && typeof browserGlobal.document.cookie === 'string';
+}
+
 function fromFetchHeaders(headers: globalThis.Headers): Headers {
     const next: Headers = {};
     headers.forEach((value, key) => {
@@ -1145,12 +1229,16 @@ function fromFetchHeaders(headers: globalThis.Headers): Headers {
     return next;
 }
 
-async function readResponseData(response: Response, config: RuntimeRequestConfig, total?: number): Promise<ArrayBuffer | string> {
+async function readResponseData(response: Response, config: RuntimeRequestConfig, total?: number): Promise<RawHttpResponse['data']> {
+    if (config.responseType === 'blob' && typeof response.blob === 'function') return response.blob();
+    if (config.responseType === 'formData' && typeof response.formData === 'function') return response.formData();
+    if (config.responseType === 'stream') return response.body;
+
     if (!response.body || !config.onDownloadProgress) {
         const buffer = await response.arrayBuffer();
         if (buffer.byteLength > config.maxContentLength) throw new NeutrxResponseSizeError(buffer.byteLength, config.maxContentLength);
         reportDownloadProgress(config, buffer.byteLength, total ?? buffer.byteLength);
-        return config.responseType === 'buffer' ? buffer : decodeText(buffer, config.responseEncoding);
+        return config.responseType === 'buffer' || config.responseType === 'arrayBuffer' ? buffer : decodeText(buffer, config.responseEncoding);
     }
 
     const reader: ReadableStreamDefaultReader<Uint8Array> = response.body.getReader();
@@ -1172,12 +1260,14 @@ async function readResponseData(response: Response, config: RuntimeRequestConfig
     }
 
     const buffer = toArrayBuffer(concatChunks(chunks, loaded));
-    return config.responseType === 'buffer' ? buffer : decodeText(buffer, config.responseEncoding);
+    return config.responseType === 'buffer' || config.responseType === 'arrayBuffer' ? buffer : decodeText(buffer, config.responseEncoding);
 }
 
 function parseResponseData(data: RawHttpResponse['data'], type: ResponseType, headers: Headers, encoding: BufferEncoding): ParsedResponseData {
     if (type === 'stream') return data;
-    if (type === 'buffer') {
+    if (type === 'blob' && isBlobLike(data)) return data;
+    if (type === 'formData' && isFormDataLike(data)) return data;
+    if (type === 'buffer' || type === 'arrayBuffer') {
         if (data instanceof ArrayBuffer) return data;
         if (ArrayBuffer.isView(data)) return toArrayBuffer(data);
         if (typeof data === 'string') return stringToArrayBuffer(data);

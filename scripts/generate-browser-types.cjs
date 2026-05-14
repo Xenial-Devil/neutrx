@@ -16,13 +16,19 @@ export type Headers = Record<string, HeaderValue>;
 export type QueryValue = string | number | boolean | readonly (string | number | boolean)[] | null | undefined;
 export type QueryParams = Record<string, QueryValue>;
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
-export type ResponseType = 'json' | 'text' | 'buffer' | 'stream';
-export type RequestBody = JsonValue | string | Uint8Array | ArrayBuffer | URLSearchParams | Blob | FormData | ReadableStream<Uint8Array>;
-export type ParsedResponseData = JsonValue | string | Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | null;
+export type ResponseType = 'json' | 'text' | 'buffer' | 'arrayBuffer' | 'blob' | 'formData' | 'stream';
+export type RequestObjectBody = Record<string, unknown>;
+export type ResponseObjectData = Record<string, unknown>;
+export type RequestBody = JsonValue | RequestObjectBody | string | Uint8Array | ArrayBuffer | URLSearchParams | Blob | FormData | ReadableStream<Uint8Array>;
+export type ParsedResponseData = JsonValue | ResponseObjectData | string | Uint8Array | ArrayBuffer | Blob | FormData | ReadableStream<Uint8Array> | null;
 export type ProgressEvent = { readonly loaded: number; readonly total?: number; readonly percent?: number };
+export type FetchCredentials = 'include' | 'omit' | 'same-origin';
+export type FetchImplementation = typeof fetch;
+export type BufferEncoding = string;
 export type ParamsSerializer =
   | ((params: QueryParams) => string)
   | { readonly encode?: (value: string) => string; readonly serialize?: (params: QueryParams) => string; readonly indexes?: boolean | null };
+export interface FormSerializerOptions { readonly dots?: boolean; readonly indexes?: boolean | null; readonly metaTokens?: boolean; readonly maxDepth?: number }
 export type TransformRequest = (data: RequestBody | undefined, headers: Headers) => RequestBody | undefined;
 export type TransformResponse = (data: ParsedResponseData, headers: Headers, status: number) => ParsedResponseData;
 export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse | Promise<RawHttpResponse>;
@@ -30,10 +36,21 @@ export type RequestAdapterName = 'fetch';
 export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
 
 export interface SecurityConfig {
+  readonly profile?: 'strict' | 'balanced' | 'development';
+  readonly allowedHosts?: readonly string[];
+  readonly deniedHosts?: readonly string[];
+  readonly allowedProtocols?: readonly string[];
   readonly enforceHTTPS?: boolean;
   readonly validateCertificate?: boolean;
   readonly enableSSRFProtection?: boolean;
   readonly blockPrivateIPs?: boolean;
+  readonly blockLinkLocalIPs?: boolean;
+  readonly blockLoopbackIPs?: boolean;
+  readonly blockMetadataIPs?: boolean;
+  readonly blockDangerousPorts?: boolean;
+  readonly reResolveOnRedirect?: boolean;
+  readonly blockRedirectToPrivateIP?: boolean;
+  readonly allowLocalhost?: boolean;
   readonly sanitizeInputs?: boolean;
   readonly sanitizeOutputs?: boolean;
 }
@@ -67,6 +84,9 @@ export interface PerformanceConfig {
   readonly respectCacheHeaders?: boolean;
 }
 
+export interface Http2Options { readonly sessionTimeout?: number; readonly rejectUnauthorized?: boolean; readonly maxSessions?: number }
+export interface InstrumentationConfig { readonly openTelemetry?: boolean; readonly tracerName?: string; readonly propagateTraceHeaders?: boolean; readonly recordRequestBodySize?: boolean; readonly recordResponseBodySize?: boolean }
+
 export interface ClientConfig {
   readonly baseURL?: string;
   readonly timeout?: number;
@@ -77,9 +97,19 @@ export interface ClientConfig {
   readonly headers?: Headers;
   readonly validateStatus?: (status: number) => boolean;
   readonly paramsSerializer?: ParamsSerializer;
+  readonly formSerializer?: FormSerializerOptions;
   readonly transformRequest?: TransformRequest | readonly TransformRequest[];
   readonly transformResponse?: TransformResponse | readonly TransformResponse[];
   readonly adapter?: RequestAdapterConfig;
+  readonly fetch?: FetchImplementation;
+  readonly httpVersion?: 1 | 2 | '1.1' | '2';
+  readonly http2Options?: Http2Options;
+  readonly withCredentials?: boolean;
+  readonly credentials?: FetchCredentials;
+  readonly xsrfCookieName?: string | null;
+  readonly xsrfHeaderName?: string | null;
+  readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
+  readonly instrumentation?: InstrumentationConfig;
   readonly decompress?: boolean;
   readonly security?: SecurityConfig;
   readonly resilience?: ResilienceConfig;
@@ -101,9 +131,19 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
   readonly responseType?: ResponseType;
   readonly validateStatus?: (status: number) => boolean;
   readonly paramsSerializer?: ParamsSerializer;
+  readonly formSerializer?: FormSerializerOptions;
   readonly transformRequest?: TransformRequest | readonly TransformRequest[];
   readonly transformResponse?: TransformResponse | readonly TransformResponse[];
   readonly adapter?: RequestAdapterConfig;
+  readonly fetch?: FetchImplementation;
+  readonly httpVersion?: 1 | 2 | '1.1' | '2';
+  readonly http2Options?: Http2Options;
+  readonly withCredentials?: boolean;
+  readonly credentials?: FetchCredentials;
+  readonly xsrfCookieName?: string | null;
+  readonly xsrfHeaderName?: string | null;
+  readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
+  readonly instrumentation?: InstrumentationConfig;
   readonly followRedirects?: boolean;
   readonly cache?: boolean;
   readonly signal?: AbortSignal;
@@ -122,8 +162,19 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
   readonly maxContentLength: number;
   readonly maxBodyLength: number;
   readonly responseType: ResponseType;
+  readonly responseEncoding?: BufferEncoding;
   readonly validateStatus: (status: number) => boolean;
+  readonly formSerializer?: FormSerializerOptions;
   readonly adapter?: RequestAdapterConfig;
+  readonly fetch?: FetchImplementation;
+  readonly httpVersion?: 1 | 2 | '1.1' | '2';
+  readonly http2Options?: Http2Options;
+  readonly withCredentials?: boolean;
+  readonly credentials?: FetchCredentials;
+  readonly xsrfCookieName?: string | null;
+  readonly xsrfHeaderName?: string | null;
+  readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
+  readonly instrumentation?: InstrumentationConfig;
   readonly decompress: boolean;
   readonly followRedirects: boolean;
   readonly requestId: string;
@@ -136,7 +187,7 @@ export interface RawHttpResponse {
   readonly status: number;
   readonly statusText: string;
   readonly headers: Headers;
-  readonly data: string | Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | null;
+  readonly data: string | Uint8Array | ArrayBuffer | Blob | FormData | ReadableStream<Uint8Array> | null;
   readonly config: InternalRequestConfig;
 }
 
@@ -169,6 +220,27 @@ export interface AuthConfig { readonly bearer?: string; readonly basic?: { reado
 export interface CacheStats { readonly hits: number; readonly misses: number; readonly evictions: number; readonly sets: number; readonly size: number; readonly maxSize: number; readonly hitRate: string }
 export interface CircuitStatus { readonly state: 'CLOSED' | 'OPEN' | 'HALF_OPEN'; readonly failures?: number; readonly successCount?: number; readonly active?: number; readonly openedAt?: number | null; readonly lastFailure?: number | null }
 export interface BulkheadStats { readonly domains: Record<string, { readonly active: number; readonly queued: number }> }
+export class NeutrxHeaders {
+  constructor(init?: Headers | NeutrxHeaders | Iterable<readonly [string, HeaderValue | string]>);
+  static from(init?: Headers | NeutrxHeaders | Iterable<readonly [string, HeaderValue | string]>): NeutrxHeaders;
+  static concat(...sources: readonly (Headers | NeutrxHeaders | Iterable<readonly [string, HeaderValue | string]> | undefined)[]): NeutrxHeaders;
+  set(name: string, value: HeaderValue): this;
+  get(name: string): HeaderValue | undefined;
+  has(name: string): boolean;
+  delete(name: string): boolean;
+  clear(): this;
+  normalize(): this;
+  concat(...sources: readonly (Headers | NeutrxHeaders | Iterable<readonly [string, HeaderValue | string]> | undefined)[]): NeutrxHeaders;
+  toJSON(): Headers;
+  getSetCookie(): string[];
+  setContentType(value: string): this;
+  getContentType(): string | undefined;
+  setAccept(value: string): this;
+  setAuthorization(value: string): this;
+  setBearerAuth(token: string): this;
+  removeAuthorization(): this;
+  redactSensitive(redaction?: string): Headers;
+}
 export interface AxiosInterceptorManager<TValue> { use(onFulfilled?: (value: TValue) => TValue | Promise<TValue>, onRejected?: (error: Error) => TValue | Error | Promise<TValue | Error>, options?: { readonly synchronous?: boolean; readonly runWhen?: (config: InternalRequestConfig) => boolean }): number; eject(id: number): void; clear(): void }
 export interface AxiosInterceptors { readonly request: AxiosInterceptorManager<InternalRequestConfig>; readonly response: AxiosInterceptorManager<NeutrxResponse> }
 export interface NeutrxPlugin { readonly name: string; readonly version?: string; install?(client: NeutrxInstance, api: { addHook(name: 'beforeRequest', fn: (context: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>): void; addHook(name: 'afterRequest', fn: (context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>): void; addHook(name: 'onError', fn: (context: Error) => Error | Promise<Error>): void; addInterceptor: NeutrxInstance['useRequest'] }): void; uninstall?(client: NeutrxInstance): void }

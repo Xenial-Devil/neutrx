@@ -1,11 +1,8 @@
-import http, { type ClientRequest, type IncomingHttpHeaders, type IncomingMessage, type RequestOptions } from 'node:http';
+import http, { type ClientRequest, type IncomingMessage, type RequestOptions } from 'node:http';
 import https from 'node:https';
-import { lookup as dnsLookup } from 'node:dns/promises';
-import net from 'node:net';
 import type { PeerCertificate } from 'node:tls';
 import { Readable } from 'node:stream';
-import zlib from 'node:zlib';
-import { promisify } from 'node:util';
+import type { Duplex } from 'node:stream';
 import { EventEmitter } from 'node:events';
 
 import SecurityManager from '../security/SecurityManager.js';
@@ -19,6 +16,8 @@ import MetricsCollector from '../monitoring/MetricsCollector.js';
 import type { MetricsSnapshot } from '../monitoring/MetricsCollector.js';
 import { PluginManager, type NeutrxPlugin } from '../plugins/PluginManager.js';
 import { fetchAdapter } from '../adapters/fetch.js';
+import { http2Adapter, closeHttp2Sessions } from '../adapters/http2.js';
+import { OpenTelemetryInstrumentation } from '../monitoring/OpenTelemetryInstrumentation.js';
 
 import {
     NeutrxConnectTimeoutError,
@@ -29,6 +28,24 @@ import {
     NeutrxSecurityError,
     NeutrxResponseTimeoutError,
 } from './NeutrxError.js';
+import {
+    applyRequestTransforms,
+    applyResponseTransforms,
+    buildConfig,
+    buildURL,
+    detectAdapter,
+    mergeConfig,
+    mergeTransformRequest,
+    mergeTransformResponse,
+    normalizeMethod,
+} from './config.js';
+import { detectContentType, serializeBody } from './bodySerializer.js';
+import { createHttpsProxyConnection, directRequestTarget, proxyRequestTarget, resolveProxy } from './proxy.js';
+import { createLookup, validateProxyTarget } from './dns.js';
+import { NeutrxHeaders, getContentLength, hasHeader, normalizeIncomingHeaders, setHeader, toOutgoingHeaders } from './headers.js';
+import { attachStreamDownloadProgress, reportDownloadProgress, reportUploadProgress, toUploadBuffer } from './progress.js';
+import { REDIRECT_CODES, buildRedirectContext, shouldRedirectWithGet, stripRedirectHeaders, withoutBody } from './redirect.js';
+import { decompressResponseData, normalizeNodeResponseData, parseResponseData } from './responseParser.js';
 import type {
     AuthConfig,
     BulkheadStats,
@@ -39,11 +56,8 @@ import type {
     ConcurrentResult,
     GraphQLResult,
     Headers,
-    HeaderValue,
-    HttpMethod,
     InternalRequestConfig,
     JsonValue,
-    LookupFunction,
     MockController,
     NeutrxResponse,
     NormalizedClientConfig,
@@ -51,22 +65,11 @@ import type {
     PaginationOptions,
     PaginationPage,
     ParsedResponseData,
-    ProxyConfig,
-    QueryValue,
-    QueryParams,
     RawHttpResponse,
     RequestBody,
     RequestConfig,
-    RequestAdapterName,
-    ResponseType,
-    TransformRequest,
-    TransformResponse,
     SseHandle,
 } from '../types.js';
-
-const gunzip = promisify(zlib.gunzip);
-const inflate = promisify(zlib.inflate);
-const brotliDecompress = promisify(zlib.brotliDecompress);
 
 const SECURE_CIPHERS = [
     'TLS_AES_256_GCM_SHA384',
@@ -76,14 +79,9 @@ const SECURE_CIPHERS = [
     'ECDHE-RSA-AES128-GCM-SHA256',
 ].join(':');
 
-const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
-
 type BodylessRequestConfig = Omit<RequestConfig, 'url' | 'method' | 'data'>;
 type BodyRequestConfig<TBody extends RequestBody> = Omit<RequestConfig<TBody>, 'url' | 'method' | 'data'>;
-type ResolvedAddress = { readonly address: string; readonly family: number };
 type RuntimeRequestConfig = InternalRequestConfig & { headers: Headers };
-type SerializedBody = string | Buffer | Readable | null;
-type NormalizedProxyConfig = Required<Pick<ProxyConfig, 'protocol' | 'host'>> & Pick<ProxyConfig, 'port' | 'auth' | 'headers'>;
 
 export default class NeutrxClient extends EventEmitter {
     configureOAuth2?: (config: OAuth2Config) => void;
@@ -106,12 +104,13 @@ export default class NeutrxClient extends EventEmitter {
     #metrics: MetricsCollector;
     #rateLimiter: RateLimiter;
     #plugins: PluginManager;
+    #otel: OpenTelemetryInstrumentation;
     #defaultHeaders: Headers;
     #agents: { http: http.Agent; https: https.Agent };
 
     constructor(config: ClientConfig = {}) {
         super();
-        this.#config = this.#buildConfig(config);
+        this.#config = buildConfig(config);
         this.#security = new SecurityManager(this.#config.security);
         this.#interceptors = new InterceptorChain();
         this.#circuitBreaker = new CircuitBreaker(this.#config.resilience);
@@ -121,6 +120,7 @@ export default class NeutrxClient extends EventEmitter {
         this.#metrics = new MetricsCollector();
         this.#rateLimiter = new RateLimiter(this.#config.security.rateLimit ?? {});
         this.#plugins = new PluginManager(this);
+        this.#otel = new OpenTelemetryInstrumentation();
         this.#defaultHeaders = this.#buildDefaultHeaders();
         this.#agents = this.#setupAgents();
         this.interceptors = this.#interceptors.managers();
@@ -315,10 +315,16 @@ export default class NeutrxClient extends EventEmitter {
         const t0 = Date.now();
         let trackedUrl = config.url;
         let circuitChecked = false;
+        let span: Awaited<ReturnType<OpenTelemetryInstrumentation['start']>>['span'] = null;
 
         try {
             let rc: InternalRequestConfig = this.#buildRC(config, requestId);
             trackedUrl = rc.url;
+            const telemetry = await this.#otel.start(rc);
+            span = telemetry.span;
+            if (Object.keys(telemetry.carrier).length > 0) {
+                rc = { ...rc, headers: NeutrxHeaders.from(rc.headers).concat(telemetry.carrier).toJSON() };
+            }
 
             rc = await this.#plugins.runHook('beforeRequest', rc);
             if (rc.mockResponse) return rc.mockResponse as NeutrxResponse<TData>;
@@ -331,6 +337,7 @@ export default class NeutrxClient extends EventEmitter {
                 if (hit) {
                     this.#metrics.recordCacheHit(rc.url);
                     this.emit('cache:hit', { requestId, url: rc.url });
+                    this.#otel.finish(span, hit as NeutrxResponse<TData>, { retries: 0, cacheHit: true });
                     return hit as NeutrxResponse<TData>;
                 }
             }
@@ -370,11 +377,13 @@ export default class NeutrxClient extends EventEmitter {
                 attempts: attempts.length,
             });
 
+            this.#otel.finish(span, next as NeutrxResponse<TData>, { retries: Math.max(0, attempts.length - 1), cacheHit: false });
             return next as NeutrxResponse<TData>;
         } catch (error: unknown) {
             const normalized = normalizeError(error) as Error & { requestId?: string; duration?: number; code?: string };
             normalized.requestId = requestId;
             normalized.duration = Date.now() - t0;
+            this.#otel.fail(span, normalized);
 
             this.#metrics.recordError(trackedUrl, normalized);
             if (circuitChecked) this.#circuitBreaker.recordFailure(trackedUrl);
@@ -400,7 +409,7 @@ export default class NeutrxClient extends EventEmitter {
     }
 
     clearAuth(): this {
-        delete this.#defaultHeaders.Authorization;
+        this.#defaultHeaders = NeutrxHeaders.from(this.#defaultHeaders).removeAuthorization().toJSON();
         return this;
     }
 
@@ -416,23 +425,27 @@ export default class NeutrxClient extends EventEmitter {
 
     setHeader(key: string, value: Headers[string]): this {
         this.#security.validateHeader(key, value);
-        this.#defaultHeaders[key] = value;
+        this.#defaultHeaders = NeutrxHeaders.from(this.#defaultHeaders).set(key, value).toJSON();
         return this;
     }
 
     removeHeader(key: string): this {
-        delete this.#defaultHeaders[key];
+        const headers = NeutrxHeaders.from(this.#defaultHeaders);
+        headers.delete(key);
+        this.#defaultHeaders = headers.toJSON();
         return this;
     }
 
     setAuth(auth: AuthConfig): this {
+        const headers = NeutrxHeaders.from(this.#defaultHeaders);
         if (auth.bearer) {
-            this.#defaultHeaders.Authorization = `Bearer ${auth.bearer}`;
+            headers.setBearerAuth(auth.bearer);
         } else if (auth.basic) {
-            this.#defaultHeaders.Authorization = `Basic ${Buffer.from(`${auth.basic.username}:${auth.basic.password}`).toString('base64')}`;
+            headers.setAuthorization(`Basic ${Buffer.from(`${auth.basic.username}:${auth.basic.password}`).toString('base64')}`);
         } else if (auth.apiKey) {
-            this.#defaultHeaders[auth.apiKey.header ?? 'X-Api-Key'] = auth.apiKey.key;
+            headers.set(auth.apiKey.header ?? 'X-Api-Key', auth.apiKey.key);
         }
+        this.#defaultHeaders = headers.toJSON();
         return this;
     }
 
@@ -507,7 +520,7 @@ export default class NeutrxClient extends EventEmitter {
     }
 
     getUri(config: string | RequestConfig): string {
-        return this.#buildURL(typeof config === 'string' ? { url: config } : config);
+        return buildURL(typeof config === 'string' ? { url: config } : config, this.#config);
     }
 
     create(config: ClientConfig = {}): NeutrxClient {
@@ -517,16 +530,18 @@ export default class NeutrxClient extends EventEmitter {
     destroy(): void {
         this.#agents.http.destroy();
         this.#agents.https.destroy();
+        closeHttp2Sessions();
         this.#cache.destroy();
         this.#metrics.destroy();
         this.removeAllListeners();
     }
 
     async #dispatch(config: InternalRequestConfig): Promise<RawHttpResponse> {
-        const adapter = config.adapter ?? this.#config.adapter ?? detectAdapter();
+        const adapter = config.adapter ?? this.#config.adapter ?? detectAdapter(config);
         const selectedAdapter: unknown = adapter;
         if (typeof adapter === 'function') return adapter(config);
         if (adapter === 'fetch') return fetchAdapter(config);
+        if (adapter === 'http2') return http2Adapter(config);
         if (adapter !== 'http') throw new NeutrxSecurityError(`Unknown adapter: ${String(selectedAdapter)}`, { code: 'UNKNOWN_ADAPTER' });
         return this.#http(config);
     }
@@ -534,23 +549,23 @@ export default class NeutrxClient extends EventEmitter {
     async #http(config: InternalRequestConfig): Promise<RawHttpResponse> {
         const runtimeConfig: RuntimeRequestConfig = { ...config, headers: { ...config.headers } };
         const url = new URL(runtimeConfig.url);
-        const body = runtimeConfig.data === undefined ? null : await this.#serialize(runtimeConfig);
+        const body = runtimeConfig.data === undefined ? null : await serializeBody(runtimeConfig);
         if (body !== null && !(body instanceof Readable) && !hasHeader(runtimeConfig.headers, 'Content-Length')) {
             setHeader(runtimeConfig.headers, 'Content-Length', Buffer.byteLength(body));
         }
 
-        const proxy = resolveProxy(runtimeConfig.proxy ?? this.#config.proxy);
+        const proxy = resolveProxy(runtimeConfig.proxy ?? this.#config.proxy, url);
         if (runtimeConfig.socketPath && proxy) {
             throw new NeutrxSecurityError('socketPath cannot be combined with proxy', { code: 'SOCKET_PROXY_CONFLICT' });
         }
-        if (proxy) await this.#validateProxyTarget(url, runtimeConfig);
+        if (proxy) await validateProxyTarget(url, runtimeConfig, this.#security);
         const requestTarget = proxy ? proxyRequestTarget(url, runtimeConfig.headers, proxy) : directRequestTarget(url, runtimeConfig.headers);
         for (const [key, value] of Object.entries(requestTarget.headers)) {
             this.#security.validateHeader(key, value);
         }
         const lookup = runtimeConfig.socketPath
             ? undefined
-            : await this.#createLookup(requestTarget.url, runtimeConfig, requestTarget.isProxied);
+            : await createLookup(requestTarget.url, runtimeConfig, this.#security, this.#config.lookup, requestTarget.isProxied && !requestTarget.tunnel);
 
         return new Promise((resolve, reject) => {
             const isHTTPS = requestTarget.url.protocol === 'https:';
@@ -576,11 +591,23 @@ export default class NeutrxClient extends EventEmitter {
                     : {
                         hostname: requestTarget.url.hostname,
                         port: requestTarget.url.port || (isHTTPS ? 443 : 80),
-                        agent: isHTTPS
+                        agent: requestTarget.tunnel
+                            ? false
+                            : isHTTPS
                             ? runtimeConfig.httpsAgent ?? this.#config.httpsAgent ?? this.#agents.https
                             : runtimeConfig.httpAgent ?? this.#config.httpAgent ?? this.#agents.http,
                     }),
                 ...(lookup ? { lookup } : {}),
+                ...(requestTarget.tunnel
+                    ? {
+                        createConnection: (_options: RequestOptions, callback: (error: Error | null, socket: Duplex) => void): Duplex | null | undefined => createHttpsProxyConnection(
+                            requestTarget.tunnel!,
+                            runtimeConfig.connectTimeout,
+                            this.#config.security.validateCertificate,
+                            callback
+                        ),
+                    }
+                    : {}),
                 ...(isHTTPS
                     ? {
                         rejectUnauthorized: this.#config.security.validateCertificate,
@@ -607,9 +634,14 @@ export default class NeutrxClient extends EventEmitter {
 
             req.on('socket', socket => {
                 clearTimeout(connectTimer);
-                socket.setTimeout(runtimeConfig.timeout, () => {
+                const onTimeout = (): void => {
                     req.destroy();
                     fail(new NeutrxResponseTimeoutError(runtimeConfig.url, runtimeConfig.timeout));
+                };
+                socket.setTimeout(runtimeConfig.timeout);
+                socket.once('timeout', onTimeout);
+                req.once('close', () => {
+                    socket.off('timeout', onTimeout);
                 });
             });
 
@@ -647,30 +679,6 @@ export default class NeutrxClient extends EventEmitter {
         });
     }
 
-    async #validateProxyTarget(url: URL, config: InternalRequestConfig): Promise<void> {
-        if (net.isIP(url.hostname)) return;
-        const records = await dnsLookup(url.hostname, { all: true, verbatim: true });
-        for (const record of records) {
-            this.#security.validateResolvedAddress(config.url, record.address);
-        }
-    }
-
-    async #createLookup(url: URL, config: InternalRequestConfig, isProxy = false): Promise<LookupFunction | undefined> {
-        const customLookup = config.lookup ?? this.#config.lookup;
-        if (customLookup) return wrapLookup(customLookup, this.#security, config.url, isProxy);
-
-        if (net.isIP(url.hostname)) return undefined;
-
-        const records = await dnsLookup(url.hostname, { all: true, verbatim: true });
-        if (!isProxy) {
-            for (const record of records) {
-                this.#security.validateResolvedAddress(config.url, record.address);
-            }
-        }
-
-        return createPinnedLookup(records);
-    }
-
     async #handleHttpResponse(response: IncomingMessage, config: InternalRequestConfig, maxSize: number): Promise<RawHttpResponse> {
         if (response.statusCode && REDIRECT_CODES.has(response.statusCode) && config.followRedirects) {
             const hops = config.hops + 1;
@@ -680,6 +688,7 @@ export default class NeutrxClient extends EventEmitter {
             if (!location) throw new Error('Redirect response missing Location header');
             const redirectUrl = new URL(location, config.url).href;
             this.#security.validateURL(redirectUrl);
+            this.#security.validateRedirect(config.url, redirectUrl);
 
             response.resume();
 
@@ -689,13 +698,7 @@ export default class NeutrxClient extends EventEmitter {
                 ? withoutBody({ ...config, url: redirectUrl, method: redirectedMethod, headers, hops })
                 : { ...config, url: redirectUrl, method: redirectedMethod, headers, hops };
 
-            await config.beforeRedirect?.({
-                statusCode: response.statusCode,
-                location,
-                fromURL: config.url,
-                toURL: redirectUrl,
-                headers: redirectedConfig.headers,
-            });
+            await config.beforeRedirect?.(buildRedirectContext(response.statusCode, location, config.url, redirectUrl, redirectedConfig.headers));
 
             return this.#http(redirectedConfig);
         }
@@ -736,18 +739,8 @@ export default class NeutrxClient extends EventEmitter {
     }
 
     async #parse<TData extends ParsedResponseData>(raw: RawHttpResponse, config: InternalRequestConfig): Promise<NeutrxResponse<TData>> {
-        let data: Buffer | IncomingMessage = normalizeNodeResponseData(raw.data);
-
-        if (config.decompress && Buffer.isBuffer(data)) {
-            const encoding = headerToString(raw.headers['content-encoding']);
-            try {
-                if (encoding.includes('br')) data = await brotliDecompress(data);
-                else if (encoding.includes('gzip')) data = await gunzip(data);
-                else if (encoding.includes('deflate')) data = await inflate(data);
-            } catch {
-                // Keep raw body if server declares bad compression.
-            }
-        }
+        let data = normalizeNodeResponseData(raw.data);
+        if (Buffer.isBuffer(data) || isIncomingMessageLike(data)) data = await decompressResponseData(data, raw.headers, config.decompress);
 
         const parsed = parseResponseData(data, config.responseType, raw.headers, config.responseEncoding) as TData;
         const response: NeutrxResponse<TData> = {
@@ -770,6 +763,12 @@ export default class NeutrxClient extends EventEmitter {
     #buildRC<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): InternalRequestConfig<TBody> {
         const method = normalizeMethod(config.method ?? 'GET');
         const headers = this.#buildHeaders(config, requestId);
+        const xsrfCookieName = config.xsrfCookieName !== undefined
+            ? config.xsrfCookieName
+            : this.#config.xsrfCookieName !== undefined ? this.#config.xsrfCookieName : 'XSRF-TOKEN';
+        const xsrfHeaderName = config.xsrfHeaderName !== undefined
+            ? config.xsrfHeaderName
+            : this.#config.xsrfHeaderName !== undefined ? this.#config.xsrfHeaderName : 'X-XSRF-TOKEN';
         const transformedData = applyRequestTransforms(
             config.data,
             headers,
@@ -777,13 +776,13 @@ export default class NeutrxClient extends EventEmitter {
         );
 
         if (transformedData !== undefined && !hasHeader(headers, 'Content-Type')) {
-            const contentType = this.#detectContentType(transformedData);
+            const contentType = detectContentType(transformedData);
             if (contentType) headers['Content-Type'] = contentType;
         }
 
         const requestConfig = {
             ...config,
-            url: this.#buildURL(config),
+            url: buildURL(config, this.#config),
             method,
             headers,
             timeout: config.timeout ?? this.#config.timeout,
@@ -795,9 +794,19 @@ export default class NeutrxClient extends EventEmitter {
             responseEncoding: config.responseEncoding ?? 'utf8',
             validateStatus: config.validateStatus ?? this.#config.validateStatus,
             paramsSerializer: config.paramsSerializer ?? this.#config.paramsSerializer,
+            formSerializer: config.formSerializer ?? this.#config.formSerializer,
             transformRequest: mergeTransformRequest(this.#config.transformRequest, config.transformRequest),
             transformResponse: mergeTransformResponse(this.#config.transformResponse, config.transformResponse),
             adapter: config.adapter ?? this.#config.adapter,
+            fetch: config.fetch ?? this.#config.fetch,
+            httpVersion: config.httpVersion ?? this.#config.httpVersion,
+            http2Options: config.http2Options ?? this.#config.http2Options,
+            withCredentials: config.withCredentials ?? this.#config.withCredentials,
+            credentials: config.credentials ?? this.#config.credentials,
+            xsrfCookieName,
+            xsrfHeaderName,
+            withXSRFToken: config.withXSRFToken ?? this.#config.withXSRFToken,
+            instrumentation: config.instrumentation ?? this.#config.instrumentation,
             proxy: config.proxy ?? this.#config.proxy,
             httpAgent: config.httpAgent ?? this.#config.httpAgent,
             httpsAgent: config.httpsAgent ?? this.#config.httpsAgent,
@@ -819,36 +828,10 @@ export default class NeutrxClient extends EventEmitter {
         return requestConfig as InternalRequestConfig<TBody>;
     }
 
-    #buildURL(config: RequestConfig): string {
-        let url = config.url;
-        if (!/^https?:\/\//i.test(url)) {
-            const hasSocketPath = Boolean(config.socketPath ?? this.#config.socketPath);
-            const base = config.baseURL ?? this.#config.baseURL ?? (hasSocketPath ? 'http://unix' : '');
-            url = `${base.endsWith('/') ? base.slice(0, -1) : base}${url.startsWith('/') ? url : `/${url}`}`;
-        }
-
-        if (config.params && Object.keys(config.params).length > 0) {
-            const parsed = new URL(url);
-            const serializer = config.paramsSerializer ?? this.#config.paramsSerializer;
-            const serialized = serializeParams(config.params, serializer);
-            if (serialized) {
-                parsed.search = serialized.startsWith('?') ? serialized.slice(1) : serialized;
-            }
-            url = parsed.toString();
-        }
-
-        return url;
-    }
-
     #buildHeaders<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): Headers {
-        const headers: Headers = {
-            ...this.#defaultHeaders,
-            ...(this.#config.headers ?? {}),
-            ...(config.headers ?? {}),
-            'X-Request-ID': requestId,
-        };
-
-        return headers;
+        return NeutrxHeaders
+            .concat(this.#defaultHeaders, this.#config.headers, config.headers, { 'X-Request-ID': requestId })
+            .toJSON();
     }
 
     #buildDefaultHeaders(): Headers {
@@ -858,34 +841,6 @@ export default class NeutrxClient extends EventEmitter {
             'Accept-Encoding': 'gzip, deflate, br',
             Connection: 'keep-alive',
         };
-    }
-
-    #detectContentType(data: RequestBody): string | undefined {
-        if (typeof data === 'string') return 'text/plain';
-        if (isFormDataLike(data)) return undefined;
-        if (isBlobLike(data)) return data.type || 'application/octet-stream';
-        if (Buffer.isBuffer(data) || data instanceof Readable || data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return 'application/octet-stream';
-        if (data instanceof URLSearchParams) return 'application/x-www-form-urlencoded';
-        return 'application/json';
-    }
-
-    async #serialize(config: RuntimeRequestConfig): Promise<SerializedBody> {
-        const data = config.data;
-        if (data === undefined) return null;
-        if (typeof data === 'string' || Buffer.isBuffer(data)) return data;
-        if (data instanceof ArrayBuffer) return Buffer.from(data);
-        if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-        if (data instanceof Readable) return data;
-        if (data instanceof URLSearchParams) return data.toString();
-        if (isBlobLike(data)) return Buffer.from(await data.arrayBuffer());
-        if (isFormDataLike(data)) return serializeMultipart(data, config.headers);
-
-        const contentType = headerToString(config.headers['Content-Type'] ?? config.headers['content-type']);
-        if (contentType.includes('application/x-www-form-urlencoded') && isFormRecord(data)) {
-            return new URLSearchParams(toFormEntries(data)).toString();
-        }
-
-        return JSON.stringify(data);
     }
 
     #writeStreamBody(req: ClientRequest, body: Readable, config: InternalRequestConfig, fail: (error: Error) => void): void {
@@ -933,65 +888,6 @@ export default class NeutrxClient extends EventEmitter {
         };
     }
 
-    #buildConfig(custom: ClientConfig): NormalizedClientConfig {
-        return {
-            timeout: custom.timeout ?? 30_000,
-            connectTimeout: custom.connectTimeout ?? 10_000,
-            maxRedirects: custom.maxRedirects ?? 5,
-            maxContentLength: custom.maxContentLength ?? 52_428_800,
-            maxBodyLength: custom.maxBodyLength ?? Number.POSITIVE_INFINITY,
-            validateStatus: custom.validateStatus ?? ((status: number): boolean => status >= 200 && status < 300),
-            ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
-            ...(custom.headers ? { headers: custom.headers } : {}),
-            ...(custom.paramsSerializer ? { paramsSerializer: custom.paramsSerializer } : {}),
-            ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
-            ...(custom.transformResponse ? { transformResponse: normalizeArray(custom.transformResponse) } : {}),
-            ...(custom.adapter ? { adapter: custom.adapter } : {}),
-            ...(custom.proxy !== undefined ? { proxy: custom.proxy } : {}),
-            ...(custom.httpAgent ? { httpAgent: custom.httpAgent } : {}),
-            ...(custom.httpsAgent ? { httpsAgent: custom.httpsAgent } : {}),
-            ...(custom.lookup ? { lookup: custom.lookup } : {}),
-            ...(custom.socketPath ? { socketPath: custom.socketPath } : {}),
-            decompress: custom.decompress ?? true,
-            security: {
-                enforceHTTPS: custom.security?.enforceHTTPS ?? true,
-                validateCertificate: custom.security?.validateCertificate ?? true,
-                enableSSRFProtection: custom.security?.enableSSRFProtection ?? true,
-                blockPrivateIPs: custom.security?.blockPrivateIPs ?? true,
-                sanitizeInputs: custom.security?.sanitizeInputs ?? true,
-                sanitizeOutputs: custom.security?.sanitizeOutputs ?? true,
-                ...(custom.security?.rateLimit ? { rateLimit: custom.security.rateLimit } : {}),
-            },
-            resilience: {
-                enableCircuitBreaker: custom.resilience?.enableCircuitBreaker ?? true,
-                failureThreshold: custom.resilience?.failureThreshold ?? 5,
-                successThreshold: custom.resilience?.successThreshold ?? 2,
-                circuitTimeout: custom.resilience?.circuitTimeout ?? 60_000,
-                enableRetry: custom.resilience?.enableRetry ?? true,
-                maxRetries: custom.resilience?.maxRetries ?? 3,
-                retryStrategy: custom.resilience?.retryStrategy ?? 'exponential',
-                retryDelay: custom.resilience?.retryDelay ?? 1000,
-                maxRetryDelay: custom.resilience?.maxRetryDelay ?? 30_000,
-                retryJitter: custom.resilience?.retryJitter ?? true,
-                retryableStatuses: custom.resilience?.retryableStatuses ?? [408, 429, 500, 502, 503, 504],
-                retryableCodes: custom.resilience?.retryableCodes ?? ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENETUNREACH'],
-                enableBulkhead: custom.resilience?.enableBulkhead ?? true,
-                maxConcurrent: custom.resilience?.maxConcurrent ?? 10,
-                maxQueue: custom.resilience?.maxQueue ?? 100,
-                bulkheadQueueTimeout: custom.resilience?.bulkheadQueueTimeout ?? 30_000,
-                ...(custom.resilience?.shouldRetry ? { shouldRetry: custom.resilience.shouldRetry } : {}),
-                ...(custom.resilience?.onRetry ? { onRetry: custom.resilience.onRetry } : {}),
-            },
-            performance: {
-                enableCaching: custom.performance?.enableCaching ?? true,
-                cacheMaxSize: custom.performance?.cacheMaxSize ?? 500,
-                cacheTTL: custom.performance?.cacheTTL ?? 300_000,
-                cacheMaxEntrySize: custom.performance?.cacheMaxEntrySize ?? 1_048_576,
-                respectCacheHeaders: custom.performance?.respectCacheHeaders ?? true,
-            },
-        };
-    }
-
     #id(): string {
         return `ntrx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     }
@@ -1005,446 +901,10 @@ export default class NeutrxClient extends EventEmitter {
     }
 }
 
-function normalizeMethod(method: string): HttpMethod {
-    const normalized = method.toUpperCase();
-    if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(normalized)) {
-        return normalized as HttpMethod;
-    }
-    throw new NeutrxSecurityError(`Invalid HTTP method: ${method}`, { code: 'INVALID_METHOD' });
-}
-
-function normalizeArray<TValue>(value: TValue | readonly TValue[]): readonly TValue[] {
-    return (Array.isArray(value) ? value : [value]) as readonly TValue[];
-}
-
-function mergeTransformRequest(
-    base?: readonly TransformRequest[],
-    override?: TransformRequest | readonly TransformRequest[]
-): readonly TransformRequest[] | undefined {
-    const merged = [
-        ...(base ?? []),
-        ...(override ? normalizeArray(override) : []),
-    ];
-    return merged.length > 0 ? merged : undefined;
-}
-
-function mergeTransformResponse(
-    base?: readonly TransformResponse[],
-    override?: TransformResponse | readonly TransformResponse[]
-): readonly TransformResponse[] | undefined {
-    const merged = [
-        ...(base ?? []),
-        ...(override ? normalizeArray(override) : []),
-    ];
-    return merged.length > 0 ? merged : undefined;
-}
-
-function applyRequestTransforms(
-    data: RequestBody | undefined,
-    headers: Headers,
-    transforms?: readonly TransformRequest[]
-): RequestBody | undefined {
-    return (transforms ?? []).reduce<RequestBody | undefined>((current, transform) => transform(current, headers), data);
-}
-
-function applyResponseTransforms(
-    data: ParsedResponseData,
-    headers: Headers,
-    status: number,
-    transforms?: readonly TransformResponse[]
-): ParsedResponseData {
-    return (transforms ?? []).reduce<ParsedResponseData>((current, transform) => transform(current, headers, status), data);
-}
-
-function serializeParams(params: QueryParams, serializer?: RequestConfig['paramsSerializer']): string {
-    if (typeof serializer === 'function') return serializer(params);
-    if (serializer?.serialize) return serializer.serialize(params);
-
-    const encoded = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-        appendSearchParam(encoded, key, value, serializer?.encode);
-    }
-    return encoded.toString();
-}
-
-function parseResponseData(data: Buffer | IncomingMessage, type: ResponseType, headers: Headers, encoding: BufferEncoding): ParsedResponseData {
-    if (type === 'stream') return data;
-    if (type === 'buffer') return Buffer.isBuffer(data) ? data : Buffer.from('');
-
-    const text = Buffer.isBuffer(data) ? data.toString(encoding) : '';
-    const contentType = headerToString(headers['content-type']);
-    if (type === 'text') return text;
-    if (type === 'json' || contentType.includes('application/json')) {
-        try {
-            return JSON.parse(text, safeReviver) as JsonValue;
-        } catch {
-            return text;
-        }
-    }
-    return text;
-}
-
-function normalizeNodeResponseData(data: RawHttpResponse['data']): Buffer | IncomingMessage {
-    if (Buffer.isBuffer(data)) return data;
-    if (isIncomingMessageLike(data)) return data;
-    if (typeof data === 'string') return Buffer.from(data);
-    if (data instanceof ArrayBuffer) return Buffer.from(data);
-    if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-    return Buffer.from('');
-}
-
-function isIncomingMessageLike(data: RawHttpResponse['data']): data is IncomingMessage {
+function isIncomingMessageLike(data: unknown): data is IncomingMessage {
     return data !== null
         && typeof data === 'object'
         && 'pipe' in data;
-}
-
-function safeReviver(key: string, value: JsonValue): JsonValue | undefined {
-    if (['__proto__', 'constructor', 'prototype'].includes(key)) return undefined;
-    return value;
-}
-
-function appendSearchParam(params: URLSearchParams, key: string, value: QueryValue, encode?: (value: string) => string): void {
-    if (value == null) return;
-    const encodedKey = encode ? encode(key) : key;
-    if (Array.isArray(value)) {
-        value.forEach(item => params.append(encodedKey, encode ? encode(String(item)) : String(item)));
-        return;
-    }
-    params.set(encodedKey, encode ? encode(String(value)) : String(value));
-}
-
-function toOutgoingHeaders(headers: Headers): RequestOptions['headers'] {
-    return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : String(value)]));
-}
-
-function normalizeIncomingHeaders(headers: IncomingHttpHeaders): Headers {
-    const result: Headers = {};
-    for (const [key, value] of Object.entries(headers)) {
-        if (value === undefined) continue;
-        result[key] = value;
-    }
-    return result;
-}
-
-function headerToString(value: Headers[string] | undefined): string {
-    if (value == null) return '';
-    if (Array.isArray(value)) return value.join(', ');
-    return String(value);
-}
-
-function hasHeader(headers: Headers, key: string): boolean {
-    const lower = key.toLowerCase();
-    return Object.keys(headers).some(header => header.toLowerCase() === lower);
-}
-
-function setHeader(headers: Headers, key: string, value: HeaderValue): void {
-    const existing = Object.keys(headers).find(header => header.toLowerCase() === key.toLowerCase());
-    headers[existing ?? key] = value;
-}
-
-function getContentLength(headers: Headers): number | undefined {
-    const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === 'content-length');
-    const value = entry ? headerToString(entry[1]) : '';
-    const length = Number.parseInt(value, 10);
-    return Number.isFinite(length) && length >= 0 ? length : undefined;
-}
-
-function toUploadBuffer(chunk: unknown): Buffer {
-    if (Buffer.isBuffer(chunk)) return chunk;
-    if (typeof chunk === 'string') return Buffer.from(chunk);
-    if (chunk instanceof Uint8Array) return Buffer.from(chunk);
-    return Buffer.from(String(chunk));
-}
-
-function reportUploadProgress(config: InternalRequestConfig, loaded: number, total?: number): void {
-    if (!config.onUploadProgress) return;
-
-    if (total !== undefined && total > 0) {
-        config.onUploadProgress({
-            loaded,
-            total,
-            percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))),
-        });
-        return;
-    }
-
-    config.onUploadProgress({ loaded });
-}
-
-function reportDownloadProgress(config: InternalRequestConfig, loaded: number, total?: number): void {
-    if (!config.onDownloadProgress) return;
-
-    if (total !== undefined && total > 0) {
-        config.onDownloadProgress({
-            loaded,
-            total,
-            percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))),
-        });
-        return;
-    }
-
-    config.onDownloadProgress({ loaded });
-}
-
-function attachStreamDownloadProgress(response: IncomingMessage, config: InternalRequestConfig): void {
-    if (!config.onDownloadProgress) return;
-
-    const total = getContentLength(normalizeIncomingHeaders(response.headers));
-    let loaded = 0;
-    reportDownloadProgress(config, loaded, total);
-    response.on('data', chunk => {
-        loaded += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk));
-        reportDownloadProgress(config, loaded, total);
-    });
-}
-
-function shouldRedirectWithGet(statusCode: number, method: HttpMethod): boolean {
-    if (statusCode === 303 && method !== 'HEAD') return true;
-    return (statusCode === 301 || statusCode === 302) && method === 'POST';
-}
-
-function stripRedirectHeaders(headers: Headers, fromURL: string, toURL: string, bodyDropped: boolean): Headers {
-    const from = new URL(fromURL);
-    const to = new URL(toURL);
-    const crossOrigin = from.origin !== to.origin;
-    const protocolDowngrade = from.protocol === 'https:' && to.protocol === 'http:';
-    const stripped = new Set(['authorization', 'cookie', 'proxy-authorization']);
-
-    if (crossOrigin) stripped.add('host');
-    if (bodyDropped) {
-        stripped.add('content-type');
-        stripped.add('content-length');
-        stripped.add('transfer-encoding');
-    }
-
-    const next: Headers = {};
-    for (const [key, value] of Object.entries(headers)) {
-        const normalized = key.toLowerCase();
-        if ((crossOrigin || protocolDowngrade) && stripped.has(normalized)) continue;
-        if (bodyDropped && stripped.has(normalized)) continue;
-        next[key] = value;
-    }
-    return next;
-}
-
-function resolveProxy(proxy: ProxyConfig | false | undefined): NormalizedProxyConfig | undefined {
-    if (!proxy) return undefined;
-    const rawProtocol: unknown = proxy.protocol ?? 'http';
-    if (rawProtocol !== 'http' && rawProtocol !== 'https') {
-        throw new NeutrxSecurityError(`Unsupported proxy protocol: ${String(rawProtocol)}`, { code: 'UNSUPPORTED_PROXY_PROTOCOL' });
-    }
-    const protocol = rawProtocol;
-    return {
-        protocol,
-        host: proxy.host,
-        ...(proxy.port !== undefined ? { port: proxy.port } : {}),
-        ...(proxy.auth !== undefined ? { auth: proxy.auth } : {}),
-        ...(proxy.headers ? { headers: proxy.headers } : {}),
-    };
-}
-
-function directRequestTarget(targetURL: URL, headers: Headers): { readonly url: URL; readonly path: string; readonly headers: Headers; readonly isProxied: false } {
-    return {
-        url: targetURL,
-        path: `${targetURL.pathname}${targetURL.search}`,
-        headers,
-        isProxied: false,
-    };
-}
-
-function proxyRequestTarget(
-    targetURL: URL,
-    requestHeaders: Headers,
-    proxy: NormalizedProxyConfig
-): { readonly url: URL; readonly path: string; readonly headers: Headers; readonly isProxied: true } {
-    if (targetURL.protocol === 'https:') {
-        throw new NeutrxSecurityError('HTTPS proxy CONNECT is not built in; pass a tunneling httpsAgent for HTTPS proxying', { code: 'HTTPS_PROXY_AGENT_REQUIRED' });
-    }
-
-    const proxyURL = new URL(`${proxy.protocol}://${proxy.host}`);
-    if (proxy.port !== undefined) proxyURL.port = String(proxy.port);
-
-    const headers: Headers = { ...(proxy.headers ?? {}) };
-    if (proxy.auth !== undefined) {
-        headers['Proxy-Authorization'] = proxyAuthHeader(proxy.auth);
-    }
-    if (!hasHeader(requestHeaders, 'Host')) {
-        headers.Host = targetURL.host;
-    }
-
-    return {
-        url: proxyURL,
-        path: targetURL.href,
-        headers: mergeProxyHeaders(requestHeaders, headers),
-        isProxied: true,
-    };
-}
-
-function mergeProxyHeaders(headers: Headers, proxyHeaders: Headers): Headers {
-    return { ...headers, ...proxyHeaders };
-}
-
-function proxyAuthHeader(auth: NonNullable<ProxyConfig['auth']>): string {
-    if (typeof auth === 'string') return auth;
-    return `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`;
-}
-
-function createPinnedLookup(records: readonly ResolvedAddress[]): LookupFunction {
-    const pinned = [...records];
-
-    const lookup: LookupFunction = (hostname: string, options: unknown, callback?: unknown): void => {
-        const done = (typeof options === 'function' ? options : callback) as LookupCallback | undefined;
-        if (!done) return;
-
-        const lookupOptions = typeof options === 'function' ? undefined : options;
-        const family = typeof lookupOptions === 'number'
-            ? lookupOptions
-            : isLookupOptions(lookupOptions) && typeof lookupOptions.family === 'number'
-                ? lookupOptions.family
-                : undefined;
-        const all = isLookupOptions(lookupOptions) && lookupOptions.all === true;
-        const matches = family ? pinned.filter(record => record.family === family) : pinned;
-
-        if (matches.length === 0) {
-            const error = Object.assign(new Error(`DNS resolution failed: ${hostname}`), { code: 'ENOTFOUND' });
-            done(error);
-            return;
-        }
-
-        if (all) {
-            done(null, matches.map(record => ({ address: record.address, family: record.family })));
-            return;
-        }
-
-        const selected = matches[0];
-        if (!selected) return;
-        done(null, selected.address, selected.family);
-    };
-
-    return lookup;
-}
-
-function wrapLookup(lookup: LookupFunction, security: SecurityManager, url: string, isProxy = false): LookupFunction {
-    const wrapped: LookupFunction = (hostname: string, options: unknown, callback?: unknown): void => {
-        const done = (typeof options === 'function' ? options : callback) as LookupCallback | undefined;
-        if (!done) return;
-
-        const wrappedDone: LookupCallback = (error, address, family) => {
-            if (error) {
-                done(error);
-                return;
-            }
-
-            try {
-                if (Array.isArray(address) && !isProxy) {
-                    address.forEach(item => security.validateResolvedAddress(url, item.address));
-                } else if (typeof address === 'string' && !isProxy) {
-                    security.validateResolvedAddress(url, address);
-                }
-            } catch (validationError: unknown) {
-                done(normalizeError(validationError));
-                return;
-            }
-
-            done(null, address, family);
-        };
-
-        if (typeof options === 'function') {
-            (lookup as unknown as (lookupHostname: string, lookupCallback: LookupCallback) => void)(hostname, wrappedDone);
-            return;
-        }
-
-        lookup(hostname, options as Parameters<LookupFunction>[1], wrappedDone);
-    };
-
-    return wrapped;
-}
-
-type LookupCallback = (error: NodeJS.ErrnoException | null, address?: string | ResolvedAddress[], family?: number) => void;
-
-function isLookupOptions(value: unknown): value is { readonly family?: number; readonly all?: boolean } {
-    return value !== null && typeof value === 'object';
-}
-
-function isFormRecord(value: RequestBody): value is Record<string, JsonValue> {
-    return value !== null
-        && typeof value === 'object'
-        && !Buffer.isBuffer(value)
-        && !(value instanceof URLSearchParams)
-        && !(value instanceof Readable)
-        && !(value instanceof ArrayBuffer)
-        && !ArrayBuffer.isView(value)
-        && !isBlobLike(value)
-        && !isFormDataLike(value)
-        && !Array.isArray(value);
-}
-
-function toFormEntries(data: Record<string, JsonValue>): Record<string, string> {
-    const entries: Record<string, string> = {};
-    for (const [key, value] of Object.entries(data)) {
-        if (value == null) continue;
-        entries[key] = typeof value === 'string' ? value : JSON.stringify(value);
-    }
-    return entries;
-}
-
-async function serializeMultipart(data: FormData, headers: Headers): Promise<Buffer> {
-    const boundary = multipartBoundary(headers);
-    const chunks: Buffer[] = [];
-
-    for (const [name, value] of data.entries()) {
-        chunks.push(Buffer.from(`--${boundary}\r\n`));
-        if (isBlobLike(value)) {
-            const filename = multipartFilename(value);
-            const contentType = value.type || 'application/octet-stream';
-            chunks.push(Buffer.from(
-                `Content-Disposition: form-data; name="${escapeMultipart(name)}"; filename="${escapeMultipart(filename)}"\r\n`
-                + `Content-Type: ${contentType}\r\n\r\n`
-            ));
-            chunks.push(Buffer.from(await value.arrayBuffer()));
-            chunks.push(Buffer.from('\r\n'));
-            continue;
-        }
-
-        chunks.push(Buffer.from(
-            `Content-Disposition: form-data; name="${escapeMultipart(name)}"\r\n\r\n${String(value)}\r\n`
-        ));
-    }
-
-    chunks.push(Buffer.from(`--${boundary}--\r\n`));
-    return Buffer.concat(chunks);
-}
-
-function multipartBoundary(headers: Headers): string {
-    const contentType = headerToString(headers['Content-Type'] ?? headers['content-type']);
-    const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
-    if (match?.[1] || match?.[2]) return match[1] ?? match[2] ?? '';
-
-    const boundary = `----neutrx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    setHeader(headers, 'Content-Type', `multipart/form-data; boundary=${boundary}`);
-    return boundary;
-}
-
-function multipartFilename(value: Blob): string {
-    const maybeFile = value as Blob & { readonly name?: string };
-    return maybeFile.name ?? 'blob';
-}
-
-function escapeMultipart(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/"/g, '%22').replace(/[\r\n]/g, ' ');
-}
-
-function isBlobLike(value: unknown): value is Blob {
-    return value !== null
-        && typeof value === 'object'
-        && typeof (value as { readonly arrayBuffer?: unknown }).arrayBuffer === 'function'
-        && typeof (value as { readonly size?: unknown }).size === 'number'
-        && typeof (value as { readonly type?: unknown }).type === 'string';
-}
-
-function isFormDataLike(value: unknown): value is FormData {
-    return typeof FormData !== 'undefined' && value instanceof FormData;
 }
 
 function dig(value: ParsedResponseData, path: string): ParsedResponseData {
@@ -1474,22 +934,3 @@ function rejectAfter(ms: number, message: string): Promise<never> {
     });
 }
 
-function mergeConfig(base: NormalizedClientConfig, override: ClientConfig): ClientConfig {
-    return {
-        ...base,
-        ...override,
-        security: { ...base.security, ...(override.security ?? {}) },
-        resilience: { ...base.resilience, ...(override.resilience ?? {}) },
-        performance: { ...base.performance, ...(override.performance ?? {}) },
-    };
-}
-
-function withoutBody(config: InternalRequestConfig): InternalRequestConfig {
-    const entries = Object.entries(config).filter(([key]) => key !== 'data');
-    return Object.fromEntries(entries) as InternalRequestConfig;
-}
-
-function detectAdapter(): RequestAdapterName {
-    if (typeof globalThis.fetch === 'function' && typeof process === 'undefined') return 'fetch';
-    return 'http';
-}

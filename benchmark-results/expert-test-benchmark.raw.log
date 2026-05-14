@@ -1,0 +1,300 @@
+
+> neutrx@1.0.0 ci
+> npm run lint && npm run typecheck && npm test && npm run coverage && npm run package:validate
+
+
+> neutrx@1.0.0 lint
+> eslint src/**/*.ts examples/**/*.ts tests/**/*.ts
+
+
+> neutrx@1.0.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+
+> neutrx@1.0.0 test
+> npm run build && npm run test:compile && npm run test:run
+
+
+> neutrx@1.0.0 build
+> npm run clean && npm run build:esm && npm run build:cjs && npm run build:types
+
+
+> neutrx@1.0.0 clean
+> node -e "const fs=require('node:fs'); fs.rmSync('dist', { recursive: true, force: true }); fs.rmSync('dist-tests', { recursive: true, force: true })"
+
+
+> neutrx@1.0.0 build:esm
+> tsc -p tsconfig.build.json
+
+
+> neutrx@1.0.0 build:cjs
+> tsc -p tsconfig.cjs.json && npm run build:cjs:pkg
+
+
+> neutrx@1.0.0 build:cjs:pkg
+> node -e "const fs=require('node:fs'); fs.mkdirSync('dist/cjs', { recursive: true }); fs.writeFileSync('dist/cjs/package.json', JSON.stringify({ type: 'commonjs' }))"
+
+
+> neutrx@1.0.0 build:types
+> tsc -p tsconfig.types.json && node scripts/generate-browser-types.cjs
+
+Generated browser-safe types at dist\types\browser.d.ts
+
+> neutrx@1.0.0 test:compile
+> tsc -p tsconfig.test.json
+
+
+> neutrx@1.0.0 test:run
+> node --test "dist-tests/tests/**/*.test.js"
+
+✔ axios-like API surface supports verbs, create, defaults, transforms, adapters, and errors (234.1467ms)
+✔ package self-reference imports expose ESM, CJS, and subpath APIs (290.7436ms)
+✔ published TypeScript declarations support public Node API usage (1309.0975ms)
+✔ package exports load from built output (154.5563ms)
+✔ CommonJS build can be required (58.2723ms)
+✔ browser build uses fetch without Node core imports (34.5358ms)
+✔ mock plugin returns typed response through axios-style callable client (6.0442ms)
+✔ stream upload reports progress with percent when content length is known (61.6296ms)
+✔ cross-origin redirects strip sensitive headers and post bodies (6018.1574ms)
+✔ DNS SSRF protection validates custom lookup results (6.2143ms)
+✔ invalid methods throw instead of silently becoming GET (0.8936ms)
+✔ axios-style interceptors, serializers, transforms, and download progress work (10.3608ms)
+✔ custom adapter participates in Neutrx parsing and validation (2.7714ms)
+✔ named fetch adapter works through native fetch (21.7312ms)
+✔ isNeutrxError narrows Neutrx errors (0.7087ms)
+✔ getUri builds final URL without dispatching (0.5114ms)
+✔ decompress false keeps compressed response bytes (12.7403ms)
+✔ synchronous request interceptors run before async chain begins (1.4195ms)
+✔ FormData bodies serialize as multipart with boundary and length (7.9045ms)
+✔ HTTP proxy config sends absolute-form requests with proxy auth (5.7848ms)
+✔ fetch adapter honors credentials, custom fetch, timeout signal, and XSRF (123.7243ms)
+✔ HTTP/2 adapter handles GET, POST body, headers, and status (298.3893ms)
+✔ body serializer converts nested objects to FormData with array policies (78.139ms)
+✔ body serializer detects circular references and depth limits (3.0042ms)
+✔ body serializer preserves pass-through bodies and safe content-types (12.6454ms)
+✔ NeutrxHeaders supports case-insensitive operations and casing preservation (10.9357ms)
+✔ NeutrxHeaders rejects invalid names and CRLF values (4.8351ms)
+✔ NeutrxHeaders redacts sensitive values and preserves normal headers (1.2928ms)
+✔ NeutrxHeaders safely normalizes duplicates and set-cookie arrays (1.3333ms)
+✔ proxy resolution honors env, explicit config, false, and no_proxy (105.8016ms)
+✔ proxy helpers create auth headers and HTTPS CONNECT tunnels (66.8776ms)
+✔ proxy target strips proxy authorization on redirect safety helper (2.7481ms)
+✔ OpenTelemetry instrumentation creates spans and propagates trace headers (190.2079ms)
+✔ CacheEngine stores cacheable responses and returns HIT metadata (20.7712ms)
+✔ MetricsCollector records success, errors, cache hits, retries, and prometheus output (5.1469ms)
+✔ MockPlugin returns registered responses (166.4542ms)
+✔ GraphQLPlugin unwraps GraphQL data and surfaces errors (18.3392ms)
+✔ OAuth2Plugin fetches token and injects bearer auth (4.6604ms)
+✔ RetryEngine retries retryable errors and reports attempts (17.063ms)
+✔ CircuitBreaker opens after threshold and recovers after timeout (73.5867ms)
+✔ Bulkhead queues work over concurrency limit (7.2462ms)
+✔ SecurityManager blocks protocol downgrade and private redirects (39.616ms)
+✔ SecurityManager blocks private and metadata hosts in balanced profile (64.8418ms)
+✔ SecurityManager development profile allows localhost but keeps metadata blocked (1.6081ms)
+✔ SecurityManager allowedHosts and deniedHosts policies apply (1.7547ms)
+ℹ tests 45
+ℹ suites 0
+ℹ pass 45
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6660.6715
+
+> neutrx@1.0.0 coverage
+> npm run build && npm run test:compile && node scripts/run-coverage.cjs
+
+
+> neutrx@1.0.0 build
+> npm run clean && npm run build:esm && npm run build:cjs && npm run build:types
+
+
+> neutrx@1.0.0 clean
+> node -e "const fs=require('node:fs'); fs.rmSync('dist', { recursive: true, force: true }); fs.rmSync('dist-tests', { recursive: true, force: true })"
+
+
+> neutrx@1.0.0 build:esm
+> tsc -p tsconfig.build.json
+
+
+> neutrx@1.0.0 build:cjs
+> tsc -p tsconfig.cjs.json && npm run build:cjs:pkg
+
+
+> neutrx@1.0.0 build:cjs:pkg
+> node -e "const fs=require('node:fs'); fs.mkdirSync('dist/cjs', { recursive: true }); fs.writeFileSync('dist/cjs/package.json', JSON.stringify({ type: 'commonjs' }))"
+
+
+> neutrx@1.0.0 build:types
+> tsc -p tsconfig.types.json && node scripts/generate-browser-types.cjs
+
+Generated browser-safe types at dist\types\browser.d.ts
+
+> neutrx@1.0.0 test:compile
+> tsc -p tsconfig.test.json
+
+✔ axios-like API surface supports verbs, create, defaults, transforms, adapters, and errors (230.7892ms)
+✔ package self-reference imports expose ESM, CJS, and subpath APIs (454.199ms)
+✔ published TypeScript declarations support public Node API usage (3624.8573ms)
+✔ package exports load from built output (190.9521ms)
+✔ CommonJS build can be required (75.2777ms)
+✔ browser build uses fetch without Node core imports (37.895ms)
+✔ mock plugin returns typed response through axios-style callable client (6.9062ms)
+✔ stream upload reports progress with percent when content length is known (73.0434ms)
+✔ cross-origin redirects strip sensitive headers and post bodies (6031.1345ms)
+✔ DNS SSRF protection validates custom lookup results (5.494ms)
+✔ invalid methods throw instead of silently becoming GET (0.7348ms)
+✔ axios-style interceptors, serializers, transforms, and download progress work (9.3579ms)
+✔ custom adapter participates in Neutrx parsing and validation (1.7547ms)
+✔ named fetch adapter works through native fetch (22.4633ms)
+✔ isNeutrxError narrows Neutrx errors (0.889ms)
+✔ getUri builds final URL without dispatching (0.6003ms)
+✔ decompress false keeps compressed response bytes (12.4613ms)
+✔ synchronous request interceptors run before async chain begins (1.41ms)
+✔ FormData bodies serialize as multipart with boundary and length (8.0761ms)
+✔ HTTP proxy config sends absolute-form requests with proxy auth (5.5581ms)
+✔ fetch adapter honors credentials, custom fetch, timeout signal, and XSRF (117.5634ms)
+✔ HTTP/2 adapter handles GET, POST body, headers, and status (389.4057ms)
+✔ body serializer converts nested objects to FormData with array policies (101.7874ms)
+✔ body serializer detects circular references and depth limits (4.218ms)
+✔ body serializer preserves pass-through bodies and safe content-types (6.38ms)
+✔ NeutrxHeaders supports case-insensitive operations and casing preservation (32.5526ms)
+✔ NeutrxHeaders rejects invalid names and CRLF values (3.1215ms)
+✔ NeutrxHeaders redacts sensitive values and preserves normal headers (4.5899ms)
+✔ NeutrxHeaders safely normalizes duplicates and set-cookie arrays (2.7335ms)
+✔ proxy resolution honors env, explicit config, false, and no_proxy (80.3539ms)
+✔ proxy helpers create auth headers and HTTPS CONNECT tunnels (82.222ms)
+✔ proxy target strips proxy authorization on redirect safety helper (2.9715ms)
+✔ OpenTelemetry instrumentation creates spans and propagates trace headers (222.1168ms)
+✔ CacheEngine stores cacheable responses and returns HIT metadata (19.9593ms)
+✔ MetricsCollector records success, errors, cache hits, retries, and prometheus output (6.346ms)
+✔ MockPlugin returns registered responses (199.6746ms)
+✔ GraphQLPlugin unwraps GraphQL data and surfaces errors (28.149ms)
+✔ OAuth2Plugin fetches token and injects bearer auth (6.2297ms)
+✔ RetryEngine retries retryable errors and reports attempts (22.8149ms)
+✔ CircuitBreaker opens after threshold and recovers after timeout (80.1043ms)
+✔ Bulkhead queues work over concurrency limit (8.636ms)
+✔ SecurityManager blocks protocol downgrade and private redirects (41.1114ms)
+✔ SecurityManager blocks private and metadata hosts in balanced profile (46.0222ms)
+✔ SecurityManager development profile allows localhost but keeps metadata blocked (1.8382ms)
+✔ SecurityManager allowedHosts and deniedHosts policies apply (2.0634ms)
+ℹ tests 45
+ℹ suites 0
+ℹ pass 45
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6980.3292
+ℹ start of coverage report
+ℹ ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ file                               | line % | branch % | funcs % | uncovered lines
+ℹ ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ dist                               |        |          |         | 
+ℹ  cjs                               |        |          |         | 
+ℹ   adapters                         |        |          |         | 
+ℹ    fetch.js                        |   3.91 |   100.00 |    0.00 | 7-46 49-229
+ℹ    http2.js                        |  10.29 |    66.67 |   14.29 | 16-103 106-174
+ℹ   core                             |        |          |         | 
+ℹ    bodySerializer.js               |   4.62 |   100.00 |    0.00 | 11-237
+ℹ    config.js                       |  54.07 |     2.82 |    7.14 | 93-171
+ℹ    dns.js                          |  11.76 |    66.67 |   14.29 | 12-101
+ℹ    headers.js                      |  18.14 |    50.00 |    0.00 | 22-24 26-27 29-35 37-50 52-73 75-77 79-81 83-85 87-89 91-106 108-109 111-115 117-121 123-124 126-128 130-131 133-134 136-137 139-141 143-150 153-236
+ℹ    Neutrx.js                       |  67.92 |    57.14 |   30.00 | 9-10 23-29 32-35 38 41 44-45
+ℹ    NeutrxClient.js                 |  19.15 |   100.00 |    8.47 | 74-75 77-78 80-81 83-84 86-87 89-90 92-93 95-128 130-136 138-139 141-156 158-167 169-170 172-173 175-198 200-273 275-278 280-282 284-286 288-290 292-294 296-299 301-305 307-319 321-322 324-325 327-329 331-333 335-337 339-341 343-345 347-348 350-351 353-354 356-357 359-360 362-363 365-366 368-369 371-377 379-390 392-503 505-552 554-571 573-632 634-637 647-676 685-686 688-694 697-725
+ℹ    NeutrxError.js                  |  35.47 |     5.88 |    0.00 | 7-13 16-37 39-50 52-53 56-60 65-68 73-74 80-82 89-92 97-103 108-114 120-122 129-136 142-148 155-162 167-172 178-186 191-193 196-202 208-211 216-218 224-230 237-244 250-256 263-270 277-284 289-314 316-321 323-331 334-343
+ℹ    progress.js                     |  18.60 |   100.00 |    0.00 | 8-42
+ℹ    proxy.js                        |  10.53 |    66.67 |    9.09 | 19-188
+ℹ    redirect.js                     |  20.00 |   100.00 |    0.00 | 9-44
+ℹ    responseParser.js               |  12.40 |    66.67 |    8.33 | 16-128
+ℹ   index.js                         | 100.00 |    66.67 |    2.86 | 
+ℹ   interceptors                     |        |          |         | 
+ℹ    InterceptorChain.js             |  21.48 |   100.00 |   11.11 | 8-16 18-25 27-29 31-32 34-35 40-48 61-105 107-122 124-136 139-148
+ℹ   monitoring                       |        |          |         | 
+ℹ    MetricsCollector.js             |  28.47 |   100.00 |   18.75 | 17-22 24-30 32-35 37-39 41-53 55-68 70-72 74-75 86-95 97-106 108-131 133-134
+ℹ    OpenTelemetryInstrumentation.js |  25.00 |    37.50 |   15.38 | 3-8 10-11 14 16 20-25 28-32 40-60 62-70 72-77 79-94 96-97
+ℹ   performance                      |        |          |         | 
+ℹ    CacheEngine.js                  |  23.35 |    40.00 |   17.65 | 26-48 50-66 68-77 79-80 82-84 86-93 95-103 105-109 111-124 126-138 140-145 147-157 160-166
+ℹ   plugins                          |        |          |         | 
+ℹ    PluginManager.js                |  20.10 |   100.00 |   15.38 | 16-26 28-30 32-38 40-59 61-66 73-102 109-132 139-185 188-198
+ℹ   resilience                       |        |          |         | 
+ℹ    Bulkhead.js                     |  29.11 |    42.86 |   25.00 | 16-40 42-47 49-57 59-63 65-71 73-76
+ℹ    CircuitBreaker.js               |  29.17 |    42.86 |   25.00 | 21-33 35-51 53-63 65-69 71-85 87-93
+ℹ    RetryEngine.js                  |  26.98 |    23.08 |   25.00 | 29-58 60-79 81-107 109-113 116-125
+ℹ   security                         |        |          |         | 
+ℹ    RateLimiter.js                  |  29.81 |   100.00 |   18.18 | 24-30 32-40 42-55 57-68 70-84 86-92 95-103
+ℹ    SecurityManager.js              |  18.38 |    20.83 |   10.26 | 50-65 67-77 79-103 105-113 115-116 118-121 123-128 130-137 139-140 142-147 149-163 165-178 180-184 186-187 189-202 204-222 224-229 231-241 243-259 261-276 278-283 286-315 318-328 330-340 352-467
+ℹ  esm                               |        |          |         | 
+ℹ   adapters                         |        |          |         | 
+ℹ    fetch.js                        |  58.85 |    31.25 |   56.52 | 6-7 34-40 48-71 91 93 95 97 103 115-117 121-137 172-173 193-225
+ℹ    http2.js                        |  68.26 |    47.50 |   55.00 | 11-12 14-15 38-42 55-57 75-76 79-80 83-85 89-91 95 108-113 118-122 148-166
+ℹ    index.js                        | 100.00 |   100.00 |  100.00 | 
+ℹ   browser.js                       | 100.00 |   100.00 |  100.00 | 
+ℹ   core                             |        |          |         | 
+ℹ    bodySerializer.js               |  76.19 |    72.63 |   83.33 | 40-41 43-44 51-52 57-61 67-69 71-73 88-109 181-192 225-228
+ℹ    BrowserClient.js                |  54.12 |    52.40 |   42.55 | 16-20 22-24 29-30 33-35 66-67 69-70 72-73 75-76 78-79 81-82 84-117 119-125 127-128 130-145 147-156 158-159 161-162 164-182 198-201 233-245 248-251 253-255 257-259 261-263 265-267 269-272 274-276 278-288 290-291 293-294 296-298 300-301 303-305 307-308 310-312 314-315 317-318 320-321 323-324 326-327 329-330 332-333 338-341 347-348 354-355 388-397 415-416 424-427 471-473 483-489 510-511 513-514 521-523 538-539 541-542 548-549 553-554 557-558 561-562 646-647 683-694 718-727 729-730 735-737 739-746 764 768-780 782-787 801-805 807-809 811-812 814-841 843-849 851-855 857-858 868 870-872 893-945 955-956 960-962 973-988 1016-1035 1046-1053 1057 1067-1068 1070 1077-1089 1101-1114 1123-1125 1138-1139 1142-1145 1157 1160-1162 1170-1173 1183-1184 1186-1216 1222-1252
+ℹ    BrowserNeutrx.js                |  79.17 |    70.00 |   44.44 | 4-5 27-30 33 36 39-40
+ℹ    config.js                       |  98.13 |    81.21 |   94.12 | 152-154
+ℹ    dns.js                          |  45.16 |    50.00 |   66.67 | 6-8 16-21 24-52 60-62 65-66 75 78-80 85-87 91
+ℹ    headers.js                      |  83.71 |    83.75 |   80.00 | 43-45 47-50 72-74 81-86 108-109 111-113 115-116 124-126 164-169 197-198 205-206
+ℹ    Neutrx.js                       |  83.33 |   100.00 |   55.56 | 27-30 33 36 39-40
+ℹ    NeutrxClient.js                 |  67.08 |    74.69 |   48.75 | 75-76 78-79 81-82 84-85 87-88 90-123 125-131 133-134 136-151 153-162 167-168 170-193 266-267 270-273 275-277 279-281 283-285 287-289 291-294 296-300 302-314 319-320 322-324 326-328 330-332 334-336 345-346 348-349 351-352 354-355 357-358 395-396 417-419 438-439 443-447 460-461 466-467 476-477 487-490 523-525 535-538 563-564 645-648 654-657 668-669 687-688 691-704 708 710-719
+ℹ    NeutrxError.js                  |  50.00 |    50.00 |   28.89 | 28-29 35-46 60-63 67-68 73-75 81-84 88-94 98-104 129-135 152-157 162-170 174-176 179-185 190-193 197-199 216-223 228-234 240-247 253-260 264-289 291-296 298-306 308-314
+ℹ    progress.js                     |  56.76 |    80.00 |   80.00 | 9-18 22-26 35
+ℹ    proxy.js                        |  81.92 |    56.90 |   84.21 | 28-35 86-90 98-100 103-104 109-119 148 154-155
+ℹ    redirect.js                     |  94.74 |    64.29 |   80.00 | 36-37
+ℹ    responseParser.js               |  52.89 |    47.22 |   54.55 | 21-22 45-46 48 53-67 72-78 80-83 89-93 95-100 106-120
+ℹ   index.js                         | 100.00 |   100.00 |  100.00 | 
+ℹ   interceptors                     |        |          |         | 
+ℹ    InterceptorChain.js             |  79.45 |    74.19 |   60.00 | 25-27 29-30 32-33 40-44 93-96 124-132 136-140
+ℹ   monitoring                       |        |          |         | 
+ℹ    MetricsCollector.js             |  96.27 |    75.00 |   88.89 | 68-70 127-128
+ℹ    OpenTelemetryInstrumentation.js |  84.13 |    50.00 |   83.33 | 50-57 60-61
+ℹ   performance                      |        |          |         | 
+ℹ    CacheEngine.js                  |  75.16 |    50.00 |   68.75 | 63-72 74-75 114-117 121-133 135-140 150-151 157-159
+ℹ   plugins                          |        |          |         | 
+ℹ    PluginManager.js                |  89.23 |    63.46 |   76.19 | 25-27 55 58-63 127 143-144 147-148 180 184-188
+ℹ   resilience                       |        |          |         | 
+ℹ    Bulkhead.js                     |  89.47 |    76.19 |   81.82 | 21-22 25-26 71-74
+ℹ    CircuitBreaker.js               |  96.77 |    62.50 |  100.00 | 66 89-90
+ℹ    RetryEngine.js                  |  79.51 |    45.45 |   88.89 | 48-49 73-75 80-87 91-92 94-95 97-98 106-110 120
+ℹ   security                         |        |          |         | 
+ℹ    RateLimiter.js                  |  32.00 |    57.14 |   27.27 | 25-26 29-37 39-52 54-65 67-81 83-89 91-99
+ℹ    SecurityManager.js              |  74.46 |    73.77 |   85.11 | 54-55 65-67 75-76 78-79 85-86 88-89 91-92 118-123 125-132 134-135 137-142 156-157 177-178 200-201 221-222 229-230 233-235 249-250 256-271 283-301 307-308 312-322 380-381 385 403 412-414 425 431-440
+ℹ ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ all files                          |  47.85 |    61.26 |   39.08 | 
+ℹ ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ end of coverage report
+
+> neutrx@1.0.0 package:validate
+> npm run build && node scripts/validate-package.cjs
+
+
+> neutrx@1.0.0 build
+> npm run clean && npm run build:esm && npm run build:cjs && npm run build:types
+
+
+> neutrx@1.0.0 clean
+> node -e "const fs=require('node:fs'); fs.rmSync('dist', { recursive: true, force: true }); fs.rmSync('dist-tests', { recursive: true, force: true })"
+
+
+> neutrx@1.0.0 build:esm
+> tsc -p tsconfig.build.json
+
+
+> neutrx@1.0.0 build:cjs
+> tsc -p tsconfig.cjs.json && npm run build:cjs:pkg
+
+
+> neutrx@1.0.0 build:cjs:pkg
+> node -e "const fs=require('node:fs'); fs.mkdirSync('dist/cjs', { recursive: true }); fs.writeFileSync('dist/cjs/package.json', JSON.stringify({ type: 'commonjs' }))"
+
+
+> neutrx@1.0.0 build:types
+> tsc -p tsconfig.types.json && node scripts/generate-browser-types.cjs
+
+Generated browser-safe types at dist\types\browser.d.ts
+Package neutrx@1.0.0 validates.
+
+Exit code: 0
+Elapsed ms: 74081
