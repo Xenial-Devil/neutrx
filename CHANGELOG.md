@@ -1,3 +1,11 @@
+# [1.1.0](https://github.com/Xenial-Devil/neutrx/compare/v1.0.0...v1.1.0) (2026-05-14)
+
+
+### Features
+
+* add redirect handling and response parsing ([368878b](https://github.com/Xenial-Devil/neutrx/commit/368878b23e96c87815923e26f58f2132fbf8f506))
+* update tsconfig.json with baseUrl and paths for module resolution ([388770f](https://github.com/Xenial-Devil/neutrx/commit/388770f44df6e460287b94911b38a67386a2af17))
+
 # 1.0.0 (2026-05-13)
 
 

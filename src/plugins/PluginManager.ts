@@ -111,7 +111,7 @@ export class PluginManager {
     list(): RegisteredPlugin[] {
         return [...this.#plugins.values()].map(({ name, version, registeredAt }) => ({
             name,
-            version: version ?? '1.0.0',
+            version: version ?? '1.1.0',
             registeredAt,
         }));
     }
@@ -119,7 +119,7 @@ export class PluginManager {
 
 export const OAuth2Plugin: NeutrxPlugin = {
     name: 'oauth2',
-    version: '1.0.0',
+    version: '1.1.0',
 
     install(client) {
         let token: string | null = null;
@@ -164,7 +164,7 @@ export const OAuth2Plugin: NeutrxPlugin = {
 
 export const GraphQLPlugin: NeutrxPlugin = {
     name: 'graphql',
-    version: '1.0.0',
+    version: '1.1.0',
 
     install(client) {
         client.gql = async <TData extends JsonValue = JsonValue>(
@@ -213,7 +213,7 @@ export const GraphQLPlugin: NeutrxPlugin = {
 
 export const MockPlugin: NeutrxPlugin = {
     name: 'mock',
-    version: '1.0.0',
+    version: '1.1.0',
 
     install(client) {
         const mocks = new Map<string | RegExp, MockResponse>();

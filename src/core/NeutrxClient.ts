@@ -836,7 +836,7 @@ export default class NeutrxClient extends EventEmitter {
 
     #buildDefaultHeaders(): Headers {
         return {
-            'User-Agent': `neutrx/1.0.0 Node.js/${process.version}`,
+            'User-Agent': `neutrx/1.1.0 Node.js/${process.version}`,
             Accept: 'application/json, text/plain, */*',
             'Accept-Encoding': 'gzip, deflate, br',
             Connection: 'keep-alive',

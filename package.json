@@ -1,6 +1,6 @@
 {
   "name": "neutrx",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Security-first TypeScript HTTP client with retry, circuit breaker, bulkhead, cache, metrics, and plugins.",
   "repository": {
     "type": "git",
