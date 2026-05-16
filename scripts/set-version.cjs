@@ -45,21 +45,8 @@ if (lockJson.packages?.[""]) {
 }
 writeJson("package-lock.json", lockJson);
 
-replaceInFile("src/index.ts", [
+replaceInFile("src/version.ts", [
   [/export const VERSION = '[^']+';/, `export const VERSION = '${version}';`],
-]);
-
-replaceInFile("src/browser.ts", [
-  [/export const VERSION = '[^']+';/, `export const VERSION = '${version}';`],
-]);
-
-replaceInFile("src/core/NeutrxClient.ts", [
-  [/neutrx\/[^ ]+ Node\.js/, `neutrx/${version} Node.js`],
-]);
-
-replaceInFile("src/plugins/PluginManager.ts", [
-  [/version: version \?\? '[^']+'/g, `version: version ?? '${version}'`],
-  [/version: '[^']+'/g, `version: '${version}'`],
 ]);
 
 console.log(`Set Neutrx version to ${version}`);

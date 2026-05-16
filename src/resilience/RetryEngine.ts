@@ -1,5 +1,5 @@
 import { NeutrxMaxRetriesError } from '../core/NeutrxError.js';
-import type { ResilienceConfig, RetryAttempt, RetryContext } from '../types.js';
+import type { HttpMethod, ResilienceConfig, RetryAttempt, RetryContext, RetryBudgetConfig } from '../types.js';
 
 export const STRATEGY = Object.freeze({
     FIXED: 'fixed',
@@ -17,6 +17,8 @@ interface NormalizedRetryConfig {
     readonly baseDelay: number;
     readonly maxDelay: number;
     readonly jitter: boolean;
+    readonly retryMethods: readonly HttpMethod[];
+    readonly retryBudget?: RetryBudgetConfig;
     readonly retryableStatuses: readonly number[];
     readonly retryableCodes: readonly string[];
     readonly shouldRetry?: (error: Error) => boolean;
@@ -26,6 +28,7 @@ interface NormalizedRetryConfig {
 export class RetryEngine {
     #config: NormalizedRetryConfig;
     #fib = [1, 1];
+    #retryBudgetSpentAt: number[] = [];
 
     constructor(config: ResilienceConfig = {}) {
         this.#config = {
@@ -35,6 +38,8 @@ export class RetryEngine {
             baseDelay: config.retryDelay ?? 1000,
             maxDelay: config.maxRetryDelay ?? 30_000,
             jitter: config.retryJitter ?? true,
+            retryMethods: config.retryMethods ?? ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'],
+            ...(config.retryBudget ? { retryBudget: config.retryBudget } : {}),
             retryableStatuses: config.retryableStatuses ?? [408, 429, 500, 502, 503, 504],
             retryableCodes: config.retryableCodes ?? ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENETUNREACH'],
             ...(config.shouldRetry ? { shouldRetry: config.shouldRetry } : {}),
@@ -68,7 +73,7 @@ export class RetryEngine {
                 lastError = normalizeError(error);
                 attempts.push({ attempt, duration: Date.now() - t0, success: false, error: lastError.message });
 
-                if (attempt >= this.#config.maxRetries || !this.#shouldRetry(lastError)) {
+                if (attempt >= this.#config.maxRetries || !this.#shouldRetry(lastError, context) || !this.#consumeBudget()) {
                     throw lastError;
                 }
             }
@@ -79,8 +84,10 @@ export class RetryEngine {
         });
     }
 
-    #shouldRetry(error: Error): boolean {
+    #shouldRetry(error: Error, context: RetryContext): boolean {
         if (this.#config.shouldRetry) return this.#config.shouldRetry(error);
+
+        if (context.method && !this.#config.retryMethods.includes(context.method)) return false;
 
         const noRetryNames = new Set([
             'NeutrxSecurityError',
@@ -97,6 +104,17 @@ export class RetryEngine {
         if (typeof enriched.retryable === 'boolean') return enriched.retryable;
 
         return false;
+    }
+
+    #consumeBudget(): boolean {
+        const budget = this.#config.retryBudget;
+        if (!budget) return true;
+
+        const now = Date.now();
+        this.#retryBudgetSpentAt = this.#retryBudgetSpentAt.filter(timestamp => now - timestamp < budget.windowMs);
+        if (this.#retryBudgetSpentAt.length >= budget.maxRetries) return false;
+        this.#retryBudgetSpentAt.push(now);
+        return true;
     }
 
     #delay(attempt: number, lastError: Error): number {

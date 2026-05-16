@@ -11,9 +11,8 @@ const args = coverageSupported
   : ["--test", ...testFiles];
 
 if (!coverageSupported) {
-  console.warn(
-    `Native test coverage skipped on Node ${process.versions.node}; Node 18/20 can crash while reporting TS output coverage. Running tests without coverage.`
-  );
+  console.error(`Node ${process.versions.node} is unsupported. Neutrx requires Node.js >=22.0.0.`);
+  process.exit(1);
 }
 
 const result = spawnSync(process.execPath, args, {

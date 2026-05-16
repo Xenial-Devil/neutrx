@@ -1,871 +1,280 @@
 # Neutrx
 
-Neutrx is a security-first TypeScript HTTP client for Node.js and modern fetch runtimes. It keeps the daily API simple like axios while adding safer defaults: SSRF guardrails, input/output sanitization, retries, circuit breaking, bulkhead isolation, caching, metrics, interceptors, OAuth2, GraphQL, mocks, streaming, uploads, downloads, SSE, and concurrency helpers.
-
-## Highlights
-
-- Axios-style default client and configured instances.
-- Strict TypeScript API with generated declaration files.
-- First-class `NeutrxHeaders` with case-insensitive lookup, safe normalization, `Set-Cookie` helpers, and sensitive-header redaction.
-- Secure defaults for HTTPS, SSRF protection, private IP blocking, header validation, certificate validation, and response sanitization.
-- Retry engine with fixed, linear, exponential, and Fibonacci strategies.
-- Circuit breaker and bulkhead isolation for safer outbound calls under load.
-- In-memory GET cache with HTTP cache header support.
-- Upload and download progress callbacks, including real-time streamed progress.
-- Axios-style params serializers, transforms, interceptors, custom adapters, and built-in `http`/`fetch`/`http2` adapter selection.
-- Browser fetch support for credentials, XSRF cookie/header injection, AbortController cancellation, timeout, streams, Blob, FormData, and custom fetch implementations.
-- Native body serializers for JSON, URLSearchParams, ArrayBuffer, Blob, FormData, nested multipart objects, buffers, and streams.
-- Custom HTTP/HTTPS agents, DNS lookup hooks, env proxy detection, and HTTPS proxy CONNECT tunneling.
-- Optional HTTP/2 transport with session reuse.
-- Optional OpenTelemetry spans and trace propagation without requiring OpenTelemetry as a hard dependency.
-- Metrics snapshots and Prometheus output.
-- Request/response interceptors and plugin hooks.
-- Built-in OAuth2, GraphQL, and mock plugins.
-- No required runtime dependencies.
-
-## Requirements
-
-- Node.js 18 or newer.
-- TypeScript 5.6 or newer for development.
+Neutrx is a security-first HTTP client for Node.js 22+ backends. It keeps an ergonomic request API, then adds production concerns that backend services usually need: SSRF protection, secure redirects, retries, circuit breaking, in-memory caching, metrics hooks, OpenTelemetry-friendly instrumentation, typed errors, and zero required runtime dependencies.
 
 ## Installation
 
 ```bash
-# Install Neutrx in an application project.
-npm install neutrx # Installs Neutrx as a dependency.
+npm install neutrx
 ```
 
-For this repository:
+## Node Version Support
 
-```bash
-# Install this repository's dependencies.
-npm install # Installs packages from package-lock.json.
-# Run typecheck, lint, build, and tests together.
-npm run validate # Verifies the repository end to end.
-```
+Neutrx supports **Node.js >=22.0.0 only**. Node 18 and Node 20 are intentionally unsupported and are not tested in CI.
+
+CI currently tests Node 22, 24, and 25. The library targets modern Node APIs: native `fetch`, `AbortController`, Web Streams, `Blob`, `FormData`, `URL`, `URLSearchParams`, and `node:test`.
 
 ## Quick Start
 
-Use the default client directly:
-
 ```ts
-import neutrx from 'neutrx'; // Imports the default Neutrx client.
+import neutrx from 'neutrx';
 
-const users = await neutrx.get('https://api.example.com/users'); // Sends a GET request and returns a typed response.
-const created = await neutrx.post('https://api.example.com/users', { // Sends a POST request with a JSON body.
-  name: 'Ada Lovelace', // Sends this field in the request body.
-}); // Ends the POST request body.
-const direct = await neutrx('https://api.example.com/users'); // Calls the client directly; defaults to GET.
-const configured = await neutrx({ // Calls the client with a full request config object.
-  url: 'https://api.example.com/users', // Sets the request URL.
-  method: 'GET', // Sets the HTTP method.
-  params: { page: 1 }, // Adds query string params.
-}); // Ends the configured request.
+const api = neutrx.create({
+  baseURL: 'https://api.example.com',
+  timeout: 10_000,
+  security: { profile: 'standard' },
+});
+
+const users = await api.get('/users', { params: { page: 1 } });
+const created = await api.post('/users', { name: 'Ada Lovelace' });
+const direct = await neutrx('https://api.example.com/health');
 ```
 
-## Configure Once, Use Everywhere
+## Migration From Other HTTP Clients
 
-Create one configured instance in a separate file:
+Most common HTTP client patterns map cleanly:
 
 ```ts
-// src/api.ts // Suggested file for one shared API client.
-import neutrx, { GraphQLPlugin, OAuth2Plugin } from 'neutrx'; // Imports the client factory and optional plugins.
+const api = neutrx.create({ baseURL: 'https://api.example.com' });
 
-const api = neutrx.create({ // Creates one reusable configured client instance.
-  baseURL: 'https://api.example.com', // Prefixes all relative URLs like /users.
-  timeout: 15_000, // Limits total response wait time to 15 seconds.
-  connectTimeout: 5_000, // Limits socket connection time to 5 seconds.
-  headers: { // Defines headers sent on every request.
-    Accept: 'application/json', // Tells servers JSON is preferred.
-  }, // Ends default headers.
-  formSerializer: { // Controls nested object to FormData serialization.
-    dots: true, // Uses user.name instead of user[name] for nested keys.
-    indexes: false, // Uses repeated array keys without numeric indexes.
-    maxDepth: 8, // Stops overly deep multipart payloads.
-  }, // Ends form serializer config.
-  instrumentation: { // Enables optional OpenTelemetry integration when packages exist.
-    openTelemetry: true, // Creates a span for each request.
-    tracerName: 'neutrx-app', // Uses this tracer name.
-    propagateTraceHeaders: true, // Injects trace context headers.
-  }, // Ends instrumentation config.
-  security: { // Enables and tunes security guardrails.
-    profile: 'balanced', // Uses production-safe defaults without the strictest allow-list posture.
-    enforceHTTPS: true, // Requires HTTPS in production.
-    validateCertificate: true, // Verifies TLS certificates.
-    enableSSRFProtection: true, // Blocks SSRF-style unsafe targets.
-    blockPrivateIPs: true, // Blocks localhost/private/internal IP targets.
-    blockMetadataIPs: true, // Blocks metadata service IPs such as 169.254.169.254.
-    reResolveOnRedirect: true, // Re-checks DNS and host policy after redirects.
-    blockRedirectToPrivateIP: true, // Blocks redirects into private/internal addresses.
-    sanitizeInputs: true, // Removes unsafe keys and strings from request bodies.
-    sanitizeOutputs: true, // Sanitizes unsafe response data.
-    rateLimit: { // Configures client-side rate limiting.
-      enabled: true, // Turns the rate limiter on.
-      maxRequests: 100, // Allows 100 requests per window.
-      windowMs: 60_000, // Uses a 60-second window.
-      algorithm: 'sliding_window', // Uses sliding window rate limiting.
-    }, // Ends rate-limit config.
-  }, // Ends security config.
-  resilience: { // Enables failure-handling features.
-    enableRetry: true, // Retries transient failures.
-    maxRetries: 3, // Tries up to 3 retries.
-    retryStrategy: 'exponential', // Waits longer after each retry.
-    retryDelay: 1000, // Starts retry delay at 1 second.
-    enableCircuitBreaker: true, // Stops calling failing services temporarily.
-    failureThreshold: 5, // Opens circuit after 5 failures.
-    enableBulkhead: true, // Isolates concurrent load per target.
-    maxConcurrent: 20, // Allows 20 concurrent requests per bulkhead.
-  }, // Ends resilience config.
-  performance: { // Enables performance features.
-    enableCaching: true, // Caches GET responses.
-    cacheTTL: 300_000, // Keeps cache entries for 5 minutes.
-  }, // Ends performance config.
-}); // Finishes client creation.
+api.interceptors.request.use(config => ({
+  ...config,
+  headers: { ...config.headers, 'X-Service': 'billing' },
+}));
 
-api.use(OAuth2Plugin).use(GraphQLPlugin); // Adds OAuth2 and GraphQL helpers to the instance.
-api.setAuth({ bearer: process.env.API_TOKEN ?? '' }); // Adds a bearer token when available.
+api.interceptors.response.use(response => response);
 
-export default api; // Exports the configured instance for the rest of the app.
+await api.get('/users');
+await api.post('/users', { name: 'Ada' });
+await api.postForm('/uploads', { name: 'report', file: new Blob(['ok']) });
 ```
 
-Then import and use it anywhere:
+See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for behavior differences.
+
+## Why Neutrx
+
+| Area | Neutrx posture |
+| --- | --- |
+| Runtime target | Node.js >=22, backend-first |
+| Dependencies | No required runtime dependencies |
+| Security posture | SSRF protection, redirect stripping, size limits, redacted errors |
+| Retry/circuit/cache | Built in |
+| Types | TypeScript source and declarations |
+| Observability | Metrics snapshot, events, optional OpenTelemetry bridge |
+| Browser support | Separate browser entry, secondary |
+
+## Request API
 
 ```ts
-import api from './api.js'; // Imports the shared configured client.
+await api.request({ url: '/users', method: 'GET' });
+await api.get('/users');
+await api.post('/users', { name: 'Ada' });
+await api.put('/users/1', { name: 'Ada' });
+await api.patch('/users/1', { name: 'Ada Lovelace' });
+await api.delete('/users/1');
+await api.head('/health');
+await api.options('/health');
 
-const users = await api.get('/users'); // GET /users using the baseURL.
-const user = await api.get('/users/1'); // GET one user by ID.
-const created = await api.post('/users', { name: 'Alan Turing' }); // POST a JSON body to create a user.
-const replaced = await api.put('/users/1', { name: 'Grace Hopper' }); // PUT a full replacement for one user.
-const updated = await api.patch('/users/1', { name: 'Grace Hopper' }); // PATCH a partial update for one user.
-const removed = await api.delete('/users/1'); // DELETE one user by ID.
+await api.postForm('/form', { name: 'Ada' });
+await api.putForm('/form/1', { name: 'Ada' });
+await api.patchForm('/form/1', { name: 'Grace' });
 ```
 
-The same instance is also callable:
+Useful config:
 
 ```ts
-const users = await api('/users'); // Calls the instance directly; defaults to GET.
-const page = await api({ // Calls the instance with a config object.
-  url: '/users', // Uses the configured baseURL plus this path.
-  method: 'GET', // Sets HTTP method.
-  params: { page: 1, limit: 20 }, // Adds pagination query params.
-}); // Ends request config.
-```
-
-## Request Methods
-
-```ts
-await api.get('/users'); // Sends GET request.
-await api.post('/users', { name: 'Ada' }); // Sends POST request with body.
-await api.put('/users/1', { name: 'Ada' }); // Sends PUT request with body.
-await api.patch('/users/1', { name: 'Ada Lovelace' }); // Sends PATCH request with body.
-await api.delete('/users/1'); // Sends DELETE request.
-await api.head('/health'); // Sends HEAD request for headers only.
-await api.options('/health'); // Sends OPTIONS request for allowed methods/metadata.
-await api.request({ url: '/users', method: 'GET' }); // Sends request from full config.
-```
-
-## Request Config
-
-```ts
-const response = await api.get('/users', { // Sends GET /users with extra options.
-  params: { role: 'admin' }, // Adds ?role=admin to the URL.
-  headers: { 'X-Trace-ID': 'trace-123' }, // Adds request-specific header.
-  timeout: 10_000, // Overrides response timeout for this request.
-  connectTimeout: 3_000, // Overrides socket connect timeout for this request.
-  responseType: 'json', // Parses response as JSON when possible.
-  validateStatus: status => status >= 200 && status < 500, // Treats 2xx-4xx as non-throwing.
-  cache: true, // Allows GET cache for this request.
-}); // Ends request config.
-```
-
-Useful config fields:
-
-- `baseURL`: base URL for relative paths.
-- `params`: query string values.
-- `headers`: request headers.
-- `data`: request body.
-- `timeout`: response timeout in milliseconds.
-- `connectTimeout`: socket connect timeout in milliseconds.
-- `maxRedirects`: redirect limit.
-- `maxContentLength`: response size limit in bytes.
-- `maxBodyLength`: request body size limit in bytes.
-- `responseType`: `json`, `text`, `buffer`, `arrayBuffer`, `blob`, `formData`, or `stream`.
-- `validateStatus`: custom success status function.
-- `paramsSerializer`: custom query string serializer.
-- `formSerializer`: nested object to FormData serializer options.
-- `transformRequest`: request body/header transform or transform array.
-- `transformResponse`: response data transform or transform array.
-- `adapter`: `'http'`, `'fetch'`, `'http2'`, or a custom transport adapter for tests or non-standard runtimes.
-- `httpVersion`: `1`, `'1.1'`, `2`, or `'2'`; HTTP/1.1 remains the default.
-- `http2Options`: HTTP/2 session timeout, TLS verification, and session cap options.
-- `fetch`: custom fetch implementation for browsers, tests, workers, or non-standard runtimes.
-- `credentials` / `withCredentials`: fetch credential mode.
-- `xsrfCookieName`, `xsrfHeaderName`, `withXSRFToken`: browser XSRF cookie to header behavior.
-- `instrumentation`: optional OpenTelemetry span and trace propagation config.
-- `proxy`: HTTP/HTTPS proxy config, env proxy fallback, or `false` to disable inherited proxy settings.
-- `httpAgent` / `httpsAgent`: custom Node agents for CA, mTLS, DNS cache, or tunneling.
-- `lookup`: custom DNS lookup function; resolved addresses are still checked by SSRF protection.
-- `socketPath`: UNIX socket path for local IPC APIs supported by the Node HTTP adapter.
-- `decompress`: set `false` to keep compressed response bytes instead of decoding gzip, deflate, or brotli.
-- `cache`: set `false` to skip GET cache.
-- `signal`: AbortController signal.
-- `onUploadProgress`: upload progress callback.
-- `onDownloadProgress`: download progress callback.
-
-## Headers
-
-`NeutrxHeaders` accepts plain objects, iterables, existing headers, and browser `Headers`-like objects. Lookups are case-insensitive, original casing is preserved, invalid names are rejected, and CRLF value injection is blocked.
-
-```ts
-import { NeutrxHeaders } from 'neutrx'; // Imports header helper.
-
-const headers = new NeutrxHeaders({ // Creates normalized headers.
-  'content-type': 'application/json', // Keeps original casing until overwritten.
-}); // Ends header construction.
-
-headers.setBearerAuth(process.env.API_TOKEN ?? ''); // Sets Authorization safely.
-headers.setContentType('application/json'); // Sets Content-Type.
-headers.setAccept('application/json'); // Sets Accept.
-
-console.log(headers.get('Content-Type')); // Reads case-insensitively.
-console.log(headers.redactSensitive()); // Redacts Authorization, Cookie, Set-Cookie, and Proxy-Authorization.
-
-await api.get('/users', { // Sends request with plain-object headers.
-  headers: headers.toJSON(), // Converts back to Neutrx's public header shape.
-}); // Ends request.
-```
-
-`Set-Cookie` values stay as arrays when duplicated:
-
-```ts
-const cookies = NeutrxHeaders.concat(
-  { 'Set-Cookie': ['a=1'] },
-  { 'set-cookie': ['b=2'] }
-).getSetCookie(); // Returns ['a=1', 'b=2'].
-```
-
-## Browser Fetch And XSRF
-
-Use `adapter: 'fetch'` in browsers, workers, and tests that provide fetch. Neutrx supports `credentials`, `withCredentials`, AbortController signals, timeout through AbortController, streamed download progress when `ReadableStream` is available, custom fetch implementations, and browser response types.
-
-```ts
-const response = await api.get('/session', { // Sends browser-style fetch request.
-  adapter: 'fetch', // Uses fetch instead of Node http transport.
-  credentials: 'include', // Includes cookies.
-  xsrfCookieName: 'XSRF-TOKEN', // Reads this cookie in standard browser environments.
-  xsrfHeaderName: 'X-XSRF-TOKEN', // Writes token to this request header.
-  withXSRFToken: config => config.method !== 'GET', // Controls same-origin/default injection.
-  responseType: 'json', // Supports json, text, arrayBuffer, blob, formData, and stream when available.
-  onDownloadProgress(event) { // Uses ReadableStream progress when possible.
-    console.log(event.loaded, event.total); // Prints loaded and optional total bytes.
-  }, // Ends progress callback.
-}); // Ends request.
-
-console.log(response.data); // Reads parsed response data.
-```
-
-By default, XSRF headers are injected only in standard browser environments and for safe same-origin behavior. Cross-origin XSRF injection requires explicit `withXSRFToken: true` or a function that returns `true`.
-
-## HTTP/2 And Proxy
-
-HTTP/1.1 is default. Request HTTP/2 only when the target supports it.
-
-```ts
-const h2 = await api.get('/reports', { // Sends request over HTTP/2.
-  httpVersion: '2', // Opts into HTTP/2.
-  http2Options: { // Tunes HTTP/2 sessions.
-    sessionTimeout: 30_000, // Closes idle sessions after 30 seconds.
-    maxSessions: 8, // Caps reused sessions.
-    rejectUnauthorized: true, // Verifies TLS certificates.
-  }, // Ends HTTP/2 options.
-}); // Ends request.
-
-console.log(h2.status); // Prints response status.
-```
-
-Proxy config supports explicit per-request values, `HTTP_PROXY`, `HTTPS_PROXY`, lowercase env variants, `NO_PROXY`, proxy auth, and `proxy: false`.
-
-```ts
-await api.get('https://api.example.com/users', { // Sends HTTPS request through CONNECT proxy.
-  proxy: { // Explicit config overrides env proxy.
-    protocol: 'http', // Uses an HTTP proxy.
-    host: 'proxy.internal', // Proxy host.
-    port: 8080, // Proxy port.
-    auth: { username: 'svc', password: process.env.PROXY_PASSWORD ?? '' }, // Adds Proxy-Authorization only to proxy hop.
-  }, // Ends proxy config.
-}); // Ends proxied request.
-
-await api.get('https://api.example.com/users', {
-  proxy: false, // Disables env proxy for this request.
-}); // Ends direct request.
-```
-
-## Body Serialization
-
-Neutrx serializes JSON, URLSearchParams, ArrayBuffer, Buffer, Blob/File where available, FormData, streams, and nested objects. When `Content-Type` is `multipart/form-data`, plain objects are converted to FormData and Node multipart boundaries are generated only when needed.
-
-```ts
-await api.post('/profile', { // Sends nested object as multipart form data.
-  user: {
-    name: 'Ada',
-    roles: ['admin', 'editor'],
+await api.get('/search', {
+  params: { q: 'neutrx', tags: ['http', 'security'] },
+  paramsSerializer: params => new URLSearchParams(params as Record<string, string>).toString(),
+  timeout: 5_000,
+  maxContentLength: 10 * 1024 * 1024,
+  maxBodyLength: 2 * 1024 * 1024,
+  signal: AbortSignal.timeout(2_000),
+  transformResponse(data) {
+    return data;
   },
-}, {
-  headers: { 'Content-Type': 'multipart/form-data' },
-  formSerializer: {
-    dots: true, // user.name
-    indexes: true, // roles[0], roles[1]
-    metaTokens: true, // Preserves object meta token behavior.
-    maxDepth: 6, // Blocks unbounded nesting.
+});
+```
+
+## Security Defaults
+
+Security profiles:
+
+```ts
+neutrx.create({ security: { profile: 'strict' } });
+neutrx.create({ security: { profile: 'standard' } });
+neutrx.create({ security: { profile: 'legacy' } });
+```
+
+`strict`:
+
+- Blocks localhost, private IPv4, private IPv6, link-local, and cloud metadata IPs.
+- Requires HTTPS unless explicitly disabled.
+- Blocks HTTPS to HTTP redirect downgrades.
+- Strips `Authorization`, `Cookie`, and `Proxy-Authorization` on cross-origin redirects.
+- Redacts secrets in `error.toJSON()`.
+- Enforces request and response size limits.
+
+`standard` is for normal production service-to-service traffic. `legacy` relaxes selected network checks for trusted migrations or local testing; do not use it for untrusted user-controlled URLs.
+
+SSRF allow-list example:
+
+```ts
+const locked = neutrx.create({
+  security: {
+    profile: 'strict',
+    allowedHosts: ['api.example.com', '*.trusted.example'],
   },
-}); // Ends multipart request.
-
-await api.post('/search', new URLSearchParams({ q: 'neutrx' })); // Sends application/x-www-form-urlencoded.
+});
 ```
 
-## Upload Progress
-
-Yes, upload progress is supported.
-
-For buffers, strings, JSON bodies, and URLSearchParams, Neutrx reports completion when the body is written. For streams, Neutrx reports progress as chunks are written. If `Content-Length` is provided, progress includes `total` and `percent`; otherwise it reports `loaded` bytes only.
+Trusted local example:
 
 ```ts
-import { createReadStream, statSync } from 'node:fs'; // Imports file stream and file-size helpers.
-import api from './api.js'; // Imports the shared configured client.
-
-const filePath = './video.mp4'; // Stores the file path to upload.
-const fileSize = statSync(filePath).size; // Reads file size for Content-Length and percent calculation.
-
-await api.upload('/uploads/video', createReadStream(filePath), { // Uploads the file stream to the server.
-  headers: { // Sets upload-specific headers.
-    'Content-Type': 'video/mp4', // Tells server the uploaded file type.
-    'Content-Length': fileSize, // Tells Neutrx/server total bytes for progress percent.
-  }, // Ends upload headers.
-  onUploadProgress(progress) { // Runs every time upload progress changes.
-    if (progress.percent !== undefined) { // Checks whether percent can be calculated.
-      console.log(`${progress.percent}% complete`); // Prints percentage progress.
-      return; // Stops this callback after printing percent.
-    } // Ends percent check.
-
-    console.log(`${progress.loaded} bytes uploaded`); // Prints bytes when total size is unknown.
-  }, // Ends progress callback.
-}); // Ends upload request.
+const local = neutrx.create({
+  baseURL: 'http://127.0.0.1:3000',
+  security: {
+    profile: 'legacy',
+    blockMetadataIPs: true,
+  },
+});
 ```
 
-Progress event shape:
+See [docs/security.md](docs/security.md) and [THREATMODEL.md](THREATMODEL.md).
+
+## Retry
+
+Retries use exponential backoff with jitter by default. Only idempotent methods (`GET`, `HEAD`, `OPTIONS`, `PUT`, `DELETE`) retry by default.
 
 ```ts
-{ // Upload progress event object.
-  loaded: number; // Bytes written by the request stream.
-  total?: number; // Total upload size when Content-Length is known.
-  percent?: number; // Percentage when total is known.
-} // End of event shape.
+const api = neutrx.create({
+  resilience: {
+    enableRetry: true,
+    maxRetries: 3,
+    retryDelay: 250,
+    maxRetryDelay: 5_000,
+    retryJitter: true,
+    retryBudget: { maxRetries: 100, windowMs: 60_000 },
+  },
+});
 ```
 
-Note: progress means bytes written by the Node.js request stream. The server may still be processing the body after the client finishes writing.
+`Retry-After` is respected when returned on retryable HTTP errors.
 
-## Download
+## Circuit Breaker
 
 ```ts
-const file = await api.download('/exports/report.pdf'); // Downloads response as a Buffer.
-await writeFile('./report.pdf', file.data); // Writes the downloaded Buffer to disk.
+const api = neutrx.create({
+  resilience: {
+    enableCircuitBreaker: true,
+    failureThreshold: 5,
+    successThreshold: 2,
+    circuitTimeout: 30_000,
+  },
+});
+
+api.on('request:error', event => console.error(event));
+console.log(api.getCircuitStatus());
 ```
 
-For streaming downloads:
+States are `CLOSED`, `OPEN`, and `HALF_OPEN`.
+
+## Cache
+
+GET caching is in-memory and respects common cache headers where practical.
 
 ```ts
-const response = await api.get('/exports/report.pdf', { // Requests a file as a stream.
-  responseType: 'stream', // Returns the raw IncomingMessage stream.
-}); // Ends download config.
+const api = neutrx.create({
+  performance: {
+    enableCaching: true,
+    cacheTTL: 300_000,
+    respectCacheHeaders: true,
+  },
+});
 
-response.data.pipe(createWriteStream('./report.pdf')); // Pipes stream data into a local file.
+await api.get('/users');
+console.log(api.getCacheStats());
+api.clearCache();
 ```
 
-## Authentication
-
-Bearer token:
-
-```ts
-api.setAuth({ bearer: process.env.API_TOKEN ?? '' }); // Adds Authorization: Bearer <token>.
-```
-
-Basic auth:
-
-```ts
-api.setAuth({ // Configures Authorization header.
-  basic: { // Chooses Basic auth mode.
-    username: 'user', // Sets Basic auth username.
-    password: 'pass', // Sets Basic auth password.
-  }, // Ends Basic auth credentials.
-}); // Applies Basic auth.
-```
-
-API key:
-
-```ts
-api.setAuth({ // Configures API key auth.
-  apiKey: { // Chooses API key auth mode.
-    key: process.env.API_KEY ?? '', // Reads API key from environment.
-    header: 'X-Api-Key', // Sends key in this header.
-  }, // Ends API key config.
-}); // Applies API key auth.
-```
-
-Clear auth:
-
-```ts
-api.clearAuth(); // Removes Authorization header managed by Neutrx.
-```
-
-## OAuth2 Plugin
-
-```ts
-import api from './api.js'; // Imports configured client.
-import { OAuth2Plugin } from 'neutrx'; // Imports OAuth2 plugin.
-
-api.use(OAuth2Plugin); // Installs OAuth2 support.
-
-api.configureOAuth2?.({ // Configures token fetching if plugin is installed.
-  tokenURL: 'https://auth.example.com/token', // Token endpoint URL.
-  clientId: process.env.CLIENT_ID, // OAuth2 client ID.
-  clientSecret: process.env.CLIENT_SECRET, // OAuth2 client secret.
-  scope: 'read write', // Requested OAuth2 scopes.
-}); // Ends OAuth2 config.
-```
-
-The plugin automatically fetches and refreshes tokens, then injects the `Authorization` header.
-
-## GraphQL Plugin
-
-```ts
-import api from './api.js'; // Imports configured client.
-import { GraphQLPlugin } from 'neutrx'; // Imports GraphQL plugin.
-
-api.use(GraphQLPlugin); // Installs api.gql helper.
-
-const result = await api.gql?.<{ user: { id: string; name: string } }>( // Sends typed GraphQL request if helper exists.
-  '/graphql', // GraphQL endpoint path.
-  'query GetUser($id: ID!) { user(id: $id) { id name } }', // GraphQL query document.
-  { id: '123' } // GraphQL variables object.
-); // Ends GraphQL call.
-
-console.log(result?.data.user.name); // Prints returned user name when result exists.
-```
-
-## Mock Plugin
-
-Use mocks for tests, examples, and local development without network calls.
-
-```ts
-import neutrx, { MockPlugin } from 'neutrx'; // Imports client factory and mock plugin.
-
-const api = neutrx.create({ baseURL: 'https://api.example.com' }); // Creates a client with base URL.
-
-api.use(MockPlugin); // Installs mock support.
-api.mock?.enable() // Turns mocks on if plugin is installed.
-  .register('/health', { status: 200, data: { ok: true } }) // Returns fake health response.
-  .register('/users', { status: 200, data: [{ id: 1, name: 'Ada' }] }); // Returns fake users response.
-
-const health = await api.get('/health'); // Reads mocked health response.
-```
+Redis/custom cache adapters are not implemented yet; see docs for extension direction.
 
 ## Interceptors
 
 ```ts
-const requestId = api.useRequest(config => { // Registers request interceptor and stores its ID.
-  return { // Returns modified request config.
-    ...config, // Keeps existing request config values.
-    headers: { // Rebuilds headers object.
-      ...config.headers, // Keeps existing headers.
-      'X-App-Version': '1.0.0', // Adds app version header.
-    }, // Ends headers object.
-  }; // Ends modified config.
-}); // Ends request interceptor.
+const id = api.interceptors.request.use(
+  config => ({ ...config, headers: { ...config.headers, 'X-Trace': 'abc' } }),
+  undefined,
+  { runWhen: config => config.method === 'GET' }
+);
 
-api.useResponse(response => { // Registers response interceptor.
-  console.log(response.status, response.timing.duration); // Logs status and duration.
-  return response; // Returns response so chain continues.
-}); // Ends response interceptor.
-
-api.eject(requestId); // Removes interceptor by ID.
+api.interceptors.request.eject(id);
+api.interceptors.response.clear();
 ```
 
-## Resilience
-
-Retries, circuit breaker, and bulkhead isolation are enabled by default.
+## Error Handling
 
 ```ts
-const api = neutrx.create({ // Creates a client with custom resilience settings.
-  resilience: { // Groups failure-handling config.
-    enableRetry: true, // Enables retry behavior.
-    maxRetries: 3, // Allows up to 3 retries.
-    retryStrategy: 'exponential', // Uses exponential backoff.
-    retryDelay: 1000, // Starts retry delay at 1 second.
-    retryableStatuses: [408, 429, 500, 502, 503, 504], // Retries these HTTP statuses.
-    enableCircuitBreaker: true, // Enables circuit breaker.
-    failureThreshold: 5, // Opens circuit after 5 failures.
-    circuitTimeout: 60_000, // Keeps circuit open for 60 seconds.
-    enableBulkhead: true, // Enables concurrency isolation.
-    maxConcurrent: 10, // Allows 10 active requests per bulkhead.
-    maxQueue: 100, // Allows 100 queued requests per bulkhead.
-  }, // Ends resilience config.
-}); // Ends client creation.
+import { NeutrxHTTPError, isNeutrxError } from 'neutrx';
+
+try {
+  await api.get('/users');
+} catch (error) {
+  if (!isNeutrxError(error)) throw error;
+  console.error(error.code, error.toJSON());
+  if (error instanceof NeutrxHTTPError) console.error(error.status);
+}
 ```
 
-Available retry strategies:
+`error.toJSON()` redacts sensitive URL params, headers, and response fields such as tokens, cookies, passwords, secrets, and API keys.
 
-- `fixed`
-- `linear`
-- `exponential`
-- `fibonacci`
-
-## Security
-
-Security guardrails are enabled by default:
-
-- HTTPS enforcement in production.
-- TLS certificate validation.
-- SSRF protection.
-- Private/internal host blocking.
-- Dangerous port blocking.
-- URL injection checks.
-- Header injection checks.
-- Header count and size limits.
-- Prototype pollution key removal.
-- Response sanitization.
-- Certificate pinning.
-- Optional request signing.
-
-Certificate pinning:
+## TypeScript
 
 ```ts
-api.pinCertificate( // Pins a TLS certificate fingerprint for one host.
-  'api.example.com', // Hostname to pin.
-  '8f14e45fceea167a5a36dedd4bea2543f8f14e45fceea167a5a36dedd4bea2543' // SHA-256 certificate fingerprint.
-); // Applies certificate pin.
+type User = { id: string; name: string };
+const response = await api.get<readonly User[]>('/users');
 ```
 
-Block a domain:
+The project uses strict TypeScript, `NodeNext`, and generated declaration files.
 
-```ts
-api.blockDomain('malicious.example'); // Blocks requests to this domain.
-```
+## Browser Support Status
 
-Enable request signing:
+Browser support exists through `neutrx/browser` and the package `browser` condition. It uses native fetch, browser streams, credentials, XSRF cookie/header injection, timeout, and progress where fetch exposes streams. Neutrx remains backend-focused; Node adapters, DNS validation, certificate pinning, proxy tunneling, and request signing are Node-only.
 
-```ts
-api.enableRequestSigning(process.env.SIGNING_SECRET ?? ''); // Signs outbound requests with shared secret.
-```
+## API Reference
 
-For trusted local development against localhost, explicitly relax the local-only security settings:
+See [docs/api.md](docs/api.md).
 
-```ts
-const localApi = neutrx.create({ // Creates local-development client.
-  baseURL: 'http://127.0.0.1:3000', // Points to local server.
-  security: { // Overrides security checks for trusted local dev only.
-    profile: 'development', // Allows localhost-oriented development defaults.
-    enforceHTTPS: false, // Allows HTTP.
-    allowLocalhost: true, // Allows localhost names.
-    blockLoopbackIPs: false, // Allows 127.0.0.1 and ::1.
-    blockPrivateIPs: false, // Allows private IPs for local networks.
-    blockMetadataIPs: true, // Keeps metadata services blocked unless explicitly disabled.
-  }, // Ends local security overrides.
-}); // Ends local client creation.
-```
-
-For strict allow-listing:
-
-```ts
-const lockedApi = neutrx.create({ // Creates stricter outbound client.
-  security: { // Applies host/protocol policy.
-    profile: 'strict', // Starts from safest profile.
-    allowedHosts: ['api.example.com'], // Only permits approved hosts.
-    deniedHosts: ['metadata.google.internal'], // Blocks known unsafe hostnames.
-    allowedProtocols: ['https:'], // Permits HTTPS only.
-    blockRedirectToPrivateIP: true, // Blocks redirect SSRF pivots.
-  }, // Ends strict security config.
-}); // Ends strict client.
-```
-
-## Caching
-
-GET caching is enabled by default.
-
-```ts
-const first = await api.get('/users'); // Fetches users and stores cache entry.
-const second = await api.get('/users'); // Reads users from cache when still valid.
-
-console.log(api.getCacheStats()); // Prints cache hit/miss stats.
-api.clearCache(); // Clears all cache entries.
-```
-
-Skip cache per request:
-
-```ts
-await api.get('/users', { cache: false }); // Forces network request and skips cache.
-```
-
-## Concurrency Helpers
-
-Run requests concurrently:
-
-```ts
-const { results, errors, completed } = await api.concurrent([ // Runs multiple requests with one helper.
-  { method: 'GET', url: '/users' }, // First concurrent request.
-  { method: 'GET', url: '/products' }, // Second concurrent request.
-  () => ({ method: 'GET', url: '/orders' }), // Lazy request factory.
-], { // Starts concurrency options.
-  limit: 5, // Runs at most 5 requests at once.
-  failFast: false, // Keeps going after individual failures.
-  onProgress(done, total) { // Runs after each request finishes.
-    console.log(`${done}/${total}`); // Prints completion count.
-  }, // Ends progress callback.
-}); // Ends concurrent call.
-```
-
-Run sequentially:
-
-```ts
-const responses = await api.sequential([ // Runs requests one after another.
-  { method: 'GET', url: '/auth/session' }, // First request.
-  previous => ({ // Builds next request from previous response.
-    method: 'GET', // Uses GET for second request.
-    url: `/users/${previous?.data}`, // Uses previous response data in URL.
-  }), // Ends request factory.
-]); // Ends sequential call.
-```
-
-Race or hedge requests:
-
-```ts
-const fastest = await api.race([ // Starts multiple requests and returns first success/resolution.
-  { method: 'GET', url: 'https://region-a.example.com/data' }, // Region A request.
-  { method: 'GET', url: 'https://region-b.example.com/data' }, // Region B request.
-]); // Ends race call.
-
-const hedged = await api.hedged([ // Starts backup requests after a delay to reduce tail latency.
-  { method: 'GET', url: 'https://primary.example.com/data' }, // Primary request.
-  { method: 'GET', url: 'https://backup.example.com/data' }, // Backup request.
-], { delay: 250 }); // Starts backup after 250ms.
-```
-
-## Pagination
-
-```ts
-for await (const page of api.paginate('/users', { // Iterates through paginated API responses.
-  pageParam: 'page', // Query param name for page number.
-  limitParam: 'limit', // Query param name for page size.
-  pageSize: 50, // Requests 50 records per page.
-  dataPath: 'data', // Reads page items from response.data.
-  hasMorePath: 'hasMore', // Reads continuation flag from response.hasMore.
-})) { // Starts loop body for each page.
-  console.log(page.page, page.data); // Prints page number and page data.
-} // Ends pagination loop.
-```
-
-## SSE
-
-```ts
-const stream = await api.sse('/events', { // Opens server-sent events stream.
-  onMessage(message) { // Handles each incoming SSE message.
-    console.log(message); // Prints message payload.
-  }, // Ends message handler.
-  onError(error) { // Handles stream errors.
-    console.error(error.message); // Prints error message.
-  }, // Ends error handler.
-  onClose() { // Handles stream close.
-    console.log('closed'); // Prints close notice.
-  }, // Ends close handler.
-}); // Ends SSE setup.
-
-stream.close(); // Manually closes SSE connection.
-```
-
-## Metrics
-
-```ts
-console.log(api.getMetrics()); // Prints structured metrics snapshot.
-console.log(api.getMetricsPrometheus()); // Prints Prometheus-format metrics.
-console.log(api.getCircuitStatus()); // Prints circuit breaker status.
-console.log(api.getBulkheadStats()); // Prints bulkhead concurrency stats.
-
-api.resetMetrics(); // Clears collected metrics.
-```
-
-## OpenTelemetry
-
-OpenTelemetry is optional. If `@opentelemetry/api` is installed or a compatible test API is provided, Neutrx creates one span per request. If it is missing, requests continue normally.
-
-```ts
-const tracedApi = neutrx.create({ // Creates traced client.
-  instrumentation: { // Enables instrumentation.
-    openTelemetry: true, // Creates request spans.
-    tracerName: 'billing-client', // Uses custom tracer name.
-    propagateTraceHeaders: true, // Injects trace headers into outbound requests.
-    recordRequestBodySize: true, // Adds request body size attribute when available.
-    recordResponseBodySize: true, // Adds response body size attribute when available.
-  }, // Ends instrumentation config.
-}); // Ends traced client.
-
-await tracedApi.get('https://api.example.com/invoices'); // Records method, URL parts, status, retry count, cache, circuit, and bulkhead attributes.
-```
-
-## Events
-
-```ts
-api.on('request:success', event => { // Listens for successful requests.
-  console.log(event); // Prints success event payload.
-}); // Ends success listener.
-
-api.on('request:error', event => { // Listens for failed requests.
-  console.error(event); // Prints error event payload.
-}); // Ends error listener.
-
-api.on('cache:hit', event => { // Listens for cache hits.
-  console.log(event); // Prints cache-hit event payload.
-}); // Ends cache listener.
-```
-
-## Response Shape
-
-```ts
-const response = await api.get('/users'); // Gets a response object.
-
-response.status; // HTTP status code.
-response.statusText; // HTTP status text.
-response.headers; // Response headers.
-response.data; // Parsed response body.
-response.config; // Final internal request config.
-response.timing.duration; // Request duration in milliseconds.
-response.requestId; // Unique request ID.
-response.attempts; // Retry attempt metadata when retries ran.
-response.cached; // True when response came from cache.
-response.cacheAge; // Cache age when response came from cache.
-```
-
-## Errors
-
-Neutrx exports typed errors:
-
-```ts
-import { // Imports typed error classes.
-  NeutrxError, // Base Neutrx error class.
-  NeutrxHTTPError, // HTTP status error class.
-  NeutrxTimeoutError, // Timeout error class.
-  NeutrxSSRFError, // SSRF protection error class.
-  isNeutrxError, // Type guard for unknown catch values.
-} from 'neutrx'; // Imports errors from package.
-
-try { // Starts error-handled request block.
-  await api.get('/users'); // Sends request that may throw.
-} catch (error) { // Handles any thrown error.
-  if (!isNeutrxError(error)) { // Narrows unknown non-Neutrx values.
-    throw error; // Rethrows unexpected errors.
-  } else if (error instanceof NeutrxHTTPError) { // Checks for HTTP status error.
-    console.error(error.status, error.response?.data); // Prints status and response body.
-  } else if (error instanceof NeutrxTimeoutError) { // Checks for timeout error.
-    console.error('timeout'); // Prints timeout message.
-  } else if (error instanceof NeutrxSSRFError) { // Checks for SSRF block.
-    console.error('blocked unsafe URL'); // Prints SSRF block message.
-  } else if (error instanceof NeutrxError) { // Checks for other Neutrx errors.
-    console.error(error.code, error.message); // Prints Neutrx error code and message.
-  } // Ends error type checks.
-} // Ends catch block.
-```
-
-## Repository Layout
-
-```text
-neutrx/
-  examples/              TypeScript usage examples
-  src/
-    adapters/            HTTP/1.1, fetch, and HTTP/2 transports
-    core/                Client, callable facade, and error classes
-    interceptors/        Request and response interceptor chain
-    monitoring/          Metrics collector and OpenTelemetry bridge
-    performance/         Cache engine
-    plugins/             Plugin manager and built-in plugins
-    resilience/          Retry, circuit breaker, and bulkhead modules
-    security/            Security manager and rate limiter
-    index.ts             Public package entrypoint
-    types.ts             Shared public/internal types
-  tests/
-    unit/                Core, adapter, security, resilience, performance, and plugin tests
-    compat/              Axios-like API compatibility tests
-    browser/             Browser-focused tests when available
-```
-
-## Development
+## Testing
 
 ```bash
-# Type-check the TypeScript project.
-npm run typecheck # Runs TypeScript without emitting files.
-# Run ESLint rules.
-npm run lint # Checks code style and unsafe TypeScript patterns.
-# Compile and run tests.
-npm test # Builds test output and runs node:test.
-# Run coverage where native Node coverage is stable.
-npm run coverage # Uses native coverage on Node 22+; Node 18/20 run tests without coverage fallback.
-# Run typecheck, lint, build, and tests.
-npm run validate # Runs the main validation pipeline.
+npm install
+npm test
+npm run build
+npm run typecheck
+npm run lint
+npm run package:validate
+npm run package:smoke
 ```
 
-Build:
+Tests use local servers and `node:test`. Security tests cover SSRF blocks, DNS validation, redirect header stripping, downgrade blocking, cache behavior, retry/circuit behavior, interceptors, ESM/CJS package imports, and TypeScript declarations.
+
+## Benchmarks
 
 ```bash
-# Compile library files into dist/.
-npm run build # Emits compiled package files.
+npm run benchmark
+npm run benchmark:http
 ```
 
-Start smoke check:
+Benchmarks are scripts only. They do not publish fake results. Optional comparison scripts may include additional clients only when those packages are installed by the caller.
 
-```bash
-# Load built package entrypoint.
-npm run start # Runs the package smoke start command.
-```
+## Release And Supply Chain
 
-## TypeScript Notes
+- `npm ci`, lint, typecheck, tests, coverage, build, package validation, and packed-package smoke tests run in CI.
+- Dependency Review and CodeQL workflows are included.
+- Release workflow has `id-token: write`; prefer npm trusted publishing/provenance when the package is ready.
+- Avoid long-lived `NPM_TOKEN` where trusted publishing is available.
 
-- `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes` are enabled.
-- Public request/response APIs are generic.
-- Runtime external data is represented with JSON-safe types, buffers, or streams.
-- Error handling uses `unknown` only at catch boundaries, then normalizes to `Error`.
-- Generated types come from `dist/**/*.d.ts`.
+## License
 
-## Environment Variables
-
-Neutrx itself does not require environment variables. Examples may use:
-
-```bash
-# Optional bearer token used by examples.
-API_TOKEN= # Optional bearer token used by examples.
-# Optional OAuth2 client ID used by examples.
-CLIENT_ID= # Optional OAuth2 client ID used by examples.
-# Optional OAuth2 client secret used by examples.
-CLIENT_SECRET= # Optional OAuth2 client secret used by examples.
-# Optional signing secret used by request-signing examples.
-SIGNING_SECRET= # Optional signing secret used by request-signing examples.
-# Optional proxy env read by Neutrx Node requests.
-HTTP_PROXY= # HTTP proxy URL for HTTP targets.
-HTTPS_PROXY= # HTTP proxy URL or CONNECT proxy for HTTPS targets.
-NO_PROXY= # Comma-separated hosts, suffixes, or * to bypass proxy.
-# Optional explicit proxy values used by examples/api.ts.
-EXAMPLE_PROXY_HOST= # Explicit proxy host for examples.
-EXAMPLE_PROXY_PORT= # Explicit proxy port for examples.
-EXAMPLE_PROXY_AUTH= # Explicit proxy auth value for examples.
-```
-
-Keep secrets in `.env` or your deployment secret manager. Do not commit secret files.
-
-## Troubleshooting
-
-- `Cannot find module dist/esm/index.js`: run `npm run build`.
-- Editor shows stale TypeScript errors: restart the TypeScript server or reload VS Code.
-- Localhost requests fail: SSRF/private IP protection is enabled by default. Disable it only for trusted local development.
-- HTTP URLs fail in production: HTTPS enforcement is enabled in production.
-- Upload progress has no percent: provide `Content-Length` so Neutrx can calculate total percent.
-
-## License and Ownership
-
-This project is privately owned. See [LICENSE](./LICENSE). No copying, forking, modification, redistribution, publication, commercial use, or other use is allowed without prior written permission from the owner.
+Neutrx is source-available under a restrictive license. See [LICENSE](LICENSE).

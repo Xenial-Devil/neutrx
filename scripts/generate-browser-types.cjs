@@ -35,8 +35,11 @@ export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse 
 export type RequestAdapterName = 'fetch';
 export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
 
+export type SecurityProfile = 'strict' | 'balanced' | 'axios-compatible';
+export interface RetryBudgetConfig { readonly maxRetries: number; readonly windowMs: number }
+
 export interface SecurityConfig {
-  readonly profile?: 'strict' | 'balanced' | 'development';
+  readonly profile?: SecurityProfile;
   readonly allowedHosts?: readonly string[];
   readonly deniedHosts?: readonly string[];
   readonly allowedProtocols?: readonly string[];
@@ -66,6 +69,8 @@ export interface ResilienceConfig {
   readonly retryDelay?: number;
   readonly maxRetryDelay?: number;
   readonly retryJitter?: boolean;
+  readonly retryMethods?: readonly HttpMethod[];
+  readonly retryBudget?: RetryBudgetConfig;
   readonly retryableStatuses?: readonly number[];
   readonly retryableCodes?: readonly string[];
   readonly shouldRetry?: (error: Error) => boolean;
@@ -206,7 +211,7 @@ export interface NeutrxResponse<TData extends ParsedResponseData = ParsedRespons
 
 export interface RetryAttempt { readonly attempt: number; readonly duration: number; readonly success: boolean; readonly error?: string }
 export interface RetryEvent { readonly attempt: number; readonly delay: number; readonly error: Error; readonly context: RetryContext }
-export interface RetryContext { readonly url?: string }
+export interface RetryContext { readonly url?: string; readonly method?: HttpMethod }
 export interface ConcurrentOptions { readonly limit?: number; readonly failFast?: boolean; readonly timeout?: number; readonly onProgress?: (done: number, total: number, index: number, error: Error | null) => void }
 export interface ConcurrentResult<TData extends ParsedResponseData = ParsedResponseData> { readonly results: Array<NeutrxResponse<TData> | null>; readonly errors: Array<Error | null>; readonly completed: number }
 export interface PaginationOptions { readonly pageParam?: string; readonly limitParam?: string; readonly pageSize?: number; readonly dataPath?: string; readonly hasMorePath?: string; readonly maxPages?: number }
@@ -245,7 +250,7 @@ export interface AxiosInterceptorManager<TValue> { use(onFulfilled?: (value: TVa
 export interface AxiosInterceptors { readonly request: AxiosInterceptorManager<InternalRequestConfig>; readonly response: AxiosInterceptorManager<NeutrxResponse> }
 export interface NeutrxPlugin { readonly name: string; readonly version?: string; install?(client: NeutrxInstance, api: { addHook(name: 'beforeRequest', fn: (context: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>): void; addHook(name: 'afterRequest', fn: (context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>): void; addHook(name: 'onError', fn: (context: Error) => Error | Promise<Error>): void; addInterceptor: NeutrxInstance['useRequest'] }): void; uninstall?(client: NeutrxInstance): void }
 
-export class NeutrxError extends Error { readonly __isNeutrxError: true; code: string; timestamp: string; requestId: string | null; url: string | null; method: string | null; retryable: boolean; duration?: number; toJSON(): Record<string, string | number | boolean | null | undefined> }
+export class NeutrxError extends Error { readonly __isNeutrxError: true; code: string; timestamp: string; requestId: string | null; url: string | null; method: string | null; retryable: boolean; duration?: number; toJSON(): Record<string, unknown> }
 export class NeutrxNetworkError extends NeutrxError {}
 export class NeutrxConnectionRefusedError extends NeutrxNetworkError {}
 export class NeutrxDNSError extends NeutrxNetworkError {}
@@ -278,8 +283,11 @@ export interface NeutrxInstance {
   mock?: MockController;
   get<TData extends ParsedResponseData = ParsedResponseData>(url: string, config?: CallableRequestConfig): Promise<NeutrxResponse<TData>>;
   post<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(url: string, data: TBody, config?: CallableRequestConfig<TBody>): Promise<NeutrxResponse<TData>>;
+  postForm<TData extends ParsedResponseData = ParsedResponseData>(url: string, data: RequestBody, config?: CallableRequestConfig): Promise<NeutrxResponse<TData>>;
   put<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(url: string, data: TBody, config?: CallableRequestConfig<TBody>): Promise<NeutrxResponse<TData>>;
+  putForm<TData extends ParsedResponseData = ParsedResponseData>(url: string, data: RequestBody, config?: CallableRequestConfig): Promise<NeutrxResponse<TData>>;
   patch<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(url: string, data: TBody, config?: CallableRequestConfig<TBody>): Promise<NeutrxResponse<TData>>;
+  patchForm<TData extends ParsedResponseData = ParsedResponseData>(url: string, data: RequestBody, config?: CallableRequestConfig): Promise<NeutrxResponse<TData>>;
   delete<TData extends ParsedResponseData = ParsedResponseData>(url: string, config?: CallableRequestConfig): Promise<NeutrxResponse<TData>>;
   head<TData extends ParsedResponseData = ParsedResponseData>(url: string, config?: CallableRequestConfig): Promise<NeutrxResponse<TData>>;
   options<TData extends ParsedResponseData = ParsedResponseData>(url: string, config?: CallableRequestConfig): Promise<NeutrxResponse<TData>>;

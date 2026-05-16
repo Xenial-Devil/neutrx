@@ -1,5 +1,8 @@
 import type { Headers, NeutrxResponse } from '../types.js';
 
+const REDACTION = '[REDACTED]';
+const SENSITIVE_KEY_RE = /(?:^|[-_.])(authorization|cookie|set-cookie|proxy-authorization|token|access-token|refresh-token|secret|password|passwd|api-key|apikey|client-secret)(?:$|[-_.])/i;
+
 export interface NeutrxErrorOptions {
     readonly code?: string;
     readonly requestId?: string | null;
@@ -49,22 +52,23 @@ export class NeutrxError extends Error {
         }
     }
 
-    toJSON(): Record<string, string | number | boolean | null | undefined> {
+    toJSON(): Record<string, unknown> {
         return {
             name: this.name,
             code: this.code,
-            message: this.message,
+            message: redactText(this.message),
             timestamp: this.timestamp,
             requestId: this.requestId,
-            url: this.url,
+            url: this.url ? redactUrl(this.url) : null,
             method: this.method,
             retryable: this.retryable,
             duration: this.duration,
+            context: redactUnknown(this.context),
         };
     }
 
     override toString(): string {
-        return `[${this.name}] ${this.code}: ${this.message}`;
+        return `[${this.name}] ${this.code}: ${redactText(this.message)}`;
     }
 }
 
@@ -218,6 +222,7 @@ export class NeutrxHTTPError extends NeutrxError {
     response: NeutrxResponse;
     data: NeutrxResponse['data'];
     headers: Headers;
+    retryAfter: HeaderValueAsString | null;
 
     constructor(response: NeutrxResponse, options: NeutrxErrorOptions = {}) {
         super(
@@ -229,16 +234,29 @@ export class NeutrxHTTPError extends NeutrxError {
         this.response = response;
         this.data = response.data;
         this.headers = response.headers;
+        this.retryAfter = headerToString(response.headers['retry-after']);
+    }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            status: this.status,
+            statusText: this.statusText,
+            retryAfter: this.retryAfter,
+            response: {
+                status: this.status,
+                statusText: this.statusText,
+                headers: redactHeaders(this.headers),
+                data: redactUnknown(this.data),
+            },
+        };
     }
 }
 
 export class NeutrxClientError extends NeutrxHTTPError {
-    retryAfter: HeaderValueAsString | null;
-
     constructor(response: NeutrxResponse, options: NeutrxErrorOptions = {}) {
         super(response, options);
         this.retryable = response.status === 408 || response.status === 429;
-        this.retryAfter = headerToString(response.headers['retry-after']);
     }
 }
 
@@ -382,4 +400,53 @@ function headerToString(value: Headers[string] | undefined): string | null {
 
 function isProduction(): boolean {
     return typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
+}
+
+function redactHeaders(headers: Headers): Headers {
+    const result: Headers = {};
+    for (const [key, value] of Object.entries(headers)) {
+        result[key] = isSensitiveKey(key)
+            ? Array.isArray(value) ? value.map(() => REDACTION) : REDACTION
+            : value;
+    }
+    return result;
+}
+
+function redactUnknown(value: unknown, depth = 0): unknown {
+    if (depth > 5) return '[Truncated]';
+    if (typeof value === 'string') return redactText(value);
+    if (value === null || typeof value !== 'object') return value;
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return `[Buffer:${value.length}]`;
+    if (value instanceof ArrayBuffer) return `[ArrayBuffer:${value.byteLength}]`;
+    if (ArrayBuffer.isView(value)) return `[TypedArray:${value.byteLength}]`;
+    if (Array.isArray(value)) return value.map(item => redactUnknown(item, depth + 1));
+
+    const record = value as Record<string, unknown>;
+    const result: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(record)) {
+        result[key] = isSensitiveKey(key) ? REDACTION : redactUnknown(child, depth + 1);
+    }
+    return result;
+}
+
+function redactText(value: string): string {
+    return value.replace(/([?&](?:access_token|refresh_token|token|api_key|apikey|password|secret|client_secret)=)[^&\s]+/gi, `$1${REDACTION}`);
+}
+
+function redactUrl(value: string): string {
+    try {
+        const parsed = new URL(value);
+        if (parsed.username) parsed.username = REDACTION;
+        if (parsed.password) parsed.password = REDACTION;
+        for (const key of [...parsed.searchParams.keys()]) {
+            if (isSensitiveKey(key)) parsed.searchParams.set(key, REDACTION);
+        }
+        return parsed.toString();
+    } catch {
+        return redactText(value);
+    }
+}
+
+function isSensitiveKey(key: string): boolean {
+    return SENSITIVE_KEY_RE.test(key.toLowerCase());
 }

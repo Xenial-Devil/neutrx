@@ -449,6 +449,73 @@ void test('FormData bodies serialize as multipart with boundary and length', asy
     }
 });
 
+void test('postForm serializes plain objects as multipart form data', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const captured: { contentType: string | undefined; body?: string } = { contentType: undefined };
+    const server = http.createServer((request, response) => {
+        captured.contentType = headerValue(request.headers['content-type']);
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+            captured.body = Buffer.concat(chunks).toString('utf8');
+            response.setHeader('content-type', 'application/json');
+            response.end(JSON.stringify({ ok: true }));
+        });
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+
+        await api.postForm('/form', { name: 'Ada', role: 'admin' });
+
+        assert.match(captured.contentType ?? '', /^multipart\/form-data; boundary=----neutrx-/);
+        assert.match(captured.body ?? '', /name="name"\r\n\r\nAda/);
+        assert.match(captured.body ?? '', /name="role"\r\n\r\nadmin/);
+    } finally {
+        await close(server);
+    }
+});
+
+void test('NeutrxError toJSON redacts secrets from URL, headers, and data', async () => {
+    const { default: Neutrx, isNeutrxError } = await import(builtEntry) as typeof PackageEntry;
+    const api = Neutrx.create({
+        resilience: { enableRetry: false },
+        adapter: config => ({
+            status: 500,
+            statusText: 'Internal Server Error',
+            headers: {
+                'content-type': 'application/json',
+                'set-cookie': 'sid=secret-cookie',
+                'retry-after': '1',
+            },
+            data: Buffer.from(JSON.stringify({
+                ok: false,
+                token: 'secret-token',
+                nested: { password: 'secret-password' },
+            })),
+            config,
+        }),
+    });
+
+    try {
+        await api.get('https://api.example.com/fail?access_token=secret-query', {
+            headers: { Authorization: 'Bearer secret-header' },
+        });
+        assert.fail('request should throw');
+    } catch (error: unknown) {
+        assert.equal(isNeutrxError(error), true);
+        const rendered = JSON.stringify((error as { readonly toJSON: () => unknown }).toJSON());
+        assert.doesNotMatch(rendered, /secret-query|secret-header|secret-token|secret-password|secret-cookie/u);
+        assert.match(rendered, /\[REDACTED\]/u);
+    }
+});
+
 void test('HTTP proxy config sends absolute-form requests with proxy auth', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const captured: { url?: string; host?: string; auth?: string } = {};

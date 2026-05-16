@@ -144,6 +144,14 @@ export default class BrowserClient extends TinyEmitter {
         return this.request<TData, TBody>({ ...config, method: 'POST', url, data });
     }
 
+    postForm<TData extends ParsedResponseData = ParsedResponseData>(
+        url: string,
+        data: RequestBody,
+        config: BodyRequestConfig<RequestBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.request<TData>({ ...config, method: 'POST', url, data: toFormBody(data) });
+    }
+
     put<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
         url: string,
         data: TBody,
@@ -152,12 +160,28 @@ export default class BrowserClient extends TinyEmitter {
         return this.request<TData, TBody>({ ...config, method: 'PUT', url, data });
     }
 
+    putForm<TData extends ParsedResponseData = ParsedResponseData>(
+        url: string,
+        data: RequestBody,
+        config: BodyRequestConfig<RequestBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.request<TData>({ ...config, method: 'PUT', url, data: toFormBody(data) });
+    }
+
     patch<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
         url: string,
         data: TBody,
         config: BodyRequestConfig<TBody> = {}
     ): Promise<NeutrxResponse<TData>> {
         return this.request<TData, TBody>({ ...config, method: 'PATCH', url, data });
+    }
+
+    patchForm<TData extends ParsedResponseData = ParsedResponseData>(
+        url: string,
+        data: RequestBody,
+        config: BodyRequestConfig<RequestBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.request<TData>({ ...config, method: 'PATCH', url, data: toFormBody(data) });
     }
 
     delete<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
@@ -345,7 +369,7 @@ export default class BrowserClient extends TinyEmitter {
                     const raw = await this.#bulkhead.execute(domain, () => this.#dispatch(rc));
                     return this.#parse<TData>(raw, rc);
                 },
-                { url: rc.url }
+                { url: rc.url, method: rc.method }
             );
 
             response.attempts = attempts;
@@ -787,7 +811,7 @@ export default class BrowserClient extends TinyEmitter {
             ...(custom.instrumentation ? { instrumentation: custom.instrumentation } : {}),
             proxy: false,
             security: {
-                profile: custom.security?.profile ?? 'development',
+                profile: custom.security?.profile ?? 'axios-compatible',
                 allowedProtocols: custom.security?.allowedProtocols ?? ['http', 'https'],
                 ...(custom.security?.allowedHosts ? { allowedHosts: custom.security.allowedHosts } : {}),
                 ...(custom.security?.deniedHosts ? { deniedHosts: custom.security.deniedHosts } : {}),
@@ -817,6 +841,8 @@ export default class BrowserClient extends TinyEmitter {
                 retryDelay: custom.resilience?.retryDelay ?? 1000,
                 maxRetryDelay: custom.resilience?.maxRetryDelay ?? 30_000,
                 retryJitter: custom.resilience?.retryJitter ?? true,
+                retryMethods: custom.resilience?.retryMethods ?? ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'],
+                ...(custom.resilience?.retryBudget ? { retryBudget: custom.resilience.retryBudget } : {}),
                 retryableStatuses: custom.resilience?.retryableStatuses ?? [408, 429, 500, 502, 503, 504],
                 retryableCodes: custom.resilience?.retryableCodes ?? ['NETWORK_ERROR', 'REQUEST_ABORTED'],
                 enableBulkhead: custom.resilience?.enableBulkhead ?? true,
@@ -1198,6 +1224,51 @@ function credentialsFor(withCredentials: boolean | undefined, credentials: Runti
     return 'same-origin';
 }
 
+function toFormBody(data: RequestBody): RequestBody {
+    if (isFormDataLike(data) || data === null || typeof data !== 'object') return data;
+    if (
+        data instanceof URLSearchParams
+        || data instanceof ArrayBuffer
+        || ArrayBuffer.isView(data)
+        || isBlobLike(data)
+        || isStreamLike(data)
+    ) return data;
+
+    if (typeof FormData === 'undefined') return data;
+    const form = new FormData();
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) appendBrowserFormValue(form, key, value);
+    return form;
+}
+
+function appendBrowserFormValue(form: FormData, key: string, value: unknown): void {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+        value.forEach(item => appendBrowserFormValue(form, key, item));
+        return;
+    }
+    if (isBlobLike(value)) {
+        form.append(key, value);
+        return;
+    }
+    if (typeof value === 'object') {
+        form.append(key, JSON.stringify(value));
+        return;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+        form.append(key, `${value}`);
+        return;
+    }
+    if (typeof value === 'symbol') {
+        form.append(key, value.description ?? '');
+        return;
+    }
+    if (typeof value === 'function') {
+        form.append(key, value.name);
+        return;
+    }
+    form.append(key, value);
+}
+
 function isSameOrigin(url: string): boolean {
     try {
         const location = (globalThis as BrowserGlobal).location;
@@ -1482,10 +1553,14 @@ function rejectAfter(ms: number, message: string): Promise<never> {
 }
 
 function mergeConfig(base: NormalizedClientConfig, override: ClientConfig): ClientConfig {
+    const security = override.security?.profile && override.security.profile !== base.security.profile
+        ? override.security
+        : { ...base.security, ...(override.security ?? {}) };
+
     return {
         ...base,
         ...override,
-        security: { ...base.security, ...(override.security ?? {}) },
+        security,
         resilience: { ...base.resilience, ...(override.resilience ?? {}) },
         performance: { ...base.performance, ...(override.performance ?? {}) },
     };

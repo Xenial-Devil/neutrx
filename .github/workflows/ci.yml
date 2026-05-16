@@ -9,6 +9,8 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     strategy:
       fail-fast: false
@@ -16,6 +18,7 @@ jobs:
         node-version:
           - "22"
           - "24"
+          - "25"
 
     steps:
       - name: Checkout repository
@@ -47,3 +50,9 @@ jobs:
 
       - name: Validate package
         run: npm run package:validate
+
+      - name: Packed package smoke test
+        run: npm run package:smoke
+
+      - name: Audit production dependency tree
+        run: npm audit --omit=dev --audit-level=high

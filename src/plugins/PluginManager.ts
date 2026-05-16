@@ -10,6 +10,7 @@ import type {
     OAuth2Config,
     ParsedResponseData,
 } from '../types.js';
+import { VERSION } from '../version.js';
 
 export type HookName = 'beforeRequest' | 'afterRequest' | 'onError';
 export type HookContext = InternalRequestConfig | NeutrxResponse | Error;
@@ -111,7 +112,7 @@ export class PluginManager {
     list(): RegisteredPlugin[] {
         return [...this.#plugins.values()].map(({ name, version, registeredAt }) => ({
             name,
-            version: version ?? '1.1.0',
+            version: version ?? VERSION,
             registeredAt,
         }));
     }
@@ -119,7 +120,7 @@ export class PluginManager {
 
 export const OAuth2Plugin: NeutrxPlugin = {
     name: 'oauth2',
-    version: '1.1.0',
+    version: VERSION,
 
     install(client) {
         let token: string | null = null;
@@ -164,7 +165,7 @@ export const OAuth2Plugin: NeutrxPlugin = {
 
 export const GraphQLPlugin: NeutrxPlugin = {
     name: 'graphql',
-    version: '1.1.0',
+    version: VERSION,
 
     install(client) {
         client.gql = async <TData extends JsonValue = JsonValue>(
@@ -213,7 +214,7 @@ export const GraphQLPlugin: NeutrxPlugin = {
 
 export const MockPlugin: NeutrxPlugin = {
     name: 'mock',
-    version: '1.1.0',
+    version: VERSION,
 
     install(client) {
         const mocks = new Map<string | RegExp, MockResponse>();

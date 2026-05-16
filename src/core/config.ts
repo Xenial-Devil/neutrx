@@ -16,12 +16,15 @@ import type {
 } from '../types.js';
 
 export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
+    const securityProfile = custom.security?.profile ?? 'balanced';
+    const securityDefaults = securityProfileDefaults(securityProfile);
+
     return {
         timeout: custom.timeout ?? 30_000,
         connectTimeout: custom.connectTimeout ?? 10_000,
         maxRedirects: custom.maxRedirects ?? 5,
         maxContentLength: custom.maxContentLength ?? 52_428_800,
-        maxBodyLength: custom.maxBodyLength ?? Number.POSITIVE_INFINITY,
+        maxBodyLength: custom.maxBodyLength ?? (securityProfile === 'strict' ? 10_485_760 : Number.POSITIVE_INFINITY),
         validateStatus: custom.validateStatus ?? ((status: number): boolean => status >= 200 && status < 300),
         ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
         ...(custom.headers ? { headers: custom.headers } : {}),
@@ -46,18 +49,18 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         ...(custom.instrumentation ? { instrumentation: custom.instrumentation } : {}),
         decompress: custom.decompress ?? true,
         security: {
-            profile: custom.security?.profile ?? 'balanced',
-            enforceHTTPS: custom.security?.enforceHTTPS ?? true,
+            profile: securityProfile,
+            enforceHTTPS: custom.security?.enforceHTTPS ?? securityDefaults.enforceHTTPS,
             validateCertificate: custom.security?.validateCertificate ?? true,
             enableSSRFProtection: custom.security?.enableSSRFProtection ?? true,
-            blockPrivateIPs: custom.security?.blockPrivateIPs ?? true,
-            blockLinkLocalIPs: custom.security?.blockLinkLocalIPs ?? true,
-            blockLoopbackIPs: custom.security?.blockLoopbackIPs ?? true,
-            blockMetadataIPs: custom.security?.blockMetadataIPs ?? true,
-            blockDangerousPorts: custom.security?.blockDangerousPorts ?? true,
+            blockPrivateIPs: custom.security?.blockPrivateIPs ?? securityDefaults.blockPrivateIPs,
+            blockLinkLocalIPs: custom.security?.blockLinkLocalIPs ?? securityDefaults.blockLinkLocalIPs,
+            blockLoopbackIPs: custom.security?.blockLoopbackIPs ?? securityDefaults.blockLoopbackIPs,
+            blockMetadataIPs: custom.security?.blockMetadataIPs ?? securityDefaults.blockMetadataIPs,
+            blockDangerousPorts: custom.security?.blockDangerousPorts ?? securityDefaults.blockDangerousPorts,
             reResolveOnRedirect: custom.security?.reResolveOnRedirect ?? true,
             blockRedirectToPrivateIP: custom.security?.blockRedirectToPrivateIP ?? true,
-            allowLocalhost: custom.security?.allowLocalhost ?? false,
+            allowLocalhost: custom.security?.allowLocalhost ?? securityDefaults.allowLocalhost,
             sanitizeInputs: custom.security?.sanitizeInputs ?? true,
             sanitizeOutputs: custom.security?.sanitizeOutputs ?? true,
             ...(custom.security?.allowedHosts ? { allowedHosts: custom.security.allowedHosts } : {}),
@@ -76,6 +79,8 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
             retryDelay: custom.resilience?.retryDelay ?? 1000,
             maxRetryDelay: custom.resilience?.maxRetryDelay ?? 30_000,
             retryJitter: custom.resilience?.retryJitter ?? true,
+            retryMethods: custom.resilience?.retryMethods ?? ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'],
+            ...(custom.resilience?.retryBudget ? { retryBudget: custom.resilience.retryBudget } : {}),
             retryableStatuses: custom.resilience?.retryableStatuses ?? [408, 429, 500, 502, 503, 504],
             retryableCodes: custom.resilience?.retryableCodes ?? ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENETUNREACH'],
             enableBulkhead: custom.resilience?.enableBulkhead ?? true,
@@ -96,10 +101,14 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
 }
 
 export function mergeConfig(base: NormalizedClientConfig, override: ClientConfig): ClientConfig {
+    const security = override.security?.profile && override.security.profile !== base.security.profile
+        ? override.security
+        : { ...base.security, ...(override.security ?? {}) };
+
     return {
         ...base,
         ...override,
-        security: { ...base.security, ...(override.security ?? {}) },
+        security,
         resilience: { ...base.resilience, ...(override.resilience ?? {}) },
         performance: { ...base.performance, ...(override.performance ?? {}) },
     };
@@ -194,4 +203,36 @@ function appendSearchParam(params: URLSearchParams, key: string, value: QueryVal
 
 function isHttp2Version(value: unknown): boolean {
     return value === 2 || value === '2';
+}
+
+function securityProfileDefaults(profile: NonNullable<ClientConfig['security']>['profile']): {
+    readonly enforceHTTPS: boolean;
+    readonly blockPrivateIPs: boolean;
+    readonly blockLinkLocalIPs: boolean;
+    readonly blockLoopbackIPs: boolean;
+    readonly blockMetadataIPs: boolean;
+    readonly blockDangerousPorts: boolean;
+    readonly allowLocalhost: boolean;
+} {
+    if (profile === 'axios-compatible') {
+        return {
+            enforceHTTPS: false,
+            blockPrivateIPs: false,
+            blockLinkLocalIPs: false,
+            blockLoopbackIPs: false,
+            blockMetadataIPs: false,
+            blockDangerousPorts: false,
+            allowLocalhost: true,
+        };
+    }
+
+    return {
+        enforceHTTPS: true,
+        blockPrivateIPs: true,
+        blockLinkLocalIPs: true,
+        blockLoopbackIPs: true,
+        blockMetadataIPs: true,
+        blockDangerousPorts: true,
+        allowLocalhost: false,
+    };
 }

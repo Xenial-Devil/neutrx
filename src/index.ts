@@ -1,4 +1,5 @@
 import Neutrx from './core/Neutrx.js';
+export { VERSION } from './version.js';
 
 export {
     NeutrxBulkheadError,
@@ -72,13 +73,13 @@ export type {
     RequestAdapterName,
     RedirectContext,
     ResilienceConfig,
+    RetryBudgetConfig,
     ResponseType,
     SecurityConfig,
+    SecurityProfile,
     SseHandle,
     TransformRequest,
     TransformResponse,
 } from './types.js';
-
-export const VERSION = '1.1.0';
 
 export default Neutrx;

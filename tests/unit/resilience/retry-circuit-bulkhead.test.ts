@@ -24,6 +24,44 @@ void test('RetryEngine retries retryable errors and reports attempts', async () 
     assert.equal(result.attempts.length, 2);
 });
 
+void test('RetryEngine retries idempotent methods by default', async () => {
+    const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
+    const engine = new RetryEngine({ maxRetries: 2, retryDelay: 0, retryJitter: false, retryableCodes: ['ETEST'] });
+    let calls = 0;
+
+    await assert.rejects(
+        engine.execute(async () => {
+            await Promise.resolve();
+            calls += 1;
+            throw Object.assign(new Error('unsafe retry'), { code: 'ETEST' });
+        }, { method: 'POST', url: 'https://api.example.com/users' })
+    );
+
+    assert.equal(calls, 1);
+});
+
+void test('RetryEngine enforces retry budget', async () => {
+    const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
+    const engine = new RetryEngine({
+        maxRetries: 3,
+        retryDelay: 0,
+        retryJitter: false,
+        retryableCodes: ['ETEST'],
+        retryBudget: { maxRetries: 1, windowMs: 60_000 },
+    });
+    let calls = 0;
+
+    await assert.rejects(
+        engine.execute(async () => {
+            await Promise.resolve();
+            calls += 1;
+            throw Object.assign(new Error('budgeted retry'), { code: 'ETEST' });
+        }, { method: 'GET', url: 'https://api.example.com/users' })
+    );
+
+    assert.equal(calls, 2);
+});
+
 void test('CircuitBreaker opens after threshold and recovers after timeout', async () => {
     const { default: Circuit } = await import(circuitEntry) as { readonly default: typeof CircuitBreaker };
     const circuit = new Circuit({ failureThreshold: 1, successThreshold: 1, circuitTimeout: 50 });

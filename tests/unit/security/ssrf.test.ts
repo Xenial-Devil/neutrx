@@ -23,12 +23,23 @@ void test('SecurityManager blocks private and metadata hosts in balanced profile
     }
 });
 
-void test('SecurityManager development profile allows localhost but keeps metadata blocked', async () => {
+void test('SecurityManager axios-compatible profile allows localhost and HTTP', async () => {
     const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
-    const security = new SecurityManager({ profile: 'development' });
+    const security = new SecurityManager({ profile: 'axios-compatible' });
 
     assert.equal(security.validateURL('http://localhost/').hostname, 'localhost');
-    assert.throws(() => security.validateURL('http://169.254.169.254/'), /SSRF/u);
+    assert.equal(security.validateURL('http://127.0.0.1/').hostname, '127.0.0.1');
+});
+
+void test('SecurityManager strict profile requires HTTPS and blocks metadata variants', async () => {
+    const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
+    const security = new SecurityManager({ profile: 'strict' });
+
+    assert.throws(() => security.validateURL('http://api.example.com/'), /Protocol|HTTPS required/u);
+    assert.throws(() => security.validateURL('https://169.254.169.254/'), /SSRF/u);
+    assert.throws(() => security.validateURL('https://100.100.100.200/'), /SSRF/u);
+    assert.throws(() => security.validateURL('https://[fd00:ec2::254]/'), /SSRF/u);
+    assert.throws(() => security.validateURL('https://[::ffff:127.0.0.1]/'), /SSRF/u);
 });
 
 void test('SecurityManager allowedHosts and deniedHosts policies apply', async () => {

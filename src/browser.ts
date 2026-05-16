@@ -61,14 +61,15 @@ export type {
     RequestAdapterConfig,
     RequestAdapterName,
     ResilienceConfig,
+    RetryBudgetConfig,
     ResponseType,
     SecurityConfig,
+    SecurityProfile,
     TransformRequest,
     TransformResponse,
 } from './types.js';
 
 import Neutrx from './core/BrowserNeutrx.js';
-
-export const VERSION = '1.1.0';
+export { VERSION } from './version.js';
 
 export default Neutrx;

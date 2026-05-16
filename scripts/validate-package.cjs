@@ -103,6 +103,9 @@ function validatePackList() {
 
   for (const target of [
     "README.md",
+    "SECURITY.md",
+    "THREATMODEL.md",
+    "CHANGELOG.md",
     "LICENSE",
     "package.json",
     normalizeTarget(packageJson.browser),

@@ -57,8 +57,15 @@ export interface RedirectContext {
     readonly headers: Headers;
 }
 
+export type SecurityProfile = 'strict' | 'balanced' | 'axios-compatible';
+
+export interface RetryBudgetConfig {
+    readonly maxRetries: number;
+    readonly windowMs: number;
+}
+
 export interface SecurityConfig {
-    readonly profile?: 'strict' | 'balanced' | 'development';
+    readonly profile?: SecurityProfile;
     readonly allowedHosts?: readonly string[];
     readonly deniedHosts?: readonly string[];
     readonly allowedProtocols?: readonly string[];
@@ -98,6 +105,8 @@ export interface ResilienceConfig {
     readonly retryDelay?: number;
     readonly maxRetryDelay?: number;
     readonly retryJitter?: boolean;
+    readonly retryMethods?: readonly HttpMethod[];
+    readonly retryBudget?: RetryBudgetConfig;
     readonly retryableStatuses?: readonly number[];
     readonly retryableCodes?: readonly string[];
     readonly shouldRetry?: (error: Error) => boolean;
@@ -192,9 +201,11 @@ export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'bas
         readonly allowedProtocols?: readonly string[];
         readonly rateLimit?: RateLimitConfig;
     };
-    readonly resilience: Required<Omit<ResilienceConfig, 'shouldRetry' | 'onRetry' | 'retryableStatuses' | 'retryableCodes'>> & {
+    readonly resilience: Required<Omit<ResilienceConfig, 'shouldRetry' | 'onRetry' | 'retryableStatuses' | 'retryableCodes' | 'retryBudget'>> & {
         readonly retryableStatuses: readonly number[];
         readonly retryableCodes: readonly string[];
+        readonly retryMethods: readonly HttpMethod[];
+        readonly retryBudget?: RetryBudgetConfig;
         readonly shouldRetry?: (error: Error) => boolean;
         readonly onRetry?: (event: RetryEvent) => void | Promise<void>;
     };
@@ -317,6 +328,7 @@ export interface RetryEvent {
 
 export interface RetryContext {
     readonly url?: string;
+    readonly method?: HttpMethod;
 }
 
 export interface ConcurrentOptions {

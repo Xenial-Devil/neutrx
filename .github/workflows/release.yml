@@ -50,18 +50,22 @@ jobs:
       - name: Validate package
         run: npm run package:validate
 
+      - name: Packed package smoke test
+        run: npm run package:smoke
+
       - name: Run semantic-release
         id: release
         run: |
+          # Prefer npm trusted publishing/provenance over long-lived NPM_TOKEN when the package is ready.
           npx --yes \
-            --package semantic-release \
-            --package @semantic-release/git \
-            --package @semantic-release/npm \
-            --package @semantic-release/github \
-            --package @semantic-release/commit-analyzer \
-            --package @semantic-release/release-notes-generator \
-            --package @semantic-release/changelog \
-            --package @semantic-release/exec \
+            --package semantic-release@24.2.7 \
+            --package @semantic-release/git@10.0.1 \
+            --package @semantic-release/npm@12.0.2 \
+            --package @semantic-release/github@11.0.1 \
+            --package @semantic-release/commit-analyzer@13.0.1 \
+            --package @semantic-release/release-notes-generator@14.0.3 \
+            --package @semantic-release/changelog@6.0.3 \
+            --package @semantic-release/exec@7.1.0 \
             semantic-release --branches main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

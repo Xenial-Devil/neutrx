@@ -16,6 +16,7 @@ import type { Headers, InternalRequestConfig, JsonValue, NeutrxResponse, ParsedR
 
 const PRIVATE_HOST_PATTERNS = [
     /^localhost$/i,
+    /^metadata$/i,
     /^metadata\.google\.internal$/i,
 ];
 
@@ -25,7 +26,7 @@ const MAX_URL_LENGTH = 2048;
 const MAX_OBJECT_DEPTH = 10;
 
 interface NormalizedSecurityConfig {
-    readonly profile: 'strict' | 'balanced' | 'development';
+    readonly profile: 'strict' | 'balanced' | 'axios-compatible';
     readonly allowedHosts?: readonly string[];
     readonly deniedHosts?: readonly string[];
     readonly allowedProtocols: readonly string[];
@@ -131,8 +132,8 @@ export default class SecurityManager {
             throw new NeutrxInjectionError('Protocol', parsed.protocol);
         }
 
-        if (this.#config.enforceHTTPS && parsed.protocol !== 'https:' && process.env.NODE_ENV === 'production') {
-            throw new NeutrxSecurityError('HTTPS required in production', { code: 'HTTPS_REQUIRED' });
+        if (this.#config.enforceHTTPS && parsed.protocol !== 'https:' && (this.#config.profile === 'strict' || process.env.NODE_ENV === 'production')) {
+            throw new NeutrxSecurityError('HTTPS required by security profile', { code: 'HTTPS_REQUIRED' });
         }
 
         if (this.#config.enableSSRFProtection) {
@@ -387,15 +388,15 @@ function profileDefaults(profile: NormalizedSecurityConfig['profile']): Pick<Nor
             allowLocalhost: false,
         };
     }
-    if (profile === 'development') {
+    if (profile === 'axios-compatible') {
         return {
             allowedProtocols: ['http', 'https'],
             enforceHTTPS: false,
             blockPrivateIPs: false,
             blockLinkLocalIPs: false,
             blockLoopbackIPs: false,
-            blockMetadataIPs: true,
-            blockDangerousPorts: true,
+            blockMetadataIPs: false,
+            blockDangerousPorts: false,
             allowLocalhost: true,
         };
     }
@@ -421,6 +422,8 @@ function hostCandidates(hostname: string): string[] {
     candidates.add(normalizeHostname(decoded));
     const normalizedIPv4 = parseIPv4Variant(decoded);
     if (normalizedIPv4) candidates.add(normalizedIPv4);
+    const mappedIPv4 = parseIPv4MappedIPv6(decoded);
+    if (mappedIPv4) candidates.add(mappedIPv4);
     return [...candidates];
 }
 
@@ -435,12 +438,15 @@ function isPrivateOrInternalHost(hostname: string): boolean {
 
 function hostCategory(hostname: string): 'public' | 'loopback' | 'link-local' | 'metadata' | 'private' {
     if (/^localhost$/i.test(hostname)) return 'loopback';
-    if (/^metadata\.google\.internal$/i.test(hostname)) return 'metadata';
+    if (/^(metadata|metadata\.google\.internal)$/i.test(hostname)) return 'metadata';
     const ip = parseIPv4Variant(hostname) ?? hostname;
     if (net.isIP(ip) === 4) return ipv4Category(ip);
     if (net.isIP(ip) === 6) {
         const normalized = ip.toLowerCase();
+        const mappedIPv4 = parseIPv4MappedIPv6(normalized);
+        if (mappedIPv4) return ipv4Category(mappedIPv4);
         if (normalized === '::1') return 'loopback';
+        if (normalized === 'fd00:ec2::254') return 'metadata';
         if (normalized.startsWith('fe80:')) return 'link-local';
         if (normalized.startsWith('fc') || normalized.startsWith('fd')) return 'private';
     }
@@ -455,6 +461,7 @@ function ipv4Category(ip: string): 'public' | 'loopback' | 'link-local' | 'metad
     const c = parts[2] ?? 0;
     const d = parts[3] ?? 0;
     if (a === 169 && b === 254 && c === 169 && d === 254) return 'metadata';
+    if (a === 100 && b === 100 && c === 100 && d === 200) return 'metadata';
     if (a === 127) return 'loopback';
     if (a === 169 && b === 254) return 'link-local';
     if (a === 0 || a === 10 || (a === 100 && b >= 64 && b <= 127) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return 'private';
@@ -483,6 +490,19 @@ function parseIPv4Variant(hostname: string): string | null {
     });
     if (parsed.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return null;
     return parsed.join('.');
+}
+
+function parseIPv4MappedIPv6(hostname: string): string | null {
+    const normalized = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+    const dotted = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(normalized);
+    if (dotted?.[1]) return parseIPv4Variant(dotted[1]);
+
+    const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(normalized);
+    if (!hex?.[1] || !hex[2]) return null;
+    const high = Number.parseInt(hex[1], 16);
+    const low = Number.parseInt(hex[2], 16);
+    if (!Number.isInteger(high) || !Number.isInteger(low)) return null;
+    return `${(high >>> 8) & 255}.${high & 255}.${(low >>> 8) & 255}.${low & 255}`;
 }
 
 function numberToIPv4(value: number): string | null {

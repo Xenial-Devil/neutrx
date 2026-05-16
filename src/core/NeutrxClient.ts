@@ -18,6 +18,7 @@ import { PluginManager, type NeutrxPlugin } from '../plugins/PluginManager.js';
 import { fetchAdapter } from '../adapters/fetch.js';
 import { http2Adapter, closeHttp2Sessions } from '../adapters/http2.js';
 import { OpenTelemetryInstrumentation } from '../monitoring/OpenTelemetryInstrumentation.js';
+import { VERSION } from '../version.js';
 
 import {
     NeutrxConnectTimeoutError,
@@ -138,6 +139,14 @@ export default class NeutrxClient extends EventEmitter {
         return this.request<TData, TBody>({ ...config, method: 'POST', url, data });
     }
 
+    postForm<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+        url: string,
+        data: TBody,
+        config: BodyRequestConfig<TBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.post<TData, TBody>(url, data, withMultipartHeaders(config));
+    }
+
     put<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
         url: string,
         data: TBody,
@@ -146,12 +155,28 @@ export default class NeutrxClient extends EventEmitter {
         return this.request<TData, TBody>({ ...config, method: 'PUT', url, data });
     }
 
+    putForm<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+        url: string,
+        data: TBody,
+        config: BodyRequestConfig<TBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.put<TData, TBody>(url, data, withMultipartHeaders(config));
+    }
+
     patch<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
         url: string,
         data: TBody,
         config: BodyRequestConfig<TBody> = {}
     ): Promise<NeutrxResponse<TData>> {
         return this.request<TData, TBody>({ ...config, method: 'PATCH', url, data });
+    }
+
+    patchForm<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+        url: string,
+        data: TBody,
+        config: BodyRequestConfig<TBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.patch<TData, TBody>(url, data, withMultipartHeaders(config));
     }
 
     delete<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
@@ -353,7 +378,7 @@ export default class NeutrxClient extends EventEmitter {
                     const raw = await this.#bulkhead.execute(domain, () => this.#dispatch(rc));
                     return this.#parse<TData>(raw, rc);
                 },
-                { url: rc.url }
+                { url: rc.url, method: rc.method }
             );
 
             response.attempts = attempts;
@@ -579,6 +604,11 @@ export default class NeutrxClient extends EventEmitter {
 
             if (runtimeConfig.socketPath && isHTTPS) {
                 fail(new NeutrxSecurityError('socketPath supports HTTP only', { code: 'SOCKET_HTTPS_UNSUPPORTED' }));
+                return;
+            }
+
+            if (runtimeConfig.signal?.aborted) {
+                fail(Object.assign(new Error('Request aborted'), { name: 'AbortError' }));
                 return;
             }
 
@@ -836,7 +866,7 @@ export default class NeutrxClient extends EventEmitter {
 
     #buildDefaultHeaders(): Headers {
         return {
-            'User-Agent': `neutrx/1.1.0 Node.js/${process.version}`,
+            'User-Agent': `neutrx/${VERSION} Node.js/${process.version}`,
             Accept: 'application/json, text/plain, */*',
             'Accept-Encoding': 'gzip, deflate, br',
             Connection: 'keep-alive',
@@ -920,6 +950,13 @@ function dig(value: ParsedResponseData, path: string): ParsedResponseData {
 function normalizeError(error: unknown): Error {
     if (error instanceof Error) return error;
     return new Error(String(error));
+}
+
+function withMultipartHeaders<TBody extends RequestBody>(config: BodyRequestConfig<TBody>): BodyRequestConfig<TBody> {
+    return {
+        ...config,
+        headers: NeutrxHeaders.concat({ 'Content-Type': 'multipart/form-data' }, config.headers).toJSON(),
+    };
 }
 
 function sleep(ms: number): Promise<void> {

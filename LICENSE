@@ -1,17 +1,21 @@
-Custom Restrictive License
+MIT License
 
-Copyright (c) 2026. All rights reserved.
+Copyright (c) 2026 Neutrx contributors
 
-This project, including all source code, documentation, configuration, tests, examples, assets, build scripts, and related materials, is fully owned by the project owner.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-No person, company, organization, or other party is allowed to copy, fork, clone, modify, customize, adapt, redistribute, resell, publish, sublicense, host, deploy, use commercially, use privately, or otherwise use this project or any part of it without the project owner's prior written permission.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-Anyone who wants to fork, customize, modify, review, integrate, publish, redistribute, sell, or use this project must request and receive written permission from the project owner before doing so.
-
-Unauthorized copying, forking, modification, redistribution, sale, publication, commercial use, private use, or any other unauthorized use is strictly prohibited.
-
-Any violation of this license will be considered unauthorized and illegal and may result in legal action to the fullest extent permitted by applicable law.
-
-No rights are granted by implication, estoppel, or otherwise. All rights not expressly granted in a written permission agreement from the project owner are reserved.
-
-This software is provided without any warranty, express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, and non-infringement. The project owner is not liable for any claim, damages, or other liability arising from use, attempted use, or unauthorized use of this project.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -7,3 +7,4 @@ coverage/
 !.env.example
 npm-debug.log*
 .npm-cache/
+.tmp/
