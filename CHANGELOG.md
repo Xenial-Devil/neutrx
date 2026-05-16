@@ -1,3 +1,11 @@
+# [1.2.0](https://github.com/Xenial-Devil/neutrx/compare/v1.1.0...v1.2.0) (2026-05-16)
+
+
+### Features
+
+* enhance SecurityManager profiles and tests ([660abd5](https://github.com/Xenial-Devil/neutrx/commit/660abd536b79370b532bd37edfe45d99df519100))
+* update CI workflow to include additional Node.js versions and enhance tsconfig paths ([3c287ed](https://github.com/Xenial-Devil/neutrx/commit/3c287ed8fb31a45bbc88d704f7d907d206ce62fa))
+
 # [1.1.0](https://github.com/Xenial-Devil/neutrx/compare/v1.0.0...v1.1.0) (2026-05-14)
 
 
