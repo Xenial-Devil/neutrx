@@ -55,8 +55,8 @@ export function toFormData(data: Record<string, unknown>, options: FormSerialize
     return form;
 }
 
-function toFormEntries(data: Record<string, unknown>, options: FormSerializerOptions = {}): Record<string, string> {
-    const params: Record<string, string> = {};
+function toFormEntries(data: Record<string, unknown>, options: FormSerializerOptions = {}): Array<[string, string]> {
+    const params: Array<[string, string]> = [];
     flattenFormEntries(params, '', data, options, new WeakSet<object>(), 0);
     return params;
 }
@@ -95,7 +95,7 @@ function appendFormValue(
 }
 
 function flattenFormEntries(
-    result: Record<string, string>,
+    result: Array<[string, string]>,
     path: string,
     value: unknown,
     options: FormSerializerOptions,
@@ -105,7 +105,7 @@ function flattenFormEntries(
     assertDepth(depth, options.maxDepth);
     if (value == null) return;
     if (isBlobLike(value) || isFileListLike(value)) {
-        result[path] = '[binary]';
+        result.push([path, '[binary]']);
         return;
     }
     if (Array.isArray(value)) {
@@ -120,7 +120,7 @@ function flattenFormEntries(
         seen.delete(value);
         return;
     }
-    result[path] = scalarToString(value);
+    result.push([path, scalarToString(value)]);
 }
 
 async function serializeMultipart(data: FormData, headers: Headers): Promise<Buffer> {

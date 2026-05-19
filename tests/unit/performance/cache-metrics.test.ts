@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type CacheEngine from '../../../src/performance/CacheEngine.js';
 import type MetricsCollector from '../../../src/monitoring/MetricsCollector.js';
-import type { InternalRequestConfig, NeutrxResponse } from '../../../src/types.js';
+import type { CacheRecord, CacheStore, InternalRequestConfig, NeutrxResponse } from '../../../src/types.js';
 
 const cacheEntry = '../../../../dist/esm/performance/CacheEngine.js';
 const metricsEntry = '../../../../dist/esm/monitoring/MetricsCollector.js';
@@ -39,6 +39,54 @@ void test('CacheEngine can return stale entries for stale-while-revalidate', asy
     assert.equal(cache.markRevalidating(config), false);
     cache.finishRevalidating(config);
     assert.equal(cache.markRevalidating(config), true);
+    cache.destroy();
+});
+
+void test('CacheEngine supports conditional revalidation and stale-if-error windows', async () => {
+    const { default: Cache } = await import(cacheEntry) as { readonly default: typeof CacheEngine };
+    const cache = new Cache({ cacheTTL: 10 });
+    const config = requestConfig('https://api.example.com/revalidate');
+    const baseResponse = responseFor(config, { ok: true });
+    const response = {
+        ...baseResponse,
+        headers: {
+            ...baseResponse.headers,
+            etag: '"abc"',
+            'last-modified': 'Tue, 19 May 2026 00:00:00 GMT',
+            'cache-control': 'max-age=0, stale-if-error=60',
+        },
+    };
+
+    cache.set(config, response);
+    assert.deepEqual(cache.revalidationHeaders(config), {
+        'If-None-Match': '"abc"',
+        'If-Modified-Since': 'Tue, 19 May 2026 00:00:00 GMT',
+    });
+
+    await sleep(20);
+    const stale = cache.getStaleIfError(config);
+    assert.equal(stale?.stale, true);
+    assert.equal(stale?.headers['x-cache'], 'STALE-IF-ERROR');
+
+    cache.refresh(config, { 'cache-control': 'max-age=60', etag: '"def"' });
+    assert.equal(cache.getWithState(config)?.response.headers.etag, '"def"');
+    cache.destroy();
+});
+
+void test('CacheEngine uses custom cache adapter locks for revalidation', async () => {
+    const { default: Cache } = await import(cacheEntry) as { readonly default: typeof CacheEngine };
+    const store = new TestCacheStore();
+    const cache = new Cache({ cacheTTL: 1000, cacheAdapter: store });
+    const config = requestConfig('https://api.example.com/adapter');
+
+    cache.set(config, responseFor(config, { ok: true }));
+
+    assert.equal(cache.get(config)?.cached, true);
+    assert.equal(cache.markRevalidating(config), true);
+    assert.equal(cache.markRevalidating(config), false);
+    cache.finishRevalidating(config);
+    assert.equal(cache.markRevalidating(config), true);
+    assert.equal(store.lockCount, 2);
     cache.destroy();
 });
 
@@ -82,6 +130,45 @@ function requestConfig(url: string): InternalRequestConfig {
         startTime: Date.now(),
         hops: 0,
     };
+}
+
+class TestCacheStore implements CacheStore {
+    readonly entries = new Map<string, CacheRecord>();
+    readonly locks = new Set<string>();
+    lockCount = 0;
+
+    get(key: string): CacheRecord | undefined {
+        return this.entries.get(key);
+    }
+
+    set(key: string, value: CacheRecord): void {
+        this.entries.set(key, value);
+    }
+
+    delete(key: string): void {
+        this.entries.delete(key);
+        this.locks.delete(key);
+    }
+
+    clear(): void {
+        this.entries.clear();
+        this.locks.clear();
+    }
+
+    keys(): Iterable<string> {
+        return this.entries.keys();
+    }
+
+    lock(key: string): boolean {
+        if (this.locks.has(key)) return false;
+        this.locks.add(key);
+        this.lockCount += 1;
+        return true;
+    }
+
+    unlock(key: string): void {
+        this.locks.delete(key);
+    }
 }
 
 function responseFor(config: InternalRequestConfig, data: NeutrxResponse['data']): NeutrxResponse {

@@ -14,6 +14,10 @@ Unsupported runtimes do not receive security support. Security fixes target the 
 
 Do not open a public issue, public discussion, social post, or public proof of concept for a suspected vulnerability.
 
+Use GitHub private vulnerability reporting:
+
+- https://github.com/Xenial-Devil/neutrx/security/advisories/new
+
 Report privately to the project owner or maintainers with:
 
 - Affected version or commit.

@@ -1,6 +1,6 @@
 # Neutrx
 
-Neutrx is a security-first HTTP client for Node.js 22+ backends. It keeps an ergonomic request API, then adds production concerns that backend services usually need: SSRF protection, secure redirects, retries, circuit breaking, in-memory caching, metrics hooks, OpenTelemetry-friendly instrumentation, typed errors, and zero required runtime dependencies.
+Neutrx is a security-first HTTP client for Node.js 22+ backends. It keeps an ergonomic request API, then adds production concerns that backend services usually need: SSRF protection, secure redirects, retries, circuit breaking, service discovery, in-memory caching, metrics hooks, OpenTelemetry-friendly instrumentation, typed errors, and zero required runtime dependencies.
 
 ## Installation
 
@@ -55,7 +55,7 @@ await api.post('/users', { name: 'Ada' });
 await api.postForm('/uploads', { name: 'report', file: new Blob(['ok']) });
 ```
 
-See [docs/migration-from-http-clients.md](docs/migration-from-http-clients.md) and [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for behavior differences.
+See [docs/axios-migration-matrix.md](docs/axios-migration-matrix.md), [docs/migration-from-http-clients.md](docs/migration-from-http-clients.md), and [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for behavior differences.
 
 ## Why Neutrx
 
@@ -65,6 +65,7 @@ See [docs/migration-from-http-clients.md](docs/migration-from-http-clients.md) a
 | Dependencies | No required runtime dependencies |
 | Security posture | SSRF protection, redirect stripping, size limits, redacted errors |
 | Retry/circuit/cache | Built in |
+| Service discovery | Resolver interface with round-robin, random, and sticky-origin selection |
 | Types | TypeScript source and declarations |
 | Observability | Metrics snapshot, events, optional OpenTelemetry bridge |
 | Browser support | Separate browser entry, secondary |
@@ -75,6 +76,10 @@ See [docs/migration-from-http-clients.md](docs/migration-from-http-clients.md) a
 await api.request({ url: '/users', method: 'GET' });
 await api.get('/users');
 await api.post('/users', { name: 'Ada' });
+await api.postUrlEncoded('/oauth/token', {
+  grant_type: 'client_credentials',
+  client_id: 'service',
+});
 await api.put('/users/1', { name: 'Ada' });
 await api.patch('/users/1', { name: 'Ada Lovelace' });
 await api.delete('/users/1');
@@ -91,7 +96,9 @@ Useful config:
 ```ts
 await api.get('/search', {
   params: { q: 'neutrx', tags: ['http', 'security'] },
-  paramsSerializer: params => new URLSearchParams(params as Record<string, string>).toString(),
+  paramsSerializer: { indexes: false },
+  auth: { username: 'service', password: process.env.API_PASSWORD ?? '' },
+  idempotencyKey: 'charge-request-1',
   parseJson: text => JSON.parse(text),
   stringifyJson: value => JSON.stringify(value),
   throwHttpErrors: false,
@@ -100,6 +107,15 @@ await api.get('/search', {
   maxContentLength: 10 * 1024 * 1024,
   maxBodyLength: 2 * 1024 * 1024,
   maxRate: [64 * 1024, 256 * 1024],
+  tls: {
+    ca: process.env.UPSTREAM_CA_PEM,
+    cert: process.env.CLIENT_CERT_PEM,
+    key: process.env.CLIENT_KEY_PEM,
+    certificatePins: [{
+      hostname: 'api.example.com',
+      sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    }],
+  },
   signal: AbortSignal.timeout(2_000),
   onDownloadProgress(event) {
     console.log(event.loaded, event.bytes, event.rate, event.estimated);
@@ -122,7 +138,7 @@ const api = neutrx.create({ timeout: 5_000 });
 console.log(api.getUri({ url: '/users', params: { page: 1 } }));
 ```
 
-Node-only transport options include `socketPath`, `decompress: false`, `httpAgent`, `httpsAgent`, `lookup`, and upload/download `maxRate`.
+Node-only transport options include `socketPath`, `decompress: false`, `httpAgent`, `httpsAgent`, `lookup`, upload/download `maxRate`, and `tls` for CA, mTLS client certificates, SNI, and certificate pins.
 
 ## Security Defaults
 
@@ -153,6 +169,11 @@ const locked = neutrx.create({
     profile: 'strict',
     allowedHosts: ['api.example.com', '*.trusted.example'],
   },
+  egressPolicy: {
+    mode: 'webhook-target',
+    allowedPorts: [443],
+    requirePublicDns: true,
+  },
 });
 ```
 
@@ -168,7 +189,29 @@ const local = neutrx.create({
 });
 ```
 
-See [docs/security-model.md](docs/security-model.md), [docs/security.md](docs/security.md), and [THREATMODEL.md](THREATMODEL.md).
+See [docs/secure-egress.md](docs/secure-egress.md), [docs/security-model.md](docs/security-model.md), [docs/security.md](docs/security.md), and [THREATMODEL.md](THREATMODEL.md).
+
+## Service Discovery
+
+```ts
+const billing = neutrx.create({
+  serviceDiscovery: {
+    resolver: [
+      { url: 'https://billing-a.internal.example', weight: 2 },
+      'https://billing-b.internal.example',
+    ],
+    strategy: 'round-robin',
+  },
+  egressPolicy: {
+    mode: 'internal-service',
+    allowedHosts: ['billing-a.internal.example', 'billing-b.internal.example'],
+  },
+});
+
+await billing.get('/v1/invoices');
+```
+
+Resolvers can be static arrays or async functions. Discovery applies to relative URLs, and the selected endpoint still goes through SSRF, redirect, TLS, and egress policy checks.
 
 ## Retry
 
@@ -182,12 +225,21 @@ const api = neutrx.create({
     retryDelay: 250,
     maxRetryDelay: 5_000,
     retryJitter: true,
-    retryBudget: { maxRetries: 100, windowMs: 60_000 },
+    retryBudget: {
+      maxRetries: 100,
+      windowMs: 60_000,
+      scope: 'origin',
+      namespace: 'billing-api',
+    },
   },
 });
 ```
 
 `Retry-After` is respected when returned on retryable HTTP errors.
+
+`POST` and `PATCH` do not retry by default. Setting `idempotencyKey` adds the `Idempotency-Key` header and lets Neutrx retry those methods when the failure is otherwise retryable.
+
+`retryBudget.store` can point at a first-party or userland shared budget store so multiple workers/pods spend one retry pool without adding Redis or other dependencies to core.
 
 ## Circuit Breaker
 
@@ -198,6 +250,18 @@ const api = neutrx.create({
     failureThreshold: 5,
     successThreshold: 2,
     circuitTimeout: 30_000,
+    circuitBreakerStorage: {
+      store: sharedCircuitStore,
+      scope: 'origin',
+      namespace: 'billing-api',
+    },
+    adaptiveConcurrency: {
+      enabled: true,
+      initialLimit: 10,
+      minLimit: 2,
+      maxLimit: 50,
+      targetLatency: 500,
+    },
   },
 });
 
@@ -228,7 +292,7 @@ console.log(api.getCacheStats());
 api.clearCache();
 ```
 
-With `deduplicateRequests`, identical inflight `GET`/`HEAD` requests share one dispatch and joined responses set `response.deduplicated = true`. With `cacheStrategy: 'stale-while-revalidate'`, expired-but-allowed cache entries return immediately with `response.stale = true` while Neutrx refreshes them in the background. Redis/custom cache adapters are not implemented yet; see docs for extension direction.
+With `deduplicateRequests`, identical inflight `GET`/`HEAD` requests share one dispatch and joined responses set `response.deduplicated = true`. With `cacheStrategy: 'stale-while-revalidate'`, expired-but-allowed cache entries return immediately with `response.stale = true` while Neutrx refreshes them in the background. Cached responses with `ETag`, `Last-Modified`, and `stale-if-error` headers participate in conditional revalidation and stale fallback. `performance.cacheAdapter` can provide a process-local compatible store and refresh lock; Redis remains an optional package direction outside core.
 
 ## Interceptors
 
@@ -274,7 +338,7 @@ Browser support exists through `neutrx/browser` and the package `browser` condit
 
 ## API Reference
 
-See [docs/api.md](docs/api.md) and [docs/config-reference.md](docs/config-reference.md).
+See [docs/api.md](docs/api.md), [docs/config-reference.md](docs/config-reference.md), [docs/adapter-security-contract.md](docs/adapter-security-contract.md), and [docs/recipes/backend-recipes.md](docs/recipes/backend-recipes.md).
 
 ## Testing
 
@@ -304,7 +368,9 @@ Benchmarks are scripts only. They do not publish fake results. Optional comparis
 - `npm ci`, lint, typecheck, tests, coverage, build, package validation, and packed-package smoke tests run in CI.
 - Dependency Review and CodeQL workflows are included.
 - Release workflow has `id-token: write`; prefer npm trusted publishing/provenance when the package is ready.
-- Avoid long-lived `NPM_TOKEN` where trusted publishing is available.
+- Release workflow uses npm provenance settings and does not require a long-lived npm token path.
+- `.npmrc` sets `ignore-scripts=true`.
+- See [docs/release-security.md](docs/release-security.md).
 
 ## License
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type { PeerCertificate } from 'node:tls';
 import test from 'node:test';
 import type * as SecurityModule from '../../../src/security/SecurityManager.js';
 
@@ -24,6 +25,8 @@ void test('SecurityManager blocks private and metadata hosts in standard profile
         'http://0x7f000001/',
         'http://0177.0.0.1/',
         'http://017700000001/',
+        'http://[::ffff:7f00:1]/',
+        'http://[::ffff:169.254.169.254]/',
     ]) {
         assert.throws(() => security.validateURL(url), /SSRF/u, url);
     }
@@ -78,4 +81,61 @@ void test('SecurityManager allowedHosts and deniedHosts policies apply', async (
 
     assert.throws(() => new SecurityManager({ enforceHTTPS: false, allowedHosts: ['api.example.com'] }).validateURL('http://evil.example.com'), /not allowed/u);
     assert.throws(() => new SecurityManager({ enforceHTTPS: false, deniedHosts: ['*.blocked.test'] }).validateURL('http://api.blocked.test'), /denied/u);
+});
+
+void test('SecurityManager egress policy blocks non-public, ports, protocols, and redirects', async () => {
+    const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
+    const publicApi = new SecurityManager({
+        enforceHTTPS: false,
+        egressPolicy: { mode: 'public-api', allowedHosts: ['api.example.com'] },
+    });
+
+    assert.equal(publicApi.validateURL('https://api.example.com/users').hostname, 'api.example.com');
+    assert.throws(() => publicApi.validateURL('http://api.example.com/users'), /HTTPS|Protocol/u);
+    assert.throws(() => publicApi.validateURL('https://api.example.com:8443/users'), /Port/u);
+    assert.throws(() => publicApi.validateResolvedAddress('https://api.example.com/users', '10.0.0.4'), /not public/u);
+    assert.throws(() => publicApi.validateRedirect('https://api.example.com/users', 'https://evil.example.com/'), /not allowed/u);
+
+    assert.deepEqual(publicApi.getEgressPolicyAudit().allowedPorts, [443]);
+});
+
+void test('SecurityManager validates TLS SNI override against egress policy', async () => {
+    const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
+    const security = new SecurityManager({
+        egressPolicy: { allowedSni: ['api.example.com'] },
+    });
+
+    assert.doesNotThrow(() => security.validateSNI('https://api.example.com/users', 'api.example.com'));
+    assert.throws(() => security.validateSNI('https://api.example.com/users', 'evil.example.com'), /SNI host/u);
+});
+
+void test('SecurityManager egress policy can allow reviewed internal CIDRs only', async () => {
+    const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
+    const internal = new SecurityManager({
+        enforceHTTPS: false,
+        blockPrivateIPs: true,
+        egressPolicy: {
+            mode: 'internal-service',
+            allowedCidrs: ['10.42.0.0/16'],
+            deniedCidrs: ['10.42.9.0/24'],
+            allowedPorts: [8080],
+        },
+    });
+
+    assert.equal(internal.validateURL('http://10.42.1.10:8080/health').hostname, '10.42.1.10');
+    assert.throws(() => internal.validateURL('http://10.42.9.10:8080/health'), /denied CIDR/u);
+    assert.throws(() => internal.validateURL('http://10.43.1.10:8080/health'), /outside allowed CIDRs/u);
+    assert.throws(() => internal.validateURL('http://10.42.1.10:9090/health'), /Port/u);
+});
+
+void test('SecurityManager certificate pins support rotation windows and fail closed', async () => {
+    const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
+    const security = new SecurityManager();
+    security.pinCertificate('api.example.com', 'a'.repeat(64), { expiresAt: Date.now() - 1000 });
+
+    assert.throws(
+        () => security.checkServerIdentity('api.example.com', { fingerprint256: 'AA:AA' } as PeerCertificate),
+        /Certificate pin mismatch/u
+    );
+    assert.throws(() => security.pinCertificate('api.example.com', 'not-a-fingerprint'), /Invalid SHA-256/u);
 });

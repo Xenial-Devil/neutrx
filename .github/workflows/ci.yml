@@ -54,5 +54,8 @@ jobs:
       - name: Packed package smoke test
         run: npm run package:smoke
 
+      - name: Package contents dry run
+        run: npm pack --dry-run
+
       - name: Audit production dependency tree
         run: npm audit --omit=dev --audit-level=high

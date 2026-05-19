@@ -28,7 +28,8 @@ interface NormalizedRetryConfig {
 export class RetryEngine {
     #config: NormalizedRetryConfig;
     #fib = [1, 1];
-    #retryBudgetSpentAt: number[] = [];
+    #retryBudgetSpentAt = new Map<string, number[]>();
+    #clientBudgetId = `client-${Math.random().toString(36).slice(2, 10)}`;
 
     constructor(config: ResilienceConfig = {}) {
         this.#config = {
@@ -74,7 +75,7 @@ export class RetryEngine {
                 lastError = normalizeError(error);
                 attempts.push({ attempt, duration: Date.now() - t0, success: false, error: lastError.message });
 
-                if (attempt >= this.#config.maxRetries || !this.#shouldRetry(lastError, context) || !this.#consumeBudget()) {
+                if (attempt >= this.#config.maxRetries || !this.#shouldRetry(lastError, context) || !await this.#consumeBudget(context)) {
                     throw lastError;
                 }
             }
@@ -88,7 +89,10 @@ export class RetryEngine {
     #shouldRetry(error: Error, context: RetryContext): boolean {
         if (this.#config.shouldRetry) return this.#config.shouldRetry(error);
 
-        if (context.method && !this.#config.retryMethods.includes(context.method)) return false;
+        if (context.method && !this.#config.retryMethods.includes(context.method)) {
+            const retryableWithKey = Boolean(context.idempotencyKey) && (context.method === 'POST' || context.method === 'PATCH');
+            if (!retryableWithKey) return false;
+        }
 
         const noRetryNames = new Set([
             'NeutrxSecurityError',
@@ -107,15 +111,34 @@ export class RetryEngine {
         return false;
     }
 
-    #consumeBudget(): boolean {
+    async #consumeBudget(context: RetryContext): Promise<boolean> {
         const budget = this.#config.retryBudget;
         if (!budget) return true;
 
         const now = Date.now();
-        this.#retryBudgetSpentAt = this.#retryBudgetSpentAt.filter(timestamp => now - timestamp < budget.windowMs);
-        if (this.#retryBudgetSpentAt.length >= budget.maxRetries) return false;
-        this.#retryBudgetSpentAt.push(now);
+        const key = this.#budgetKey(budget, context);
+        if (budget.store) return budget.store.consume(key, budget.maxRetries, budget.windowMs, now);
+
+        const spent = this.#retryBudgetSpentAt.get(key) ?? [];
+        const fresh = spent.filter(timestamp => now - timestamp < budget.windowMs);
+        if (fresh.length >= budget.maxRetries) {
+            this.#retryBudgetSpentAt.set(key, fresh);
+            return false;
+        }
+        fresh.push(now);
+        this.#retryBudgetSpentAt.set(key, fresh);
         return true;
+    }
+
+    #budgetKey(budget: RetryBudgetConfig, context: RetryContext): string {
+        const namespace = safeKeyPart(budget.namespace ?? 'default');
+        const scope = budget.scope ?? 'client';
+        const target = scope === 'global'
+            ? 'global'
+            : scope === 'origin'
+                ? originKey(context.url)
+                : this.#clientBudgetId;
+        return `neutrx:${namespace}:retry-budget:${scope}:${target}`;
     }
 
     #delay(attempt: number, lastError: Error): number {
@@ -202,4 +225,17 @@ function abortError(signal?: AbortSignal): Error {
 function normalizeError(error: unknown): Error {
     if (error instanceof Error) return error;
     return new Error(String(error));
+}
+
+function originKey(url: string | undefined): string {
+    if (!url) return 'unknown';
+    try {
+        return safeKeyPart(new URL(url).origin);
+    } catch {
+        return safeKeyPart(url);
+    }
+}
+
+function safeKeyPart(value: string): string {
+    return value.replace(/[^a-zA-Z0-9:._-]/g, '_');
 }

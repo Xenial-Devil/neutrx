@@ -173,5 +173,8 @@ function isBodyMethod(property: string | symbol): boolean {
         || property === 'postForm'
         || property === 'putForm'
         || property === 'patchForm'
+        || property === 'postUrlEncoded'
+        || property === 'putUrlEncoded'
+        || property === 'patchUrlEncoded'
         || property === 'upload';
 }

@@ -46,3 +46,31 @@ const api = neutrx.create({
 ```
 
 Span attributes include method, scheme, host, port, path without query string, status code, retry count, and cache hit state.
+
+Neutrx follows OpenTelemetry HTTP client semantic attribute names where they can be emitted safely:
+
+- `http.request.method`
+- `url.scheme`
+- `url.path`
+- `server.address`
+- `server.port`
+- `network.protocol.name`
+- `network.protocol.version`
+- `http.response.status_code`
+- `error.type`
+
+It does not emit `url.full` or raw query strings because tokens and user data often live there. Neutrx-specific attributes use the `neutrx.*` namespace for retry count, cache state, request id, idempotency-key presence, and selected service-discovery endpoint metadata.
+
+Body sizes are opt-in:
+
+```ts
+const api = neutrx.create({
+  instrumentation: {
+    openTelemetry: true,
+    recordRequestBodySize: true,
+    recordResponseBodySize: true,
+  },
+});
+```
+
+Only known sizes are recorded from `Content-Length` or already-buffered/string bodies. Streams are not consumed for telemetry.

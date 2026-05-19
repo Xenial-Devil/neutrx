@@ -26,6 +26,24 @@ Neutrx protects Node.js backend services making outbound HTTP requests, especial
 | Retry storms | Idempotent-method retries by default, backoff, jitter, retry budget |
 | Cascading failures | Circuit breaker and bulkhead isolation |
 
+## Example Scenarios
+
+### Webhook SSRF
+
+A user registers `https://example.com/callback`, then changes DNS or redirects to `http://169.254.169.254/latest/meta-data/`. Use `security.profile: 'strict'`, `egressPolicy.mode: 'webhook-target'`, DNS answer validation, redirect validation, and small response limits.
+
+### Redirect Credential Leak
+
+An API endpoint returns a redirect to another origin. Neutrx strips `Authorization`, `Cookie`, `Proxy-Authorization`, `Host`, and sensitive custom headers before following cross-origin redirects.
+
+### Metadata IP Leak
+
+Cloud metadata endpoints can appear as IPv4, IPv6, host aliases, decimal/octal/hex IPv4, or IPv4-mapped IPv6. Strict and standard profiles block those forms, and `egressPolicy.blockCloudMetadata` keeps the rule explicit.
+
+### Retry Storm
+
+Many service instances retrying a failing upstream can amplify an outage. Use idempotent retries, jitter, retry budgets, circuit breaker, and bulkhead limits. Distributed retry/circuit state belongs in optional plugins, not core runtime dependencies.
+
 ## Out Of Scope
 
 - Browser-side SSRF prevention.

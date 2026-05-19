@@ -6,11 +6,21 @@ interface NormalizedBulkheadConfig {
     readonly maxConcurrent: number;
     readonly maxQueue: number;
     readonly queueTimeout: number;
+    readonly adaptive: {
+        readonly enabled: boolean;
+        readonly minLimit: number;
+        readonly maxLimit: number;
+        readonly initialLimit: number;
+        readonly targetLatency: number;
+        readonly increaseStep: number;
+        readonly decreaseRatio: number;
+    };
 }
 
 interface BulkheadPool {
     active: number;
     readonly queue: QueueItem[];
+    limit: number;
 }
 
 interface QueueItem {
@@ -29,6 +39,15 @@ export default class Bulkhead {
             maxConcurrent: config.maxConcurrent ?? 10,
             maxQueue: config.maxQueue ?? 100,
             queueTimeout: config.bulkheadQueueTimeout ?? 30_000,
+            adaptive: {
+                enabled: config.adaptiveConcurrency?.enabled ?? false,
+                minLimit: Math.max(1, config.adaptiveConcurrency?.minLimit ?? 1),
+                maxLimit: Math.max(1, config.adaptiveConcurrency?.maxLimit ?? config.maxConcurrent ?? 10),
+                initialLimit: Math.max(1, config.adaptiveConcurrency?.initialLimit ?? config.maxConcurrent ?? 10),
+                targetLatency: Math.max(1, config.adaptiveConcurrency?.targetLatency ?? 500),
+                increaseStep: Math.max(1, config.adaptiveConcurrency?.increaseStep ?? 1),
+                decreaseRatio: Math.min(0.99, Math.max(0.1, config.adaptiveConcurrency?.decreaseRatio ?? 0.7)),
+            },
         };
     }
 
@@ -36,18 +55,18 @@ export default class Bulkhead {
         if (!this.#config.enabled) return task();
 
         const pool = this.#pool(domain);
-        if (pool.active < this.#config.maxConcurrent) {
+        if (pool.active < pool.limit) {
             return this.#run(pool, task);
         }
 
         if (pool.queue.length >= this.#config.maxQueue) {
-            throw new NeutrxBulkheadError(domain, this.#config.maxConcurrent);
+            throw new NeutrxBulkheadError(domain, pool.limit);
         }
 
         return new Promise<TResult>((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.#removeQueued(pool, item);
-                reject(new NeutrxBulkheadError(domain, this.#config.maxConcurrent, { code: 'BULKHEAD_QUEUE_TIMEOUT' }));
+                reject(new NeutrxBulkheadError(domain, pool.limit, { code: 'BULKHEAD_QUEUE_TIMEOUT' }));
             }, this.#config.queueTimeout);
 
             const item: QueueItem = {
@@ -66,15 +85,26 @@ export default class Bulkhead {
     getStats(): BulkheadStats {
         const domains: BulkheadStats['domains'] = {};
         for (const [domain, pool] of this.#pools) {
-            domains[domain] = { active: pool.active, queued: pool.queue.length };
+            domains[domain] = {
+                active: pool.active,
+                queued: pool.queue.length,
+                limit: pool.limit,
+                ...(this.#config.adaptive.enabled ? { adaptive: true } : {}),
+            };
         }
         return { domains };
     }
 
     async #run<TResult>(pool: BulkheadPool, task: () => Promise<TResult>): Promise<TResult> {
         pool.active += 1;
+        const startedAt = Date.now();
         try {
-            return await task();
+            const result = await task();
+            this.#record(pool, true, Date.now() - startedAt);
+            return result;
+        } catch (error: unknown) {
+            this.#record(pool, false, Date.now() - startedAt);
+            throw error;
         } finally {
             pool.active = Math.max(0, pool.active - 1);
             this.#drain(pool);
@@ -82,7 +112,7 @@ export default class Bulkhead {
     }
 
     #drain(pool: BulkheadPool): void {
-        while (pool.active < this.#config.maxConcurrent && pool.queue.length > 0) {
+        while (pool.active < pool.limit && pool.queue.length > 0) {
             const item = pool.queue.shift();
             item?.run();
         }
@@ -92,7 +122,7 @@ export default class Bulkhead {
         const existing = this.#pools.get(domain);
         if (existing) return existing;
 
-        const created: BulkheadPool = { active: 0, queue: [] };
+        const created: BulkheadPool = { active: 0, queue: [], limit: this.#initialLimit() };
         this.#pools.set(domain, created);
         return created;
     }
@@ -100,5 +130,19 @@ export default class Bulkhead {
     #removeQueued(pool: BulkheadPool, item: QueueItem): void {
         const index = pool.queue.indexOf(item);
         if (index >= 0) pool.queue.splice(index, 1);
+    }
+
+    #record(pool: BulkheadPool, success: boolean, duration: number): void {
+        if (!this.#config.adaptive.enabled) return;
+        if (!success || duration > this.#config.adaptive.targetLatency) {
+            pool.limit = Math.max(this.#config.adaptive.minLimit, Math.floor(pool.limit * this.#config.adaptive.decreaseRatio));
+            return;
+        }
+        pool.limit = Math.min(this.#config.adaptive.maxLimit, pool.limit + this.#config.adaptive.increaseStep);
+    }
+
+    #initialLimit(): number {
+        if (!this.#config.adaptive.enabled) return this.#config.maxConcurrent;
+        return Math.min(this.#config.adaptive.maxLimit, Math.max(this.#config.adaptive.minLimit, this.#config.adaptive.initialLimit));
     }
 }

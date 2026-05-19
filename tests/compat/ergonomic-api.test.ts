@@ -8,7 +8,7 @@ void test('ergonomic API surface supports verbs, create, defaults, transforms, a
     const { default: Neutrx, isNeutrxError } = await import(builtEntry) as typeof PackageEntry;
     const api = Neutrx.create({
         baseURL: 'https://api.example.com',
-        paramsSerializer: params => `page=${String(params.page)}`,
+        paramsSerializer: params => `page=${paramToString(params.page)}`,
         adapter: config => ({
             status: 200,
             statusText: 'OK',
@@ -87,6 +87,115 @@ void test('client default precedence follows library, instance, then request con
     });
 });
 
+void test('service discovery resolves relative requests with round-robin endpoints', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const seen: string[] = [];
+    const api = Neutrx.create({
+        performance: { enableCaching: false },
+        serviceDiscovery: {
+            resolver: [
+                { url: 'https://one.example.com', metadata: { zone: 'a' } },
+                'https://two.example.com',
+            ],
+            strategy: 'round-robin',
+        },
+        adapter: config => {
+            seen.push(config.url);
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: { 'content-type': 'application/json' },
+                data: Buffer.from(JSON.stringify({
+                    url: config.url,
+                    endpoint: config.serviceEndpoint?.url,
+                    zone: config.serviceEndpoint?.metadata?.zone ?? null,
+                })),
+                config,
+            };
+        },
+    });
+
+    const first = await api.get('/health');
+    const second = await api.get('/health');
+    const third = await api.get('/health');
+
+    assert.deepEqual(seen, [
+        'https://one.example.com/health',
+        'https://two.example.com/health',
+        'https://one.example.com/health',
+    ]);
+    assert.deepEqual(first.data, { url: 'https://one.example.com/health', endpoint: 'https://one.example.com', zone: 'a' });
+    assert.deepEqual(second.data, { url: 'https://two.example.com/health', endpoint: 'https://two.example.com', zone: null });
+    assert.deepEqual(third.data, { url: 'https://one.example.com/health', endpoint: 'https://one.example.com', zone: 'a' });
+});
+
+void test('service discovery supports async request resolver and skips absolute URLs', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const api = Neutrx.create({
+        performance: { enableCaching: false },
+        serviceDiscovery: { resolver: ['https://instance.example.com'] },
+        adapter: config => ({
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/json' },
+            data: Buffer.from(JSON.stringify({
+                url: config.url,
+                endpoint: config.serviceEndpoint?.url ?? null,
+            })),
+            config,
+        }),
+    });
+
+    const relative = await api.get('/orders', {
+        serviceDiscovery: {
+            resolver: context => Promise.resolve([{ url: `https://${context.method.toLowerCase()}.example.com`, weight: 2 }]),
+            strategy: 'sticky-origin',
+        },
+    });
+    const absolute = await api.get('https://direct.example.com/status');
+
+    assert.deepEqual(relative.data, { url: 'https://get.example.com/orders', endpoint: 'https://get.example.com' });
+    assert.deepEqual(absolute.data, { url: 'https://direct.example.com/status', endpoint: null });
+});
+
+void test('Axios migration helpers support auth alias and indexed params', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const api = Neutrx.create({
+        baseURL: 'https://api.example.com',
+        auth: { username: 'instance', password: 'secret' },
+        paramsSerializer: { indexes: false },
+        adapter: config => ({
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/json' },
+            data: Buffer.from(JSON.stringify({
+                url: config.url,
+                authorization: config.headers.Authorization,
+                leakedAuthConfig: 'auth' in config,
+            })),
+            config,
+        }),
+    });
+
+    const response = await api.get('/search', {
+        params: {
+            tag: ['security', 'node'],
+            filter: { q: 'hello world' },
+        },
+        auth: { username: 'request', password: 'override' },
+    });
+
+    assert.equal(
+        response.data && typeof response.data === 'object' && 'url' in response.data ? response.data.url : '',
+        'https://api.example.com/search?tag%5B%5D=security&tag%5B%5D=node&filter%5Bq%5D=hello+world'
+    );
+    assert.equal(
+        response.data && typeof response.data === 'object' && 'authorization' in response.data ? response.data.authorization : '',
+        `Basic ${Buffer.from('request:override').toString('base64')}`
+    );
+    assert.equal(response.data && typeof response.data === 'object' && 'leakedAuthConfig' in response.data ? response.data.leakedAuthConfig : true, false);
+});
+
 void test('client cache stores GET responses but not unsafe methods', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     let calls = 0;
@@ -115,3 +224,41 @@ void test('client cache stores GET responses but not unsafe methods', async () =
     assert.equal(firstPost.data && typeof firstPost.data === 'object' && 'calls' in firstPost.data ? firstPost.data.calls : 0, 2);
     assert.equal(secondPost.data && typeof secondPost.data === 'object' && 'calls' in secondPost.data ? secondPost.data.calls : 0, 3);
 });
+
+void test('idempotency key header enables retry for unsafe methods', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    let calls = 0;
+    const api = Neutrx.create({
+        baseURL: 'https://api.example.com',
+        resilience: {
+            maxRetries: 1,
+            retryDelay: 0,
+            retryJitter: false,
+            retryableCodes: ['ETEST'],
+        },
+        adapter: config => {
+            calls += 1;
+            if (calls === 1) throw Object.assign(new Error('retry idempotent post'), { code: 'ETEST' });
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: { 'content-type': 'application/json' },
+                data: Buffer.from(JSON.stringify({
+                    key: config.headers['Idempotency-Key'],
+                    retained: config.idempotencyKey,
+                })),
+                config,
+            };
+        },
+    });
+
+    const response = await api.post('/charge', { amount: 42 }, { idempotencyKey: 'charge-1' });
+
+    assert.equal(calls, 2);
+    assert.deepEqual(response.data, { key: 'charge-1', retained: 'charge-1' });
+});
+
+function paramToString(value: unknown): string {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return '';
+}

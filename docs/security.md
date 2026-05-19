@@ -35,6 +35,25 @@ const api = neutrx.create({
 });
 ```
 
+## Egress Policy
+
+Use `egressPolicy` when the allowed outbound network shape should be reviewable:
+
+```ts
+const webhooks = neutrx.create({
+  security: { profile: 'strict' },
+  egressPolicy: {
+    mode: 'webhook-target',
+    allowedProtocols: ['https'],
+    allowedPorts: [443],
+    requirePublicDns: true,
+    blockCloudMetadata: true,
+  },
+});
+```
+
+See [secure-egress.md](secure-egress.md).
+
 ## Redirect Security
 
 Neutrx validates each redirect target. Cross-origin redirects strip:

@@ -13,9 +13,18 @@ import type {
     RequestAdapterName,
     RequestBody,
     RequestConfig,
+    ServiceDiscoveryConfig,
+    ServiceEndpoint,
     TransformRequest,
     TransformResponse,
 } from '../types.js';
+
+const DEFAULT_SERVICE_ENDPOINT_LIMIT = 100;
+const MAX_SERVICE_ENDPOINT_WEIGHT = 100;
+
+export interface ServiceDiscoveryState {
+    readonly counters: Map<string, number>;
+}
 
 export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
     const securityProfile = normalizeSecurityProfile(custom.security?.profile);
@@ -30,6 +39,9 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         validateStatus: custom.validateStatus ?? ((status: number): boolean => status >= 200 && status < 300),
         ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
         ...(custom.headers ? { headers: NeutrxHeaders.from(custom.headers).toJSON() } : {}),
+        ...(custom.auth ? { auth: custom.auth } : {}),
+        ...(custom.idempotencyKey !== undefined ? { idempotencyKey: custom.idempotencyKey } : {}),
+        ...(custom.idempotencyKeyHeader ? { idempotencyKeyHeader: custom.idempotencyKeyHeader } : {}),
         ...(custom.paramsSerializer ? { paramsSerializer: custom.paramsSerializer } : {}),
         ...(custom.formSerializer ? { formSerializer: custom.formSerializer } : {}),
         ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
@@ -47,6 +59,7 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         ...(custom.fetch ? { fetch: custom.fetch } : {}),
         ...(custom.httpVersion ? { httpVersion: custom.httpVersion } : {}),
         ...(custom.http2Options ? { http2Options: custom.http2Options } : {}),
+        ...(custom.serviceDiscovery ? { serviceDiscovery: custom.serviceDiscovery } : {}),
         ...(custom.withCredentials !== undefined ? { withCredentials: custom.withCredentials } : {}),
         ...(custom.credentials ? { credentials: custom.credentials } : {}),
         ...(custom.xsrfCookieName !== undefined ? { xsrfCookieName: custom.xsrfCookieName } : {}),
@@ -54,6 +67,7 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         ...(custom.withXSRFToken !== undefined ? { withXSRFToken: custom.withXSRFToken } : {}),
         ...(custom.instrumentation ? { instrumentation: custom.instrumentation } : {}),
         decompress: custom.decompress ?? true,
+        ...(custom.tls ? { tls: custom.tls } : {}),
         security: {
             profile: securityProfile,
             enforceHTTPS: custom.security?.enforceHTTPS ?? securityDefaults.enforceHTTPS,
@@ -74,11 +88,13 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
             ...(custom.security?.allowedProtocols ? { allowedProtocols: custom.security.allowedProtocols } : {}),
             ...(custom.security?.rateLimit ? { rateLimit: custom.security.rateLimit } : {}),
         },
+        ...(custom.egressPolicy ? { egressPolicy: custom.egressPolicy } : {}),
         resilience: {
             enableCircuitBreaker: custom.resilience?.enableCircuitBreaker ?? true,
             failureThreshold: custom.resilience?.failureThreshold ?? 5,
             successThreshold: custom.resilience?.successThreshold ?? 2,
             circuitTimeout: custom.resilience?.circuitTimeout ?? 60_000,
+            ...(custom.resilience?.circuitBreakerStorage ? { circuitBreakerStorage: custom.resilience.circuitBreakerStorage } : {}),
             enableRetry: custom.resilience?.enableRetry ?? true,
             maxRetries: custom.resilience?.maxRetries ?? 3,
             retryStrategy: custom.resilience?.retryStrategy ?? 'exponential',
@@ -88,11 +104,12 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
             retryMethods: custom.resilience?.retryMethods ?? ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'],
             ...(custom.resilience?.retryBudget ? { retryBudget: custom.resilience.retryBudget } : {}),
             retryableStatuses: custom.resilience?.retryableStatuses ?? [408, 429, 500, 502, 503, 504],
-            retryableCodes: custom.resilience?.retryableCodes ?? ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENETUNREACH'],
+            retryableCodes: custom.resilience?.retryableCodes ?? ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENETUNREACH', 'ERR_HTTP2_STREAM_ERROR'],
             enableBulkhead: custom.resilience?.enableBulkhead ?? true,
             maxConcurrent: custom.resilience?.maxConcurrent ?? 10,
             maxQueue: custom.resilience?.maxQueue ?? 100,
             bulkheadQueueTimeout: custom.resilience?.bulkheadQueueTimeout ?? 30_000,
+            ...(custom.resilience?.adaptiveConcurrency ? { adaptiveConcurrency: custom.resilience.adaptiveConcurrency } : {}),
             ...(custom.resilience?.shouldRetry ? { shouldRetry: custom.resilience.shouldRetry } : {}),
             ...(custom.resilience?.onRetry ? { onRetry: custom.resilience.onRetry } : {}),
         },
@@ -105,6 +122,7 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
             deduplicateRequests: custom.performance?.deduplicateRequests ?? false,
             cacheStrategy: custom.performance?.cacheStrategy ?? 'ttl',
             cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(custom.performance?.cacheTTL ?? 300_000, 1_500_000),
+            ...(custom.performance?.cacheAdapter ? { cacheAdapter: custom.performance.cacheAdapter } : {}),
         },
     };
 }
@@ -126,9 +144,42 @@ export function mergeConfig(base: NormalizedClientConfig, override: ClientConfig
         ...override,
         ...(headers ? { headers } : {}),
         security,
+        ...(override.egressPolicy ? { egressPolicy: override.egressPolicy } : {}),
         resilience: { ...base.resilience, ...(override.resilience ?? {}) },
         performance: { ...base.performance, ...(override.performance ?? {}) },
     };
+}
+
+export async function resolveServiceEndpoint(
+    config: RequestConfig,
+    defaults: NormalizedClientConfig,
+    method: HttpMethod,
+    state: ServiceDiscoveryState
+): Promise<ServiceEndpoint | undefined> {
+    if (/^https?:\/\//i.test(config.url)) return undefined;
+
+    const serviceDiscovery = config.serviceDiscovery ?? defaults.serviceDiscovery;
+    if (!serviceDiscovery) return undefined;
+
+    const baseURL = config.baseURL ?? defaults.baseURL;
+    const endpoints = await resolveEndpointList(serviceDiscovery, config, method, baseURL);
+    if (endpoints.length === 0) {
+        throw new NeutrxSecurityError('Service discovery returned no endpoints', { code: 'SERVICE_DISCOVERY_EMPTY' });
+    }
+
+    const pool = weightedEndpointPool(endpoints);
+    if (pool.length === 0) {
+        throw new NeutrxSecurityError('Service discovery returned no eligible endpoints', { code: 'SERVICE_DISCOVERY_EMPTY' });
+    }
+
+    const strategy = serviceDiscovery.strategy ?? 'round-robin';
+    if (strategy === 'random') return pool[Math.floor(Math.random() * pool.length)];
+    if (strategy === 'sticky-origin') return pool[hashString(`${baseURL ?? ''}|${config.url}`) % pool.length];
+
+    const key = `${baseURL ?? ''}|${endpoints.map(endpoint => endpoint.url).join(',')}`;
+    const current = state.counters.get(key) ?? 0;
+    state.counters.set(key, current >= Number.MAX_SAFE_INTEGER ? 0 : current + 1);
+    return pool[current % pool.length];
 }
 
 export function buildURL(config: RequestConfig, defaults: NormalizedClientConfig): string {
@@ -148,6 +199,62 @@ export function buildURL(config: RequestConfig, defaults: NormalizedClientConfig
     }
 
     return url;
+}
+
+async function resolveEndpointList(
+    serviceDiscovery: ServiceDiscoveryConfig,
+    config: RequestConfig,
+    method: HttpMethod,
+    baseURL?: string
+): Promise<readonly ServiceEndpoint[]> {
+    const resolved = typeof serviceDiscovery.resolver === 'function'
+        ? await serviceDiscovery.resolver({ request: config, ...(baseURL ? { baseURL } : {}), url: config.url, method })
+        : serviceDiscovery.resolver;
+
+    const configuredLimit = serviceDiscovery.maxEndpoints ?? DEFAULT_SERVICE_ENDPOINT_LIMIT;
+    const limit = Number.isFinite(configuredLimit)
+        ? Math.max(1, Math.floor(configuredLimit))
+        : DEFAULT_SERVICE_ENDPOINT_LIMIT;
+    return normalizeServiceEndpoints(resolved).slice(0, limit);
+}
+
+function normalizeServiceEndpoints(values: readonly (ServiceEndpoint | string)[]): readonly ServiceEndpoint[] {
+    const endpoints: ServiceEndpoint[] = [];
+    for (const value of values) {
+        if (typeof value === 'string') {
+            const url = value.trim();
+            if (url) endpoints.push({ url });
+            continue;
+        }
+
+        const url = value.url.trim();
+        if (!url) continue;
+        endpoints.push({ ...value, url });
+    }
+    return endpoints;
+}
+
+function weightedEndpointPool(endpoints: readonly ServiceEndpoint[]): readonly ServiceEndpoint[] {
+    const pool: ServiceEndpoint[] = [];
+    for (const endpoint of endpoints) {
+        const weight = endpoint.weight === undefined
+            ? 1
+            : Number.isFinite(endpoint.weight)
+            ? Math.min(MAX_SERVICE_ENDPOINT_WEIGHT, Math.floor(endpoint.weight))
+            : 0;
+        for (let index = 0; index < weight; index += 1) {
+            pool.push(endpoint);
+        }
+    }
+    return pool;
+}
+
+function hashString(value: string): number {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        hash = (hash * 31 + value.charCodeAt(index)) % 2_147_483_647;
+    }
+    return hash;
 }
 
 export function normalizeMethod(method: string): HttpMethod {
@@ -204,18 +311,39 @@ function serializeParams(params: QueryParams, serializer?: RequestConfig['params
     if (serializer?.serialize) return serializer.serialize(params);
 
     const encoded = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) appendSearchParam(encoded, key, value, serializer?.encode);
+    for (const [key, value] of Object.entries(params)) appendSearchParam(encoded, key, value, serializer?.encode, serializer?.indexes);
     return encoded.toString();
 }
 
-function appendSearchParam(params: URLSearchParams, key: string, value: QueryValue, encode?: (value: string) => string): void {
+function appendSearchParam(
+    params: URLSearchParams,
+    key: string,
+    value: QueryValue,
+    encode?: (value: string) => string,
+    indexes?: boolean | null
+): void {
     if (value == null) return;
     const encodedKey = encode ? encode(key) : key;
     if (Array.isArray(value)) {
-        value.forEach(item => params.append(encodedKey, encode ? encode(String(item)) : String(item)));
+        const items = value as readonly QueryValue[];
+        items.forEach((item, index) => appendSearchParam(params, arrayParamKey(key, index, indexes), item, encode, indexes));
         return;
     }
-    params.set(encodedKey, encode ? encode(String(value)) : String(value));
+    if (typeof value === 'object') {
+        const record = value as QueryParams;
+        for (const childKey of Object.keys(record)) {
+            const child = record[childKey];
+            appendSearchParam(params, `${key}[${childKey}]`, child, encode, indexes);
+        }
+        return;
+    }
+    params.append(encodedKey, encode ? encode(String(value)) : String(value));
+}
+
+function arrayParamKey(key: string, index: number, indexes?: boolean | null): string {
+    if (indexes === true) return `${key}[${index}]`;
+    if (indexes === false) return `${key}[]`;
+    return key;
 }
 
 function isHttp2Version(value: unknown): boolean {

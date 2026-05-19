@@ -1,7 +1,7 @@
 import type { Headers, NeutrxResponse } from '../types.js';
 
 const REDACTION = '[REDACTED]';
-const SENSITIVE_KEY_RE = /(?:^|[-_.])(authorization|cookie|set-cookie|proxy-authorization|token|access-token|refresh-token|secret|password|passwd|api-key|apikey|client-secret)(?:$|[-_.])/i;
+const SENSITIVE_KEY_RE = /(?:^|[-_.])(authorization|cookie|set-cookie|proxy-authorization|token|access-token|refresh-token|secret|password|passwd|api-key|apikey|client-secret|idempotency-key)(?:$|[-_.])/i;
 
 export interface NeutrxErrorOptions {
     readonly code?: string;

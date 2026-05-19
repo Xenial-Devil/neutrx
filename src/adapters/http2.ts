@@ -5,9 +5,14 @@ import { NeutrxResponseSizeError, NeutrxResponseTimeoutError } from '../core/Neu
 import { serializeBody } from '../core/bodySerializer.js';
 import { getContentLength, hasHeader, normalizeIncomingHeaders, setHeader } from '../core/headers.js';
 import { reportDownloadProgress, reportUploadProgress, toUploadBuffer } from '../core/progress.js';
-import type { Headers, RawHttpResponse, RequestAdapter } from '../types.js';
+import type { Headers, Http2SessionStats, RawHttpResponse, RequestAdapter } from '../types.js';
 
-const sessions = new Map<string, http2.ClientHttp2Session>();
+interface SessionRecord {
+    readonly session: http2.ClientHttp2Session;
+    activeStreams: number;
+}
+
+const sessions = new Map<string, SessionRecord>();
 
 export const http2Adapter: RequestAdapter = async config => {
     const url = new URL(config.url);
@@ -25,7 +30,12 @@ export const http2Adapter: RequestAdapter = async config => {
     }
 
     const origin = url.origin;
-    const session = getSession(origin, config.http2Options);
+    const record = getSession(origin, config.http2Options);
+    const session = record.session;
+    const streamLimit = streamLimitFor(record, config.http2Options?.maxConcurrentStreams);
+    if (record.activeStreams >= streamLimit) {
+        throw Object.assign(new Error(`HTTP/2 max concurrent streams reached for ${origin}: ${streamLimit}`), { code: 'HTTP2_MAX_CONCURRENT_STREAMS' });
+    }
     const headers: http2.OutgoingHttpHeaders = {
         ':method': config.method,
         ':path': `${url.pathname}${url.search}`,
@@ -36,6 +46,7 @@ export const http2Adapter: RequestAdapter = async config => {
 
     return new Promise((resolve, reject) => {
         const request = session.request(headers);
+        record.activeStreams += 1;
         const chunks: Buffer[] = [];
         let received = 0;
         let responseHeaders: http2.IncomingHttpHeaders = {};
@@ -50,6 +61,9 @@ export const http2Adapter: RequestAdapter = async config => {
         };
 
         const timeout = setTimeout(() => fail(new NeutrxResponseTimeoutError(config.url, config.timeout)), config.timeout);
+        request.once('close', () => {
+            record.activeStreams = Math.max(0, record.activeStreams - 1);
+        });
 
         request.on('response', headersMap => {
             responseHeaders = headersMap;
@@ -110,18 +124,33 @@ export const http2Adapter: RequestAdapter = async config => {
 };
 
 export function closeHttp2Sessions(): void {
-    for (const session of sessions.values()) session.close();
+    for (const record of sessions.values()) record.session.close();
     sessions.clear();
 }
 
-function getSession(origin: string, options: Parameters<RequestAdapter>[0]['http2Options']): http2.ClientHttp2Session {
+export function getHttp2SessionStats(): Http2SessionStats {
+    const origins: Http2SessionStats['origins'] = {};
+    for (const [origin, record] of sessions) {
+        origins[origin] = {
+            activeStreams: record.activeStreams,
+            closed: record.session.closed,
+            destroyed: record.session.destroyed,
+            ...(record.session.remoteSettings.maxConcurrentStreams !== undefined
+                ? { remoteMaxConcurrentStreams: record.session.remoteSettings.maxConcurrentStreams }
+                : {}),
+        };
+    }
+    return { sessions: sessions.size, origins };
+}
+
+function getSession(origin: string, options: Parameters<RequestAdapter>[0]['http2Options']): SessionRecord {
     const existing = sessions.get(origin);
-    if (existing && !existing.closed && !existing.destroyed) return existing;
+    if (existing && !existing.session.closed && !existing.session.destroyed) return existing;
 
     if (options?.maxSessions !== undefined && sessions.size >= options.maxSessions) {
         const first = sessions.keys().next().value;
         if (first) {
-            sessions.get(first)?.close();
+            sessions.get(first)?.session.close();
             sessions.delete(first);
         }
     }
@@ -137,8 +166,22 @@ function getSession(origin: string, options: Parameters<RequestAdapter>[0]['http
     }
     session.on('close', () => sessions.delete(origin));
     session.on('error', () => sessions.delete(origin));
-    sessions.set(origin, session);
-    return session;
+    session.on('goaway', () => {
+        session.close();
+        sessions.delete(origin);
+    });
+    const record: SessionRecord = { session, activeStreams: 0 };
+    sessions.set(origin, record);
+    return record;
+}
+
+function streamLimitFor(record: SessionRecord, localLimit?: number): number {
+    const remoteLimit = record.session.remoteSettings.maxConcurrentStreams;
+    const candidates = [
+        Number.isFinite(localLimit) && localLimit ? localLimit : Number.POSITIVE_INFINITY,
+        Number.isFinite(remoteLimit) && remoteLimit ? remoteLimit : Number.POSITIVE_INFINITY,
+    ];
+    return Math.max(1, Math.min(...candidates));
 }
 
 function toHttp2Headers(headers: Headers): http2.OutgoingHttpHeaders {

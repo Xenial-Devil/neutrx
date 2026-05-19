@@ -28,8 +28,8 @@ export {
 export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
 export { fetchAdapter } from './adapters/fetch.js';
-export { http2Adapter } from './adapters/http2.js';
-export { FetchAdapter, Http2Adapter, HttpAdapter } from './adapters/index.js';
+export { http2Adapter, getHttp2SessionStats } from './adapters/http2.js';
+export { FetchAdapter, Http2Adapter, HttpAdapter, createSecureAdapter, type SecureAdapterOptions } from './adapters/index.js';
 export { NeutrxHeaders } from './core/headers.js';
 export { OpenTelemetryInstrumentation } from './monitoring/OpenTelemetryInstrumentation.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
@@ -38,9 +38,17 @@ export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, type NeutrxPlug
 export { STRATEGY } from './resilience/RetryEngine.js';
 export { ALGORITHMS } from './security/RateLimiter.js';
 export type {
+    AdaptiveConcurrencyConfig,
     AuthConfig,
+    BasicAuthConfig,
+    CacheRecord,
+    CacheStore,
     BulkheadStats,
     CacheStats,
+    CertificatePinConfig,
+    CircuitBreakerStorageConfig,
+    CircuitState,
+    CircuitStateStore,
     CircuitStatus,
     ClientConfig,
     ConcurrentOptions,
@@ -48,17 +56,24 @@ export type {
     FetchCredentials,
     FetchImplementation,
     FormSerializerOptions,
+    EgressPolicyAudit,
+    EgressPolicyConfig,
+    EgressPolicyMode,
     GraphQLResult,
     Headers,
     Http2Options,
+    Http2SessionStats,
     HttpMethod,
+    IdempotencyKey,
     InstrumentationConfig,
     JsonObject,
     JsonValue,
+    LoadBalancingStrategy,
     LookupFunction,
     MockController,
     MockResponse,
     MaxRate,
+    MaybePromise,
     NeutrxResponse,
     OAuth2Config,
     ParseJson,
@@ -77,13 +92,21 @@ export type {
     RedirectContext,
     ResilienceConfig,
     RetryBudgetConfig,
+    RetryBudgetScope,
+    RetryBudgetSnapshot,
+    RetryBudgetStore,
     ResponseType,
     SecurityConfig,
     DeprecatedSecurityProfile,
     SecurityProfileInput,
     SecurityProfile,
+    ServiceDiscoveryConfig,
+    ServiceEndpoint,
+    ServiceResolver,
+    ServiceResolverContext,
     SseHandle,
     StringifyJson,
+    TlsConfig,
     TransformRequest,
     TransformResponse,
 } from './types.js';

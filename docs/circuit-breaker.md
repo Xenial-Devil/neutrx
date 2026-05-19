@@ -9,6 +9,11 @@ const api = neutrx.create({
     failureThreshold: 5,
     successThreshold: 2,
     circuitTimeout: 30_000,
+    circuitBreakerStorage: {
+      store: sharedCircuitStateStore,
+      scope: 'origin',
+      namespace: 'billing-api',
+    },
   },
 });
 ```
@@ -28,3 +33,5 @@ console.log(api.getCircuitStatus('https://api.example.com/users'));
 ```
 
 Use circuit breaking with finite timeouts and retries. Avoid retrying through an open circuit from application code; let the circuit recover through its own timeout.
+
+`circuitBreakerStorage.store` may be sync or async and can share circuit state across workers. Core does not ship Redis or database clients; optional packages or application code provide the store.

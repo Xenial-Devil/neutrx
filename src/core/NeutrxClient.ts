@@ -39,6 +39,8 @@ import {
     mergeTransformRequest,
     mergeTransformResponse,
     normalizeMethod,
+    resolveServiceEndpoint,
+    type ServiceDiscoveryState,
 } from './config.js';
 import { detectContentType, serializeBody } from './bodySerializer.js';
 import { createHttpsProxyConnection, directRequestTarget, proxyRequestTarget, resolveProxy } from './proxy.js';
@@ -51,10 +53,12 @@ import type {
     AuthConfig,
     BulkheadStats,
     CacheStats,
+    CertificatePinConfig,
     CircuitStatus,
     ClientConfig,
     ConcurrentOptions,
     ConcurrentResult,
+    EgressPolicyAudit,
     GraphQLResult,
     Headers,
     InternalRequestConfig,
@@ -111,11 +115,13 @@ export default class NeutrxClient extends EventEmitter {
     #defaultHeaders: Headers;
     #agents: { http: http.Agent; https: https.Agent };
     #inflight = new Map<string, Promise<RawHttpResponse>>();
+    #serviceDiscovery: ServiceDiscoveryState = { counters: new Map<string, number>() };
 
     constructor(config: ClientConfig = {}) {
         super();
         this.#config = buildConfig(config);
-        this.#security = new SecurityManager(this.#config.security);
+        this.#security = new SecurityManager({ ...this.#config.security, ...(this.#config.egressPolicy ? { egressPolicy: this.#config.egressPolicy } : {}) });
+        if (this.#config.tls?.certificatePins) this.#security.setCertificatePins(this.#config.tls.certificatePins);
         this.#interceptors = new InterceptorChain();
         this.#circuitBreaker = new CircuitBreaker(this.#config.resilience);
         this.#retryEngine = new RetryEngine(this.#config.resilience);
@@ -150,6 +156,14 @@ export default class NeutrxClient extends EventEmitter {
         return this.post<TData, TBody>(url, data, withMultipartHeaders(config));
     }
 
+    postUrlEncoded<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+        url: string,
+        data: TBody,
+        config: BodyRequestConfig<TBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.post<TData, TBody>(url, data, withUrlEncodedHeaders(config));
+    }
+
     put<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
         url: string,
         data: TBody,
@@ -166,6 +180,14 @@ export default class NeutrxClient extends EventEmitter {
         return this.put<TData, TBody>(url, data, withMultipartHeaders(config));
     }
 
+    putUrlEncoded<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+        url: string,
+        data: TBody,
+        config: BodyRequestConfig<TBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.put<TData, TBody>(url, data, withUrlEncodedHeaders(config));
+    }
+
     patch<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
         url: string,
         data: TBody,
@@ -180,6 +202,14 @@ export default class NeutrxClient extends EventEmitter {
         config: BodyRequestConfig<TBody> = {}
     ): Promise<NeutrxResponse<TData>> {
         return this.patch<TData, TBody>(url, data, withMultipartHeaders(config));
+    }
+
+    patchUrlEncoded<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+        url: string,
+        data: TBody,
+        config: BodyRequestConfig<TBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.patch<TData, TBody>(url, data, withUrlEncodedHeaders(config));
     }
 
     delete<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
@@ -343,11 +373,12 @@ export default class NeutrxClient extends EventEmitter {
         const t0 = Date.now();
         let trackedUrl = config.url;
         let circuitChecked = false;
+        let cacheConfig: InternalRequestConfig | null = null;
         let span: Awaited<ReturnType<OpenTelemetryInstrumentation['start']>>['span'] = null;
         this.#metrics.recordStart();
 
         try {
-            let rc: InternalRequestConfig = this.#buildRC(config, requestId);
+            let rc: InternalRequestConfig = await this.#buildRC(config, requestId);
             trackedUrl = rc.url;
             const telemetry = await this.#otel.start(rc);
             span = telemetry.span;
@@ -364,6 +395,7 @@ export default class NeutrxClient extends EventEmitter {
             rc = await this.#interceptors.runRequest(rc);
 
             if (this.#isCacheEligible(rc)) {
+                cacheConfig = rc;
                 const hit = this.#cache.getWithState(rc);
                 if (hit) {
                     this.#metrics.recordCacheHit(rc.url);
@@ -374,7 +406,7 @@ export default class NeutrxClient extends EventEmitter {
                 }
             }
 
-            this.#circuitBreaker.canRequest(rc.url);
+            await this.#circuitBreaker.canRequest(rc.url);
             circuitChecked = true;
 
             const domain = this.#domain(rc.url);
@@ -382,6 +414,7 @@ export default class NeutrxClient extends EventEmitter {
                 url: rc.url,
                 method: rc.method,
                 deadlineAt: rc.startTime + rc.timeout,
+                ...(rc.idempotencyKey ? { idempotencyKey: rc.idempotencyKey } : {}),
                 ...(rc.signal ? { signal: rc.signal } : {}),
             };
             const { result: response, attempts } = await this.#retryEngine.execute(
@@ -404,7 +437,7 @@ export default class NeutrxClient extends EventEmitter {
 
             const duration = Date.now() - t0;
             this.#metrics.recordSuccess(rc.url, duration, next.status);
-            this.#circuitBreaker.recordSuccess(rc.url);
+            await this.#circuitBreaker.recordSuccess(rc.url);
             this.emit('request:success', {
                 requestId,
                 url: rc.url,
@@ -420,10 +453,19 @@ export default class NeutrxClient extends EventEmitter {
             const normalized = normalizeError(error) as Error & { requestId?: string; duration?: number; code?: string };
             normalized.requestId = requestId;
             normalized.duration = Date.now() - t0;
+            if (cacheConfig) {
+                const stale = this.#cache.getStaleIfError(cacheConfig);
+                if (stale) {
+                    this.#metrics.recordCacheHit(cacheConfig.url);
+                    this.emit('cache:stale-if-error', { requestId, url: cacheConfig.url, error: normalized });
+                    this.#otel.finish(span, stale as NeutrxResponse<TData>, { retries: 0, cacheHit: true });
+                    return stale as NeutrxResponse<TData>;
+                }
+            }
             this.#otel.fail(span, normalized);
 
             this.#metrics.recordError(trackedUrl, normalized);
-            if (circuitChecked) this.#circuitBreaker.recordFailure(trackedUrl);
+            if (circuitChecked) await this.#circuitBreaker.recordFailure(trackedUrl);
 
             this.emit('request:error', { requestId, url: trackedUrl, error: normalized, duration: normalized.duration });
             await this.#plugins.runHook('onError', normalized);
@@ -505,8 +547,8 @@ export default class NeutrxClient extends EventEmitter {
         return this;
     }
 
-    pinCertificate(host: string, fingerprint: string): this {
-        this.#security.pinCertificate(host, fingerprint);
+    pinCertificate(host: string, fingerprint: string, window?: Omit<CertificatePinConfig, 'hostname' | 'sha256'>): this {
+        this.#security.pinCertificate(host, fingerprint, window);
         return this;
     }
 
@@ -558,6 +600,10 @@ export default class NeutrxClient extends EventEmitter {
         return this.#bulkhead.getStats();
     }
 
+    getEgressPolicy(): EgressPolicyAudit {
+        return this.#security.getEgressPolicyAudit();
+    }
+
     getUri(config: string | RequestConfig): string {
         return buildURL(typeof config === 'string' ? { url: config } : config, this.#config);
     }
@@ -580,7 +626,7 @@ export default class NeutrxClient extends EventEmitter {
         const selectedAdapter: unknown = adapter;
         if (typeof adapter === 'function') return adapter(config);
         if (adapter === 'fetch') return fetchAdapter(config);
-        if (adapter === 'http2') return http2Adapter(config);
+        if (adapter === 'http2') return this.#http2(config);
         if (adapter !== 'http') throw new NeutrxSecurityError(`Unknown adapter: ${String(selectedAdapter)}`, { code: 'UNKNOWN_ADAPTER' });
         return this.#http(config);
     }
@@ -608,8 +654,10 @@ export default class NeutrxClient extends EventEmitter {
 
     #revalidateCache(config: InternalRequestConfig): void {
         if (!this.#cache.markRevalidating(config)) return;
+        const conditionalHeaders = this.#cache.revalidationHeaders(config);
         const revalidationConfig = withoutSignal({
             ...config,
+            headers: NeutrxHeaders.concat(config.headers, conditionalHeaders).toJSON(),
             requestId: this.#id(),
             startTime: Date.now(),
             cache: false,
@@ -618,6 +666,11 @@ export default class NeutrxClient extends EventEmitter {
         void (async (): Promise<void> => {
             try {
                 const raw = await this.#dispatchDeduped(revalidationConfig);
+                if (raw.status === 304) {
+                    this.#cache.refresh(config, raw.headers);
+                    this.emit('cache:revalidated', { requestId: revalidationConfig.requestId, url: config.url, status: 304 });
+                    return;
+                }
                 const parsed = await this.#parse(raw, revalidationConfig);
                 let next: NeutrxResponse = this.#security.sanitizeResponse(parsed);
                 next = await this.#interceptors.runResponse(next);
@@ -632,9 +685,35 @@ export default class NeutrxClient extends EventEmitter {
         })();
     }
 
+    async #http2(config: InternalRequestConfig): Promise<RawHttpResponse> {
+        const raw = await http2Adapter(config);
+        if (raw.status && REDIRECT_CODES.has(raw.status) && config.followRedirects) {
+            const hops = config.hops + 1;
+            if (hops > config.maxRedirects) throw new Error('Max redirects exceeded');
+
+            const location = singleHeaderValue(raw.headers.location);
+            if (!location) throw new Error('Redirect response missing Location header');
+            const redirectUrl = new URL(location, config.url).href;
+            this.#security.validateURL(redirectUrl);
+            this.#security.validateRedirect(config.url, redirectUrl);
+
+            const redirectedMethod = shouldRedirectWithGet(raw.status, config.method) ? 'GET' : config.method;
+            const headers = stripRedirectHeaders(config.headers, config.url, redirectUrl, redirectedMethod !== config.method);
+            const redirectedConfig = redirectedMethod === 'GET'
+                ? withoutBody({ ...config, url: redirectUrl, method: redirectedMethod, headers, hops })
+                : { ...config, url: redirectUrl, method: redirectedMethod, headers, hops };
+
+            await config.beforeRedirect?.(buildRedirectContext(raw.status, location, config.url, redirectUrl, redirectedConfig.headers));
+            return this.#http2(redirectedConfig);
+        }
+
+        return raw;
+    }
+
     async #http(config: InternalRequestConfig): Promise<RawHttpResponse> {
         const runtimeConfig: RuntimeRequestConfig = { ...config, headers: { ...config.headers } };
         const url = new URL(runtimeConfig.url);
+        if (runtimeConfig.tls?.certificatePins) this.#security.setCertificatePins(runtimeConfig.tls.certificatePins);
         const body = runtimeConfig.data === undefined ? null : await serializeBody(runtimeConfig);
         if (body !== null && !(body instanceof Readable) && !hasHeader(runtimeConfig.headers, 'Content-Length')) {
             setHeader(runtimeConfig.headers, 'Content-Length', Buffer.byteLength(body));
@@ -657,6 +736,7 @@ export default class NeutrxClient extends EventEmitter {
             const isHTTPS = requestTarget.url.protocol === 'https:';
             const maxSize = runtimeConfig.maxContentLength;
             const rate = parseMaxRate(runtimeConfig.maxRate);
+            const tlsConfig = runtimeConfig.tls ?? this.#config.tls;
             let settled = false;
             const fail = (error: Error): void => {
                 if (settled) return;
@@ -702,9 +782,15 @@ export default class NeutrxClient extends EventEmitter {
                     : {}),
                 ...(isHTTPS
                     ? {
-                        rejectUnauthorized: this.#config.security.validateCertificate,
+                        rejectUnauthorized: tlsConfig?.rejectUnauthorized ?? this.#config.security.validateCertificate,
                         minVersion: 'TLSv1.2',
                         ciphers: SECURE_CIPHERS,
+                        ...(tlsConfig?.ca !== undefined ? { ca: tlsConfig.ca } : {}),
+                        ...(tlsConfig?.cert !== undefined ? { cert: tlsConfig.cert } : {}),
+                        ...(tlsConfig?.key !== undefined ? { key: tlsConfig.key } : {}),
+                        ...(tlsConfig?.pfx !== undefined ? { pfx: tlsConfig.pfx } : {}),
+                        ...(tlsConfig?.passphrase !== undefined ? { passphrase: tlsConfig.passphrase } : {}),
+                        ...(tlsConfig?.servername !== undefined ? { servername: tlsConfig.servername } : {}),
                         checkServerIdentity: (host: string, cert: PeerCertificate): Error | undefined => this.#security.checkServerIdentity(host, cert),
                     }
                     : {}),
@@ -863,9 +949,13 @@ export default class NeutrxClient extends EventEmitter {
         return response;
     }
 
-    #buildRC<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): InternalRequestConfig<TBody> {
+    async #buildRC<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): Promise<InternalRequestConfig<TBody>> {
         const method = normalizeMethod(config.method ?? 'GET');
-        const headers = this.#buildHeaders(config, requestId);
+        const idempotencyKey = this.#resolveIdempotencyKey(config, requestId);
+        const idempotencyKeyHeader = config.idempotencyKeyHeader ?? this.#config.idempotencyKeyHeader ?? 'Idempotency-Key';
+        const headers = this.#buildHeaders(config, requestId, idempotencyKey, idempotencyKeyHeader);
+        const serviceEndpoint = await resolveServiceEndpoint(config, this.#config, method, this.#serviceDiscovery);
+        const urlConfig = serviceEndpoint ? { ...config, baseURL: serviceEndpoint.url } : config;
         const xsrfCookieName = config.xsrfCookieName !== undefined
             ? config.xsrfCookieName
             : this.#config.xsrfCookieName !== undefined ? this.#config.xsrfCookieName : 'XSRF-TOKEN';
@@ -885,7 +975,7 @@ export default class NeutrxClient extends EventEmitter {
 
         const requestConfig = {
             ...config,
-            url: buildURL(config, this.#config),
+            url: buildURL(urlConfig, this.#config),
             method,
             headers,
             timeout: config.timeout ?? this.#config.timeout,
@@ -907,6 +997,8 @@ export default class NeutrxClient extends EventEmitter {
             fetch: config.fetch ?? this.#config.fetch,
             httpVersion: config.httpVersion ?? this.#config.httpVersion,
             http2Options: config.http2Options ?? this.#config.http2Options,
+            serviceDiscovery: config.serviceDiscovery ?? this.#config.serviceDiscovery,
+            ...(serviceEndpoint ? { serviceEndpoint } : {}),
             withCredentials: config.withCredentials ?? this.#config.withCredentials,
             credentials: config.credentials ?? this.#config.credentials,
             xsrfCookieName,
@@ -914,6 +1006,7 @@ export default class NeutrxClient extends EventEmitter {
             withXSRFToken: config.withXSRFToken ?? this.#config.withXSRFToken,
             instrumentation: config.instrumentation ?? this.#config.instrumentation,
             proxy: config.proxy ?? this.#config.proxy,
+            tls: config.tls ?? this.#config.tls,
             httpAgent: config.httpAgent ?? this.#config.httpAgent,
             httpsAgent: config.httpsAgent ?? this.#config.httpsAgent,
             lookup: config.lookup ?? this.#config.lookup,
@@ -924,8 +1017,11 @@ export default class NeutrxClient extends EventEmitter {
             requestId,
             startTime: Date.now(),
             hops: 0,
+            ...(idempotencyKey ? { idempotencyKey } : {}),
+            ...(idempotencyKey ? { idempotencyKeyHeader } : {}),
         };
 
+        delete (requestConfig as { auth?: unknown }).auth;
         if (transformedData === undefined) {
             delete (requestConfig as { data?: RequestBody }).data;
         } else {
@@ -935,10 +1031,32 @@ export default class NeutrxClient extends EventEmitter {
         return requestConfig as InternalRequestConfig<TBody>;
     }
 
-    #buildHeaders<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): Headers {
-        return NeutrxHeaders
+    #buildHeaders<TBody extends RequestBody>(
+        config: RequestConfig<TBody>,
+        requestId: string,
+        idempotencyKey?: string,
+        idempotencyKeyHeader = 'Idempotency-Key'
+    ): Headers {
+        const headers = NeutrxHeaders
             .concat(this.#defaultHeaders, this.#config.headers, config.headers, { 'X-Request-ID': requestId })
             .toJSON();
+        if (idempotencyKey) headers[idempotencyKeyHeader] = idempotencyKey;
+        const auth = config.auth ?? this.#config.auth;
+        if (!auth) return headers;
+        return NeutrxHeaders
+            .from(headers)
+            .setAuthorization(`Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`)
+            .toJSON();
+    }
+
+    #resolveIdempotencyKey<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): string | undefined {
+        const key = config.idempotencyKey ?? this.#config.idempotencyKey;
+        if (key === undefined) return undefined;
+        const resolved = key === true ? requestId : typeof key === 'function' ? key() : key;
+        if (!resolved || /[\r\n]/.test(resolved)) {
+            throw new NeutrxSecurityError('Invalid idempotency key', { code: 'INVALID_IDEMPOTENCY_KEY' });
+        }
+        return resolved;
     }
 
     #buildDefaultHeaders(): Headers {
@@ -1124,6 +1242,13 @@ function withMultipartHeaders<TBody extends RequestBody>(config: BodyRequestConf
     };
 }
 
+function withUrlEncodedHeaders<TBody extends RequestBody>(config: BodyRequestConfig<TBody>): BodyRequestConfig<TBody> {
+    return {
+        ...config,
+        headers: NeutrxHeaders.concat({ 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }, config.headers).toJSON(),
+    };
+}
+
 function parseMaxRate(maxRate: MaxRate | undefined): { readonly upload?: number; readonly download?: number } {
     if (maxRate === undefined) return {};
     if (typeof maxRate === 'number') return positiveRate(maxRate) === undefined ? {} : { upload: maxRate, download: maxRate };
@@ -1149,6 +1274,16 @@ function throttleReadable(stream: Readable, rate: number | undefined, delay?: nu
     if (!rate || wait <= 0) return;
     stream.pause();
     setTimeout(() => stream.resume(), wait);
+}
+
+function singleHeaderValue(value: Headers[string] | undefined): string | undefined {
+    if (value == null) return undefined;
+    if (Array.isArray(value)) {
+        const first: unknown = value[0];
+        if (typeof first === 'string' || typeof first === 'number' || typeof first === 'boolean') return String(first);
+        return undefined;
+    }
+    return String(value);
 }
 
 function sleep(ms: number): Promise<void> {

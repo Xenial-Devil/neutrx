@@ -10,6 +10,7 @@ import {
     NeutrxResponseSizeError,
     NeutrxSecurityError,
 } from './NeutrxError.js';
+import { resolveServiceEndpoint, type ServiceDiscoveryState } from './config.js';
 import type {
     AuthConfig,
     BulkheadStats,
@@ -18,6 +19,7 @@ import type {
     ClientConfig,
     ConcurrentOptions,
     ConcurrentResult,
+    EgressPolicyAudit,
     FetchCredentials,
     GraphQLResult,
     Headers,
@@ -122,6 +124,7 @@ export default class BrowserClient extends TinyEmitter {
     #metrics = new BrowserMetrics();
     #plugins: PluginManager;
     #defaultHeaders: Headers;
+    #serviceDiscovery: ServiceDiscoveryState = { counters: new Map<string, number>() };
 
     constructor(config: ClientConfig = {}) {
         super();
@@ -155,6 +158,14 @@ export default class BrowserClient extends TinyEmitter {
         return this.request<TData>({ ...config, method: 'POST', url, data: toFormBody(data) });
     }
 
+    postUrlEncoded<TData extends ParsedResponseData = ParsedResponseData>(
+        url: string,
+        data: RequestBody,
+        config: BodyRequestConfig<RequestBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.request<TData>({ ...withUrlEncodedHeaders(config), method: 'POST', url, data });
+    }
+
     put<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
         url: string,
         data: TBody,
@@ -171,6 +182,14 @@ export default class BrowserClient extends TinyEmitter {
         return this.request<TData>({ ...config, method: 'PUT', url, data: toFormBody(data) });
     }
 
+    putUrlEncoded<TData extends ParsedResponseData = ParsedResponseData>(
+        url: string,
+        data: RequestBody,
+        config: BodyRequestConfig<RequestBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.request<TData>({ ...withUrlEncodedHeaders(config), method: 'PUT', url, data });
+    }
+
     patch<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
         url: string,
         data: TBody,
@@ -185,6 +204,14 @@ export default class BrowserClient extends TinyEmitter {
         config: BodyRequestConfig<RequestBody> = {}
     ): Promise<NeutrxResponse<TData>> {
         return this.request<TData>({ ...config, method: 'PATCH', url, data: toFormBody(data) });
+    }
+
+    patchUrlEncoded<TData extends ParsedResponseData = ParsedResponseData>(
+        url: string,
+        data: RequestBody,
+        config: BodyRequestConfig<RequestBody> = {}
+    ): Promise<NeutrxResponse<TData>> {
+        return this.request<TData>({ ...withUrlEncodedHeaders(config), method: 'PATCH', url, data });
     }
 
     delete<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
@@ -345,7 +372,7 @@ export default class BrowserClient extends TinyEmitter {
         this.#metrics.recordStart();
 
         try {
-            let rc: InternalRequestConfig = this.#buildRC(config, requestId);
+            let rc: InternalRequestConfig = await this.#buildRC(config, requestId);
             trackedUrl = rc.url;
 
             rc = await this.#plugins.runHook('beforeRequest', rc);
@@ -363,7 +390,7 @@ export default class BrowserClient extends TinyEmitter {
             }
 
             rc = await this.#interceptors.runRequest(rc);
-            this.#circuitBreaker.canRequest(rc.url);
+            await this.#circuitBreaker.canRequest(rc.url);
             circuitChecked = true;
 
             const domain = this.#domain(rc.url);
@@ -371,6 +398,7 @@ export default class BrowserClient extends TinyEmitter {
                 url: rc.url,
                 method: rc.method,
                 deadlineAt: rc.startTime + rc.timeout,
+                ...(rc.idempotencyKey ? { idempotencyKey: rc.idempotencyKey } : {}),
                 ...(rc.signal ? { signal: rc.signal } : {}),
             };
             const { result: response, attempts } = await this.#retryEngine.execute(
@@ -391,7 +419,7 @@ export default class BrowserClient extends TinyEmitter {
 
             const duration = Date.now() - t0;
             this.#metrics.recordSuccess(rc.url, duration, next.status);
-            this.#circuitBreaker.recordSuccess(rc.url);
+            await this.#circuitBreaker.recordSuccess(rc.url);
             this.emit('request:success', {
                 requestId,
                 url: rc.url,
@@ -408,7 +436,7 @@ export default class BrowserClient extends TinyEmitter {
             normalized.duration = Date.now() - t0;
 
             this.#metrics.recordError(trackedUrl, normalized);
-            if (circuitChecked) this.#circuitBreaker.recordFailure(trackedUrl);
+            if (circuitChecked) await this.#circuitBreaker.recordFailure(trackedUrl);
 
             this.emit('request:error', { requestId, url: trackedUrl, error: normalized, duration: normalized.duration });
             await this.#plugins.runHook('onError', normalized);
@@ -537,6 +565,10 @@ export default class BrowserClient extends TinyEmitter {
         return this.#bulkhead.getStats();
     }
 
+    getEgressPolicy(): EgressPolicyAudit {
+        return egressPolicyAudit(this.#config.egressPolicy);
+    }
+
     getUri(config: string | RequestConfig): string {
         return this.#buildURL(typeof config === 'string' ? { url: config } : config);
     }
@@ -636,9 +668,13 @@ export default class BrowserClient extends TinyEmitter {
         return response;
     }
 
-    #buildRC<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): InternalRequestConfig<TBody> {
+    async #buildRC<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): Promise<InternalRequestConfig<TBody>> {
         const method = normalizeMethod(config.method ?? 'GET');
-        const headers = this.#buildHeaders(config, requestId);
+        const idempotencyKey = this.#resolveIdempotencyKey(config, requestId);
+        const idempotencyKeyHeader = config.idempotencyKeyHeader ?? this.#config.idempotencyKeyHeader ?? 'Idempotency-Key';
+        const headers = this.#buildHeaders(config, requestId, idempotencyKey, idempotencyKeyHeader);
+        const serviceEndpoint = await resolveServiceEndpoint(config, this.#config, method, this.#serviceDiscovery);
+        const urlConfig = serviceEndpoint ? { ...config, baseURL: serviceEndpoint.url } : config;
         const transformedData = applyRequestTransforms(
             config.data,
             headers,
@@ -658,7 +694,7 @@ export default class BrowserClient extends TinyEmitter {
             : this.#config.xsrfHeaderName !== undefined ? this.#config.xsrfHeaderName : 'X-XSRF-TOKEN';
         const requestConfig = {
             ...config,
-            url: this.#buildURL(config),
+            url: this.#buildURL(urlConfig),
             method,
             headers,
             timeout: config.timeout ?? this.#config.timeout,
@@ -680,6 +716,8 @@ export default class BrowserClient extends TinyEmitter {
             fetch: config.fetch ?? this.#config.fetch,
             httpVersion: config.httpVersion ?? this.#config.httpVersion,
             http2Options: config.http2Options ?? this.#config.http2Options,
+            serviceDiscovery: config.serviceDiscovery ?? this.#config.serviceDiscovery,
+            ...(serviceEndpoint ? { serviceEndpoint } : {}),
             withCredentials: config.withCredentials ?? this.#config.withCredentials,
             credentials: config.credentials ?? this.#config.credentials,
             xsrfCookieName,
@@ -693,8 +731,11 @@ export default class BrowserClient extends TinyEmitter {
             requestId,
             startTime: Date.now(),
             hops: 0,
+            ...(idempotencyKey ? { idempotencyKey } : {}),
+            ...(idempotencyKey ? { idempotencyKeyHeader } : {}),
         };
 
+        delete (requestConfig as { auth?: unknown }).auth;
         if (transformedData === undefined) {
             delete (requestConfig as { data?: RequestBody }).data;
         } else {
@@ -722,13 +763,32 @@ export default class BrowserClient extends TinyEmitter {
         return url;
     }
 
-    #buildHeaders<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): Headers {
-        return {
+    #buildHeaders<TBody extends RequestBody>(
+        config: RequestConfig<TBody>,
+        requestId: string,
+        idempotencyKey?: string,
+        idempotencyKeyHeader = 'Idempotency-Key'
+    ): Headers {
+        const headers: Headers = {
             ...this.#defaultHeaders,
             ...(this.#config.headers ?? {}),
             ...(config.headers ?? {}),
             'X-Request-ID': requestId,
         };
+        if (idempotencyKey) headers[idempotencyKeyHeader] = idempotencyKey;
+        const auth = config.auth ?? this.#config.auth;
+        if (auth) headers.Authorization = `Basic ${base64(`${auth.username}:${auth.password}`)}`;
+        return headers;
+    }
+
+    #resolveIdempotencyKey<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): string | undefined {
+        const key = config.idempotencyKey ?? this.#config.idempotencyKey;
+        if (key === undefined) return undefined;
+        const resolved = key === true ? requestId : typeof key === 'function' ? key() : key;
+        if (!resolved || /[\r\n]/.test(resolved)) {
+            throw new NeutrxSecurityError('Invalid idempotency key', { code: 'INVALID_IDEMPOTENCY_KEY' });
+        }
+        return resolved;
     }
 
     #buildDefaultHeaders(): Headers {
@@ -818,6 +878,9 @@ export default class BrowserClient extends TinyEmitter {
             ...(custom.maxRate !== undefined ? { maxRate: custom.maxRate } : {}),
             ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
             ...(custom.headers ? { headers: custom.headers } : {}),
+            ...(custom.auth ? { auth: custom.auth } : {}),
+            ...(custom.idempotencyKey !== undefined ? { idempotencyKey: custom.idempotencyKey } : {}),
+            ...(custom.idempotencyKeyHeader ? { idempotencyKeyHeader: custom.idempotencyKeyHeader } : {}),
             ...(custom.paramsSerializer ? { paramsSerializer: custom.paramsSerializer } : {}),
             ...(custom.formSerializer ? { formSerializer: custom.formSerializer } : {}),
             ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
@@ -826,6 +889,7 @@ export default class BrowserClient extends TinyEmitter {
             ...(custom.stringifyJson ? { stringifyJson: custom.stringifyJson } : {}),
             adapter: custom.adapter ?? 'fetch',
             ...(custom.fetch ? { fetch: custom.fetch } : {}),
+            ...(custom.serviceDiscovery ? { serviceDiscovery: custom.serviceDiscovery } : {}),
             ...(custom.withCredentials !== undefined ? { withCredentials: custom.withCredentials } : {}),
             ...(custom.credentials ? { credentials: custom.credentials } : {}),
             ...(custom.xsrfCookieName !== undefined ? { xsrfCookieName: custom.xsrfCookieName } : {}),
@@ -853,11 +917,13 @@ export default class BrowserClient extends TinyEmitter {
                 sanitizeOutputs: custom.security?.sanitizeOutputs ?? true,
                 ...(custom.security?.rateLimit ? { rateLimit: custom.security.rateLimit } : {}),
             },
+            ...(custom.egressPolicy ? { egressPolicy: custom.egressPolicy } : {}),
             resilience: {
                 enableCircuitBreaker: custom.resilience?.enableCircuitBreaker ?? true,
                 failureThreshold: custom.resilience?.failureThreshold ?? 5,
                 successThreshold: custom.resilience?.successThreshold ?? 2,
                 circuitTimeout: custom.resilience?.circuitTimeout ?? 60_000,
+                ...(custom.resilience?.circuitBreakerStorage ? { circuitBreakerStorage: custom.resilience.circuitBreakerStorage } : {}),
                 enableRetry: custom.resilience?.enableRetry ?? true,
                 maxRetries: custom.resilience?.maxRetries ?? 3,
                 retryStrategy: custom.resilience?.retryStrategy ?? 'exponential',
@@ -872,6 +938,7 @@ export default class BrowserClient extends TinyEmitter {
                 maxConcurrent: custom.resilience?.maxConcurrent ?? 10,
                 maxQueue: custom.resilience?.maxQueue ?? 100,
                 bulkheadQueueTimeout: custom.resilience?.bulkheadQueueTimeout ?? 30_000,
+                ...(custom.resilience?.adaptiveConcurrency ? { adaptiveConcurrency: custom.resilience.adaptiveConcurrency } : {}),
                 ...(custom.resilience?.shouldRetry ? { shouldRetry: custom.resilience.shouldRetry } : {}),
                 ...(custom.resilience?.onRetry ? { onRetry: custom.resilience.onRetry } : {}),
             },
@@ -884,6 +951,7 @@ export default class BrowserClient extends TinyEmitter {
                 deduplicateRequests: custom.performance?.deduplicateRequests ?? false,
                 cacheStrategy: custom.performance?.cacheStrategy ?? 'ttl',
                 cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(custom.performance?.cacheTTL ?? 300_000, 1_500_000),
+                ...(custom.performance?.cacheAdapter ? { cacheAdapter: custom.performance.cacheAdapter } : {}),
             },
         };
     }
@@ -1193,18 +1261,39 @@ function serializeParams(params: QueryParams, serializer?: RequestConfig['params
     if (serializer?.serialize) return serializer.serialize(params);
 
     const encoded = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) appendSearchParam(encoded, key, value, serializer?.encode);
+    for (const [key, value] of Object.entries(params)) appendSearchParam(encoded, key, value, serializer?.encode, serializer?.indexes);
     return encoded.toString();
 }
 
-function appendSearchParam(params: URLSearchParams, key: string, value: QueryValue, encode?: (value: string) => string): void {
+function appendSearchParam(
+    params: URLSearchParams,
+    key: string,
+    value: QueryValue,
+    encode?: (value: string) => string,
+    indexes?: boolean | null
+): void {
     if (value == null) return;
     const encodedKey = encode ? encode(key) : key;
     if (Array.isArray(value)) {
-        value.forEach(item => params.append(encodedKey, encode ? encode(String(item)) : String(item)));
+        const items = value as readonly QueryValue[];
+        items.forEach((item, index) => appendSearchParam(params, arrayParamKey(key, index, indexes), item, encode, indexes));
         return;
     }
-    params.set(encodedKey, encode ? encode(String(value)) : String(value));
+    if (typeof value === 'object') {
+        const record = value as QueryParams;
+        for (const childKey of Object.keys(record)) {
+            const child = record[childKey];
+            appendSearchParam(params, `${key}[${childKey}]`, child, encode, indexes);
+        }
+        return;
+    }
+    params.append(encodedKey, encode ? encode(String(value)) : String(value));
+}
+
+function arrayParamKey(key: string, index: number, indexes?: boolean | null): string {
+    if (indexes === true) return `${key}[${index}]`;
+    if (indexes === false) return `${key}[]`;
+    return key;
 }
 
 function toFetchBody(config: RuntimeRequestConfig): FetchBody | undefined {
@@ -1234,6 +1323,12 @@ function toFetchBody(config: RuntimeRequestConfig): FetchBody | undefined {
     if (isFormDataLike(data)) return data;
     if (isStreamLike(data)) return data as FetchBody;
 
+    if (isUrlEncodedRequest(config.headers) && isPlainBodyRecord(data)) {
+        const rendered = toUrlEncodedBody(data).toString();
+        reportUploadProgress(config, byteLength(rendered), byteLength(rendered));
+        return rendered as FetchBody;
+    }
+
     const rendered = (config.stringifyJson ?? JSON.stringify)(data);
     reportUploadProgress(config, byteLength(rendered), byteLength(rendered));
     return rendered as FetchBody;
@@ -1262,6 +1357,33 @@ function credentialsFor(withCredentials: boolean | undefined, credentials: Runti
     return 'same-origin';
 }
 
+function withUrlEncodedHeaders<TBody extends RequestBody>(config: BodyRequestConfig<TBody>): BodyRequestConfig<TBody> {
+    return {
+        ...config,
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+            ...(config.headers ?? {}),
+        },
+    };
+}
+
+function egressPolicyAudit(policy: NormalizedClientConfig['egressPolicy']): EgressPolicyAudit {
+    return {
+        mode: policy?.mode ?? 'custom',
+        allowedProtocols: policy?.allowedProtocols ?? [],
+        requireHttps: policy?.requireHttps ?? false,
+        requirePublicDns: policy?.requirePublicDns ?? false,
+        blockCloudMetadata: policy?.blockCloudMetadata ?? false,
+        ...(policy?.allowedHosts ? { allowedHosts: policy.allowedHosts } : {}),
+        ...(policy?.deniedHosts ? { deniedHosts: policy.deniedHosts } : {}),
+        ...(policy?.allowedCidrs ? { allowedCidrs: policy.allowedCidrs } : {}),
+        ...(policy?.deniedCidrs ? { deniedCidrs: policy.deniedCidrs } : {}),
+        ...(policy?.allowedPorts ? { allowedPorts: policy.allowedPorts } : {}),
+        ...(policy?.allowRedirectsTo ? { allowRedirectsTo: policy.allowRedirectsTo } : {}),
+        ...(policy?.allowedSni ? { allowedSni: policy.allowedSni } : {}),
+    };
+}
+
 function toFormBody(data: RequestBody): RequestBody {
     if (isFormDataLike(data) || data === null || typeof data !== 'object') return data;
     if (
@@ -1276,6 +1398,51 @@ function toFormBody(data: RequestBody): RequestBody {
     const form = new FormData();
     for (const [key, value] of Object.entries(data as Record<string, unknown>)) appendBrowserFormValue(form, key, value);
     return form;
+}
+
+function toUrlEncodedBody(data: Record<string, unknown>): URLSearchParams {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(data)) appendUrlEncodedValue(params, key, value);
+    return params;
+}
+
+function appendUrlEncodedValue(params: URLSearchParams, key: string, value: unknown): void {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+        value.forEach(item => appendUrlEncodedValue(params, key, item));
+        return;
+    }
+    if (typeof value === 'object' && !isBlobLike(value)) {
+        for (const [childKey, child] of Object.entries(value as Record<string, unknown>)) {
+            appendUrlEncodedValue(params, `${key}[${childKey}]`, child);
+        }
+        return;
+    }
+    params.append(key, scalarToString(value));
+}
+
+function scalarToString(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+    if (typeof value === 'symbol') return value.description ?? '';
+    if (typeof value === 'function') return value.name || '[function]';
+    return JSON.stringify(value) ?? '';
+}
+
+function isUrlEncodedRequest(headers: Headers): boolean {
+    return headerToString(headers['Content-Type'] ?? headers['content-type']).includes('application/x-www-form-urlencoded');
+}
+
+function isPlainBodyRecord(value: RequestBody): value is Record<string, unknown> {
+    return value !== null
+        && typeof value === 'object'
+        && !(value instanceof URLSearchParams)
+        && !(value instanceof ArrayBuffer)
+        && !ArrayBuffer.isView(value)
+        && !isBlobLike(value)
+        && !isFormDataLike(value)
+        && !isStreamLike(value)
+        && !Array.isArray(value);
 }
 
 function appendBrowserFormValue(form: FormData, key: string, value: unknown): void {

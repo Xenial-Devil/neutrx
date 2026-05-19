@@ -245,7 +245,7 @@ void test('interceptors, serializers, transforms, and download progress work', a
         assert.ok(isAddressInfo(address));
         const api = Neutrx.create({
             baseURL: `http://127.0.0.1:${address.port}`,
-            paramsSerializer: params => `custom=${String(params.custom)}`,
+            paramsSerializer: params => `custom=${paramToString(params.custom)}`,
             security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
         });
 
@@ -436,7 +436,7 @@ void test('getUri builds final URL without dispatching', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const api = Neutrx.create({
         baseURL: 'https://api.example.com/v1',
-        paramsSerializer: params => `page=${String(params.page)}`,
+        paramsSerializer: params => `page=${paramToString(params.page)}`,
     });
 
     assert.equal(api.getUri({ url: '/users', params: { page: 2 } }), 'https://api.example.com/v1/users?page=2');
@@ -660,6 +660,38 @@ void test('postForm serializes plain objects as multipart form data', async () =
     }
 });
 
+void test('postUrlEncoded serializes plain objects as application/x-www-form-urlencoded', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const captured: { contentType: string | undefined; body?: string } = { contentType: undefined };
+    const server = http.createServer((request, response) => {
+        captured.contentType = headerValue(request.headers['content-type']);
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+            captured.body = Buffer.concat(chunks).toString('utf8');
+            response.setHeader('content-type', 'application/json');
+            response.end(JSON.stringify({ ok: true }));
+        });
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+
+        await api.postUrlEncoded('/form', { name: 'Ada Lovelace', tags: ['math', 'code'] });
+
+        assert.equal(captured.contentType, 'application/x-www-form-urlencoded;charset=utf-8');
+        assert.equal(captured.body, 'name=Ada+Lovelace&tags%5B%5D=math&tags%5B%5D=code');
+    } finally {
+        await close(server);
+    }
+});
+
 void test('NeutrxError toJSON redacts secrets from URL, headers, and data', async () => {
     const { default: Neutrx, isNeutrxError } = await import(builtEntry) as typeof PackageEntry;
     const api = Neutrx.create({
@@ -750,4 +782,9 @@ function close(server: http.Server): Promise<void> {
 function headerValue(value: string | string[] | undefined): string | undefined {
     if (Array.isArray(value)) return value.join(', ');
     return value;
+}
+
+function paramToString(value: unknown): string {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return '';
 }
