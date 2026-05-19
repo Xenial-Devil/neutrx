@@ -1,12 +1,12 @@
 # Ecosystem
 
-This document defines official Neutrx ecosystem status, integration rules, naming expectations, and plugin security expectations. Neutrx is source-available under a restrictive license.
+This document defines official Neutrx ecosystem status, integration rules, naming expectations, and plugin security expectations. Neutrx is source-available under a restrictive project license.
 
 ## Official Package Status
 
-The official package is `neutrx` as published or approved by the project owner. Any other package, plugin, integration, wrapper, or distribution is unofficial unless the project owner gives written permission.
+The official package is `neutrx` as published or approved by the project owner. Any other package, plugin, integration, wrapper, fork, mirror, or distribution is unofficial unless the project owner gives written permission.
 
-Publishing, redistributing, selling, rebranding, or releasing modified versions of Neutrx is not allowed without written permission.
+Publishing, redistributing, selling, rebranding, sublicensing, or releasing modified versions of Neutrx is not allowed without written permission.
 
 ## Official Repository Status
 
@@ -22,7 +22,7 @@ Plugins and addons may be proposed through pull requests or issues when they:
 - Avoid secret leakage.
 - Avoid disabling SSRF protection for untrusted URLs.
 - Include tests and documentation.
-- Do not require unnecessary runtime dependencies.
+- Avoid unnecessary runtime dependencies.
 - Follow project license and contribution rules.
 
 Maintainers decide whether a plugin or addon belongs in the official project.
@@ -71,4 +71,3 @@ Plugins and integrations should:
 - Document any security tradeoff clearly.
 
 Security-sensitive plugins require maintainer review before official status is considered.
-

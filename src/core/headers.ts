@@ -4,6 +4,7 @@ import { NeutrxInjectionError, NeutrxSecurityError } from './NeutrxError.js';
 import type { Headers, HeaderValue } from '../types.js';
 
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+const DANGEROUS_HEADER_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
 const SENSITIVE_HEADERS = new Set(['authorization', 'cookie', 'set-cookie', 'proxy-authorization']);
 
 type HeaderEntry = {
@@ -168,7 +169,7 @@ export class NeutrxHeaders {
 }
 
 export function validateHeaderName(name: string): void {
-    if (!name || !HEADER_NAME_RE.test(name)) {
+    if (!name || !HEADER_NAME_RE.test(name) || DANGEROUS_HEADER_NAMES.has(normalizeHeaderKey(name))) {
         throw new NeutrxInjectionError('Header name', name);
     }
 }

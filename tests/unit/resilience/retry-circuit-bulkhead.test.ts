@@ -40,6 +40,79 @@ void test('RetryEngine retries idempotent methods by default', async () => {
     assert.equal(calls, 1);
 });
 
+void test('RetryEngine respects Retry-After before retrying', async () => {
+    const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
+    let observedDelay = 0;
+    const engine = new RetryEngine({
+        maxRetries: 1,
+        retryDelay: 0,
+        maxRetryDelay: 10,
+        retryJitter: false,
+        retryableCodes: ['ETEST'],
+        onRetry: event => {
+            observedDelay = event.delay;
+        },
+    });
+    let calls = 0;
+
+    const result = await engine.execute(async () => {
+        await Promise.resolve();
+        calls += 1;
+        if (calls === 1) {
+            throw Object.assign(new Error('retry later'), {
+                code: 'ETEST',
+                retryAfter: '1',
+            });
+        }
+        return 'ok';
+    }, { method: 'GET', url: 'https://api.example.com/users' });
+
+    assert.equal(result.result, 'ok');
+    assert.equal(calls, 2);
+    assert.equal(observedDelay, 10);
+});
+
+void test('RetryEngine stops during backoff when AbortSignal aborts', async () => {
+    const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
+    const controller = new AbortController();
+    const engine = new RetryEngine({
+        maxRetries: 2,
+        retryDelay: 1000,
+        retryJitter: false,
+        retryableCodes: ['ETEST'],
+        onRetry: () => controller.abort(),
+    });
+    let calls = 0;
+
+    await assert.rejects(
+        engine.execute(async () => {
+            await Promise.resolve();
+            calls += 1;
+            throw Object.assign(new Error('retry me'), { code: 'ETEST' });
+        }, { method: 'GET', signal: controller.signal, url: 'https://api.example.com/users' }),
+        /aborted/u
+    );
+
+    assert.equal(calls, 1);
+});
+
+void test('RetryEngine stops when retry deadline expires', async () => {
+    const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
+    const engine = new RetryEngine({ maxRetries: 2, retryDelay: 50, retryJitter: false, retryableCodes: ['ETEST'] });
+    let calls = 0;
+
+    await assert.rejects(
+        engine.execute(async () => {
+            await Promise.resolve();
+            calls += 1;
+            throw Object.assign(new Error('retry me'), { code: 'ETEST' });
+        }, { method: 'GET', deadlineAt: Date.now() + 1, url: 'https://api.example.com/users' }),
+        /deadline/u
+    );
+
+    assert.equal(calls, 1);
+});
+
 void test('RetryEngine enforces retry budget', async () => {
     const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
     const engine = new RetryEngine({

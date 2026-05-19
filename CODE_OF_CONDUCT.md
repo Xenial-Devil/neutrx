@@ -1,40 +1,40 @@
 # Code of Conduct
 
-Neutrx is a serious source-available Node.js 22+ HTTP client project. Contributors, maintainers, reviewers, issue reporters, and community members are expected to keep discussion professional, technical, and respectful.
+Neutrx is a source-available Node.js 22+ HTTP client project. Everyone participating in project spaces must keep discussion professional, respectful, and focused on secure backend HTTP client work.
 
 ## Expected Behavior
 
-- Be respectful in issues, pull requests, reviews, and project discussions.
-- Focus criticism on code, design, security impact, and maintainability.
-- Assume good intent, but correct mistakes clearly and promptly.
-- Welcome constructive technical disagreement.
-- Keep discussion relevant to Neutrx and its users.
-- Respect maintainer decisions about scope, roadmap, security posture, licensing, and releases.
-- Follow the project license and contribution rules.
+- Treat contributors, maintainers, reporters, and users with respect.
+- Keep feedback specific to code, documentation, tests, security, and project direction.
+- Welcome technical disagreement when it is evidence-based and constructive.
+- Ask clarifying questions before assuming intent.
+- Respect maintainer decisions about scope, security posture, releases, and licensing.
+- Follow the restrictive project license and contribution rules.
+- Keep project spaces useful, accurate, and safe for serious technical work.
 
 ## Unacceptable Behavior
 
 The following behavior is not allowed:
 
 - Harassment, threats, intimidation, stalking, or abusive language.
-- Discrimination based on identity, background, location, belief, disability, age, or experience level.
+- Discrimination or exclusion based on identity, background, location, belief, disability, age, or experience level.
 - Personal attacks, insults, hostile review comments, or repeated bad-faith arguments.
 - Sexualized language, unwanted attention, or inappropriate imagery.
-- Spam, trolling, off-topic promotion, or automated noise.
+- Spam, trolling, off-topic promotion, automated noise, or disruptive repetition.
 - Publishing private information without explicit permission.
 - Attempts to pressure maintainers into unsafe releases, insecure defaults, or license exceptions.
 - Any conduct that would reasonably make participation unsafe or unwelcome.
 
 ## Respectful Technical Discussion
 
-Neutrx discussion may include security tradeoffs, API design, performance, compatibility, and restrictive license terms. Strong disagreement is acceptable when it is specific, evidence-based, and professional.
-
-Good technical feedback explains:
+Neutrx discussion may involve security tradeoffs, API design, performance, compatibility, and release governance. Strong disagreement is acceptable when it stays professional and explains:
 
 - What behavior is affected.
-- Why the current behavior is risky or unclear.
+- Why the behavior is risky, unclear, or incomplete.
 - What change is proposed.
-- What tests, documentation, or migration notes should accompany it.
+- What tests or documentation should accompany the change.
+
+Review comments should help improve the project. Avoid sarcasm, pile-ons, demands, or language that turns technical disagreement into personal conflict.
 
 ## Reporting Process
 
@@ -62,5 +62,4 @@ Maintainers will avoid public disclosure of reporter details unless required for
 
 ## Maintainer Authority
 
-Maintainers have final authority over project spaces, contribution acceptance, release timing, security handling, and license compliance. Participation in Neutrx is conditional on following this Code of Conduct and the project license.
-
+Maintainers have final authority over project spaces, contribution acceptance, release timing, security handling, branding, and license compliance. Participation in Neutrx is conditional on following this Code of Conduct and the restrictive project license.

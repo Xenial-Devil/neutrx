@@ -4,6 +4,7 @@
 
 ```ts
 import neutrx, {
+  HttpAdapter,
   NeutrxError,
   NeutrxHTTPError,
   NeutrxHeaders,
@@ -28,6 +29,19 @@ await neutrx('https://api.example.com/health');
 await neutrx({ url: 'https://api.example.com/health', method: 'GET' });
 ```
 
+CommonJS:
+
+```js
+const { default: neutrx, isNeutrxError } = require('neutrx');
+```
+
+Global defaults:
+
+```ts
+neutrx.defaults.baseURL = 'https://api.example.com';
+neutrx.defaults.headers = { 'X-Service': 'billing' };
+```
+
 ## Methods
 
 - `request(config)`
@@ -44,6 +58,7 @@ await neutrx({ url: 'https://api.example.com/health', method: 'GET' });
 - `upload(url, data, config?)`
 - `download(url, config?)`
 - `sse(url, handlers?)`
+- `getUri(config)`
 
 ## Request Config
 
@@ -73,12 +88,21 @@ Important fields:
 - `lookup`
 - `httpAgent`
 - `httpsAgent`
+- `socketPath` (Node only)
+- `decompress` (Node only)
+- `maxRate` (Node only, bytes per second or `[upload, download]`)
 - `security`
 - `resilience`
 - `performance`
 - `instrumentation`
 - `onUploadProgress`
 - `onDownloadProgress`
+
+Progress events include `loaded`, `total`, `percent`, `bytes`, `rate`, `estimated`, and `upload` or `download`.
+
+Adapters can be selected with `adapter: 'http'`, `adapter: 'fetch'`, `adapter: 'http2'`, constants such as `HttpAdapter`, or a custom adapter function. Node uses HTTP by default; browser-like runtimes use fetch.
+
+Responses include `request` when the adapter can expose a safe transport reference: Node HTTP returns `ClientRequest`, fetch returns `Request` where possible.
 
 ## Security Config
 

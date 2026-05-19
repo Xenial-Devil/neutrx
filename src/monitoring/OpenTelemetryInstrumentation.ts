@@ -32,7 +32,7 @@ export class OpenTelemetryInstrumentation {
             'url.scheme': url.protocol.slice(0, -1),
             'server.address': url.hostname,
             'server.port': Number(url.port || (url.protocol === 'https:' ? 443 : 80)),
-            'url.path': `${url.pathname}${url.search}`,
+            'url.path': url.pathname,
         };
         const span = tracer?.startSpan(`HTTP ${config.method}`, { attributes }) ?? null;
         for (const [name, value] of Object.entries(attributes)) span?.setAttribute(name, value);

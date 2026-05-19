@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 export interface MetricsSnapshot {
     readonly requests: {
         readonly total: number;
+        readonly active: number;
         readonly success: number;
         readonly errors: number;
         readonly cached: number;
@@ -35,7 +36,7 @@ export interface MetricsSnapshot {
 }
 
 interface MutableMetrics {
-    requests: { total: number; success: number; errors: number; cached: number; retried: number };
+    requests: { total: number; active: number; success: number; errors: number; cached: number; retried: number };
     performance: { min: number; max: number; avg: number; total: number; p50: number; p90: number; p95: number; p99: number };
     byStatus: Record<string, number>;
     byEndpoint: Record<string, EndpointMetrics>;
@@ -62,6 +63,14 @@ export default class MetricsCollector extends EventEmitter {
         this.#metrics = this.#fresh();
         this.#percentileTimer = setInterval(() => this.#percentiles(), 10_000);
         this.#percentileTimer.unref();
+    }
+
+    recordStart(): void {
+        this.#metrics.requests.active += 1;
+    }
+
+    recordEnd(): void {
+        this.#metrics.requests.active = Math.max(0, this.#metrics.requests.active - 1);
     }
 
     recordSuccess(url: string, duration: number, status: number): void {
@@ -114,6 +123,10 @@ export default class MetricsCollector extends EventEmitter {
             `neutrx_requests_total{status="success"} ${metrics.requests.success}`,
             `neutrx_requests_total{status="error"} ${metrics.requests.errors}`,
             `neutrx_requests_total{status="cached"} ${metrics.requests.cached}`,
+            `neutrx_requests_total{status="retried"} ${metrics.requests.retried}`,
+            '',
+            '# TYPE neutrx_active_requests gauge',
+            `neutrx_active_requests ${metrics.requests.active}`,
             '',
             '# TYPE neutrx_duration_ms summary',
             `neutrx_duration_ms{quantile="0.5"} ${metrics.performance.p50}`,
@@ -134,7 +147,7 @@ export default class MetricsCollector extends EventEmitter {
 
     #fresh(): MutableMetrics {
         return {
-            requests: { total: 0, success: 0, errors: 0, cached: 0, retried: 0 },
+            requests: { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0 },
             performance: { min: 0, max: 0, avg: 0, total: 0, p50: 0, p90: 0, p95: 0, p99: 0 },
             byStatus: {},
             byEndpoint: {},

@@ -26,7 +26,7 @@ export { default as BrowserClient, default as NeutrxClient } from './core/Browse
 export { NeutrxHeaders } from './core/headers.js';
 export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
-export type { NeutrxInstance, NeutrxStatic } from './core/BrowserNeutrx.js';
+export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/BrowserNeutrx.js';
 export type {
     AuthConfig,
     BulkheadStats,
@@ -47,6 +47,7 @@ export type {
     JsonValue,
     MockController,
     MockResponse,
+    MaxRate,
     NeutrxResponse,
     OAuth2Config,
     PaginationOptions,
@@ -64,6 +65,8 @@ export type {
     RetryBudgetConfig,
     ResponseType,
     SecurityConfig,
+    DeprecatedSecurityProfile,
+    SecurityProfileInput,
     SecurityProfile,
     TransformRequest,
     TransformResponse,

@@ -1,8 +1,9 @@
-import InterceptorChain, { type AxiosInterceptors } from '../interceptors/InterceptorChain.js';
+import InterceptorChain, { type NeutrxInterceptors } from '../interceptors/InterceptorChain.js';
 import { PluginManager, type NeutrxPlugin } from '../plugins/PluginManager.js';
 import CircuitBreaker from '../resilience/CircuitBreaker.js';
 import { RetryEngine } from '../resilience/RetryEngine.js';
 import Bulkhead from '../resilience/Bulkhead.js';
+import { normalizeSecurityProfile } from '../security/profiles.js';
 import {
     NeutrxError,
     NeutrxErrorFactory,
@@ -36,6 +37,7 @@ import type {
     RawHttpResponse,
     RequestBody,
     RequestConfig,
+    RetryContext,
     ResponseType,
     SseHandle,
     TransformRequest,
@@ -55,7 +57,7 @@ type RuntimeRequestConfig = InternalRequestConfig & { headers: Headers };
 type BrowserListener = (payload: unknown) => void;
 type FetchInit = RequestInit & { duplex?: 'half' };
 type FetchBody = NonNullable<RequestInit['body']>;
-type BrowserRequestMetrics = { total: number; success: number; errors: number; cached: number; retried: number };
+type BrowserRequestMetrics = { total: number; active: number; success: number; errors: number; cached: number; retried: number };
 type BrowserErrorMetrics = { byType: Record<string, number>; byCode: Record<string, number> };
 type BrowserMetricsSnapshot = {
     readonly requests: BrowserRequestMetrics;
@@ -108,7 +110,7 @@ export default class BrowserClient extends TinyEmitter {
         options?: { readonly operationName?: string; readonly headers?: Headers }
     ) => Promise<GraphQLResult<TData>>;
     mock?: MockController;
-    readonly interceptors: AxiosInterceptors;
+    readonly interceptors: NeutrxInterceptors;
 
     #config: NormalizedClientConfig;
     #interceptors = new InterceptorChain();
@@ -339,6 +341,7 @@ export default class BrowserClient extends TinyEmitter {
         const t0 = Date.now();
         let trackedUrl = config.url;
         let circuitChecked = false;
+        this.#metrics.recordStart();
 
         try {
             let rc: InternalRequestConfig = this.#buildRC(config, requestId);
@@ -363,13 +366,19 @@ export default class BrowserClient extends TinyEmitter {
             circuitChecked = true;
 
             const domain = this.#domain(rc.url);
+            const retryContext: RetryContext = {
+                url: rc.url,
+                method: rc.method,
+                deadlineAt: rc.startTime + rc.timeout,
+                ...(rc.signal ? { signal: rc.signal } : {}),
+            };
             const { result: response, attempts } = await this.#retryEngine.execute(
                 async (attempt): Promise<NeutrxResponse<TData>> => {
                     if (attempt > 0) this.#metrics.recordRetry();
                     const raw = await this.#bulkhead.execute(domain, () => this.#dispatch(rc));
                     return this.#parse<TData>(raw, rc);
                 },
-                { url: rc.url, method: rc.method }
+                retryContext
             );
 
             response.attempts = attempts;
@@ -406,6 +415,8 @@ export default class BrowserClient extends TinyEmitter {
             const handled = await this.#interceptors.runError(normalized);
             if (handled instanceof Error) throw handled;
             return handled as NeutrxResponse<TData>;
+        } finally {
+            this.#metrics.recordEnd();
         }
     }
 
@@ -611,6 +622,7 @@ export default class BrowserClient extends TinyEmitter {
             headers: raw.headers,
             data: applyResponseTransforms(parsed, raw.headers, raw.status, config.transformResponse) as TData,
             config,
+            ...(raw.request ? { request: raw.request } : {}),
             timing: { duration: Date.now() - config.startTime },
             requestId: config.requestId,
         };
@@ -671,6 +683,7 @@ export default class BrowserClient extends TinyEmitter {
             instrumentation: config.instrumentation ?? this.#config.instrumentation,
             proxy: false,
             decompress: false,
+            maxRate: config.maxRate ?? this.#config.maxRate,
             followRedirects: config.followRedirects !== false,
             requestId,
             startTime: Date.now(),
@@ -770,7 +783,7 @@ export default class BrowserClient extends TinyEmitter {
 
         let totalSize = 0;
         for (const [key, value] of entries) {
-            if (!/^[a-zA-Z0-9\-_]+$/.test(key)) {
+            if (!/^[a-zA-Z0-9\-_]+$/.test(key) || DANGEROUS_KEYS.has(key.toLowerCase())) {
                 throw new NeutrxSecurityError(`Invalid header name: ${key}`, { code: 'INVALID_HEADER' });
             }
 
@@ -787,6 +800,7 @@ export default class BrowserClient extends TinyEmitter {
     }
 
     #buildConfig(custom: ClientConfig): NormalizedClientConfig {
+        const securityProfile = normalizeSecurityProfile(custom.security?.profile);
         return {
             timeout: custom.timeout ?? 30_000,
             connectTimeout: custom.connectTimeout ?? custom.timeout ?? 30_000,
@@ -795,6 +809,7 @@ export default class BrowserClient extends TinyEmitter {
             maxBodyLength: custom.maxBodyLength ?? 10 * 1024 * 1024,
             validateStatus: custom.validateStatus ?? ((status): boolean => status >= 200 && status < 300),
             decompress: false,
+            ...(custom.maxRate !== undefined ? { maxRate: custom.maxRate } : {}),
             ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
             ...(custom.headers ? { headers: custom.headers } : {}),
             ...(custom.paramsSerializer ? { paramsSerializer: custom.paramsSerializer } : {}),
@@ -811,7 +826,7 @@ export default class BrowserClient extends TinyEmitter {
             ...(custom.instrumentation ? { instrumentation: custom.instrumentation } : {}),
             proxy: false,
             security: {
-                profile: custom.security?.profile ?? 'axios-compatible',
+                profile: securityProfile,
                 allowedProtocols: custom.security?.allowedProtocols ?? ['http', 'https'],
                 ...(custom.security?.allowedHosts ? { allowedHosts: custom.security.allowedHosts } : {}),
                 ...(custom.security?.deniedHosts ? { deniedHosts: custom.security.deniedHosts } : {}),
@@ -1016,10 +1031,18 @@ class BrowserCache {
 }
 
 class BrowserMetrics {
-    #requests: BrowserRequestMetrics = { total: 0, success: 0, errors: 0, cached: 0, retried: 0 };
+    #requests: BrowserRequestMetrics = { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0 };
     #durations: number[] = [];
     #byStatus: Record<string, number> = {};
     #errors: BrowserErrorMetrics = { byType: {}, byCode: {} };
+
+    recordStart(): void {
+        this.#requests.active += 1;
+    }
+
+    recordEnd(): void {
+        this.#requests.active = Math.max(0, this.#requests.active - 1);
+    }
 
     recordSuccess(_url: string, duration: number, status: number): void {
         this.#requests.success += 1;
@@ -1080,11 +1103,15 @@ class BrowserMetrics {
             `neutrx_requests_total{status="success"} ${this.#requests.success}`,
             `neutrx_requests_total{status="error"} ${this.#requests.errors}`,
             `neutrx_requests_total{status="cached"} ${this.#requests.cached}`,
+            `neutrx_requests_total{status="retried"} ${this.#requests.retried}`,
+            '',
+            '# TYPE neutrx_active_requests gauge',
+            `neutrx_active_requests ${this.#requests.active}`,
         ].join('\n');
     }
 
     reset(): void {
-        this.#requests = { total: 0, success: 0, errors: 0, cached: 0, retried: 0 };
+        this.#requests = { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0 };
         this.#durations = [];
         this.#byStatus = {};
         this.#errors = { byType: {}, byCode: {} };
@@ -1448,21 +1475,43 @@ function contentLength(headers: globalThis.Headers): number | undefined {
     return Number.isFinite(length) && length >= 0 ? length : undefined;
 }
 
+type ProgressDirection = 'upload' | 'download';
+type ProgressState = { readonly loaded: number; readonly timestamp: number };
+const uploadProgressState = new WeakMap<InternalRequestConfig, ProgressState>();
+const downloadProgressState = new WeakMap<InternalRequestConfig, ProgressState>();
+
 function reportUploadProgress(config: InternalRequestConfig, loaded: number, total?: number): void {
-    reportProgress(config.onUploadProgress, loaded, total);
+    reportProgress(config, 'upload', config.onUploadProgress, loaded, total);
 }
 
 function reportDownloadProgress(config: InternalRequestConfig, loaded: number, total?: number): void {
-    reportProgress(config.onDownloadProgress, loaded, total);
+    reportProgress(config, 'download', config.onDownloadProgress, loaded, total);
 }
 
-function reportProgress(callback: ((event: ProgressEvent) => void) | undefined, loaded: number, total?: number): void {
+function reportProgress(
+    config: InternalRequestConfig,
+    direction: ProgressDirection,
+    callback: ((event: ProgressEvent) => void) | undefined,
+    loaded: number,
+    total?: number
+): void {
     if (!callback) return;
-    if (total !== undefined && total > 0) {
-        callback({ loaded, total, percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))) });
-        return;
-    }
-    callback({ loaded });
+    const stateMap = direction === 'upload' ? uploadProgressState : downloadProgressState;
+    const previous = stateMap.get(config);
+    const now = Date.now();
+    const bytes = Math.max(0, loaded - (previous?.loaded ?? 0));
+    const elapsedMs = Math.max(1, now - (previous?.timestamp ?? now));
+    const rate = previous ? Math.round((bytes * 1000) / elapsedMs) : 0;
+    callback({
+        loaded,
+        bytes,
+        rate,
+        ...(direction === 'upload' ? { upload: true as const } : { download: true as const }),
+        ...(total !== undefined ? { total } : {}),
+        ...(total !== undefined && total > 0 ? { percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))) } : {}),
+        ...(total !== undefined && rate > 0 ? { estimated: Number(((Math.max(0, total - loaded)) / rate).toFixed(3)) } : {}),
+    });
+    stateMap.set(config, { loaded, timestamp: now });
 }
 
 function byteLength(value: string): number {
@@ -1553,9 +1602,12 @@ function rejectAfter(ms: number, message: string): Promise<never> {
 }
 
 function mergeConfig(base: NormalizedClientConfig, override: ClientConfig): ClientConfig {
-    const security = override.security?.profile && override.security.profile !== base.security.profile
-        ? override.security
-        : { ...base.security, ...(override.security ?? {}) };
+    const overrideProfile = override.security?.profile === undefined
+        ? undefined
+        : normalizeSecurityProfile(override.security.profile);
+    const security = overrideProfile && overrideProfile !== base.security.profile
+        ? { ...override.security, profile: overrideProfile }
+        : { ...base.security, ...(override.security ?? {}), ...(overrideProfile ? { profile: overrideProfile } : {}) };
 
     return {
         ...base,

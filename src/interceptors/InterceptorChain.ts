@@ -10,7 +10,7 @@ export interface RequestInterceptorOptions {
     readonly runWhen?: (config: InternalRequestConfig) => boolean;
 }
 
-export interface AxiosInterceptorManager<TValue> {
+export interface NeutrxInterceptorManager<TValue> {
     use(
         onFulfilled?: (value: TValue) => TValue | Promise<TValue>,
         onRejected?: (error: Error) => TValue | Error | Promise<TValue | Error>,
@@ -20,9 +20,9 @@ export interface AxiosInterceptorManager<TValue> {
     clear(): void;
 }
 
-export interface AxiosInterceptors {
-    readonly request: AxiosInterceptorManager<InternalRequestConfig>;
-    readonly response: AxiosInterceptorManager<NeutrxResponse>;
+export interface NeutrxInterceptors {
+    readonly request: NeutrxInterceptorManager<InternalRequestConfig>;
+    readonly response: NeutrxInterceptorManager<NeutrxResponse>;
 }
 
 interface RequestInterceptor {
@@ -75,7 +75,7 @@ export default class InterceptorChain {
         this.#response.clear();
     }
 
-    managers(): AxiosInterceptors {
+    managers(): NeutrxInterceptors {
         return {
             request: {
                 use: (onFulfilled, onRejected, options) => {

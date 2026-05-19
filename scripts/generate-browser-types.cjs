@@ -35,11 +35,13 @@ export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse 
 export type RequestAdapterName = 'fetch';
 export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
 
-export type SecurityProfile = 'strict' | 'balanced' | 'axios-compatible';
+export type SecurityProfile = 'strict' | 'standard' | 'legacy';
+export type DeprecatedSecurityProfile = 'balanced';
+export type SecurityProfileInput = SecurityProfile | DeprecatedSecurityProfile;
 export interface RetryBudgetConfig { readonly maxRetries: number; readonly windowMs: number }
 
 export interface SecurityConfig {
-  readonly profile?: SecurityProfile;
+  readonly profile?: SecurityProfileInput;
   readonly allowedHosts?: readonly string[];
   readonly deniedHosts?: readonly string[];
   readonly allowedProtocols?: readonly string[];
@@ -211,7 +213,7 @@ export interface NeutrxResponse<TData extends ParsedResponseData = ParsedRespons
 
 export interface RetryAttempt { readonly attempt: number; readonly duration: number; readonly success: boolean; readonly error?: string }
 export interface RetryEvent { readonly attempt: number; readonly delay: number; readonly error: Error; readonly context: RetryContext }
-export interface RetryContext { readonly url?: string; readonly method?: HttpMethod }
+export interface RetryContext { readonly url?: string; readonly method?: HttpMethod; readonly signal?: AbortSignal; readonly deadlineAt?: number }
 export interface ConcurrentOptions { readonly limit?: number; readonly failFast?: boolean; readonly timeout?: number; readonly onProgress?: (done: number, total: number, index: number, error: Error | null) => void }
 export interface ConcurrentResult<TData extends ParsedResponseData = ParsedResponseData> { readonly results: Array<NeutrxResponse<TData> | null>; readonly errors: Array<Error | null>; readonly completed: number }
 export interface PaginationOptions { readonly pageParam?: string; readonly limitParam?: string; readonly pageSize?: number; readonly dataPath?: string; readonly hasMorePath?: string; readonly maxPages?: number }
@@ -246,8 +248,8 @@ export class NeutrxHeaders {
   removeAuthorization(): this;
   redactSensitive(redaction?: string): Headers;
 }
-export interface AxiosInterceptorManager<TValue> { use(onFulfilled?: (value: TValue) => TValue | Promise<TValue>, onRejected?: (error: Error) => TValue | Error | Promise<TValue | Error>, options?: { readonly synchronous?: boolean; readonly runWhen?: (config: InternalRequestConfig) => boolean }): number; eject(id: number): void; clear(): void }
-export interface AxiosInterceptors { readonly request: AxiosInterceptorManager<InternalRequestConfig>; readonly response: AxiosInterceptorManager<NeutrxResponse> }
+export interface NeutrxInterceptorManager<TValue> { use(onFulfilled?: (value: TValue) => TValue | Promise<TValue>, onRejected?: (error: Error) => TValue | Error | Promise<TValue | Error>, options?: { readonly synchronous?: boolean; readonly runWhen?: (config: InternalRequestConfig) => boolean }): number; eject(id: number): void; clear(): void }
+export interface NeutrxInterceptors { readonly request: NeutrxInterceptorManager<InternalRequestConfig>; readonly response: NeutrxInterceptorManager<NeutrxResponse> }
 export interface NeutrxPlugin { readonly name: string; readonly version?: string; install?(client: NeutrxInstance, api: { addHook(name: 'beforeRequest', fn: (context: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>): void; addHook(name: 'afterRequest', fn: (context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>): void; addHook(name: 'onError', fn: (context: Error) => Error | Promise<Error>): void; addInterceptor: NeutrxInstance['useRequest'] }): void; uninstall?(client: NeutrxInstance): void }
 
 export class NeutrxError extends Error { readonly __isNeutrxError: true; code: string; timestamp: string; requestId: string | null; url: string | null; method: string | null; retryable: boolean; duration?: number; toJSON(): Record<string, unknown> }
@@ -272,12 +274,11 @@ export class NeutrxBulkheadError extends NeutrxError {}
 export class NeutrxResponseSizeError extends NeutrxError {}
 export class NeutrxRequestSizeError extends NeutrxError {}
 export function isNeutrxError(error: unknown): error is NeutrxError;
-
 type CallableRequestConfig<TBody extends RequestBody = RequestBody> = Omit<RequestConfig<TBody>, 'url'>;
 export interface NeutrxInstance {
   <TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(config: RequestConfig<TBody>): Promise<NeutrxResponse<TData>>;
   <TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(url: string, config?: CallableRequestConfig<TBody>): Promise<NeutrxResponse<TData>>;
-  readonly interceptors: AxiosInterceptors;
+  readonly interceptors: NeutrxInterceptors;
   configureOAuth2?: (config: OAuth2Config) => void;
   gql?: <TData extends JsonValue = JsonValue>(endpoint: string, query: string, variables?: Record<string, JsonValue>, options?: { readonly operationName?: string; readonly headers?: Headers }) => Promise<GraphQLResult<TData>>;
   mock?: MockController;

@@ -20,7 +20,7 @@ void test('local server JSON, timeout, and AbortSignal behavior', async () => {
         assert.ok(isAddressInfo(address));
         const api = Neutrx.create({
             baseURL: `http://127.0.0.1:${address.port}`,
-            security: { profile: 'axios-compatible', blockMetadataIPs: true },
+            security: { profile: 'legacy', blockMetadataIPs: true },
             resilience: { enableRetry: false },
         });
 

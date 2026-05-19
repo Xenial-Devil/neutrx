@@ -12,6 +12,7 @@ void test('published TypeScript declarations support public Node API usage', () 
 import neutrx, {
   NeutrxHeaders,
   OpenTelemetryInstrumentation,
+  HttpAdapter,
   fetchAdapter,
   http2Adapter,
   type ClientConfig,
@@ -38,7 +39,10 @@ const config: ClientConfig = {
   httpVersion: '2',
   http2Options: { sessionTimeout: 1000, maxSessions: 2, rejectUnauthorized: true },
   adapter: 'http2',
+  maxRate: [1024, 2048],
 };
+neutrx.defaults.baseURL = 'https://defaults.example';
+neutrx.defaults.headers = { 'X-Default': 'yes' };
 const request: RequestConfig<FormData> = {
   url: '/upload',
   method: 'POST',
@@ -61,6 +65,7 @@ const response: Promise<NeutrxResponse<{ readonly ok: boolean }>> = neutrx.get('
 });
 void request;
 void response;
+void HttpAdapter;
 void fetchAdapter;
 void http2Adapter;
 void OpenTelemetryInstrumentation;

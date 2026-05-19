@@ -3,12 +3,18 @@ import type { IncomingMessage } from 'node:http';
 import type { InternalRequestConfig, ProgressEvent } from '../types.js';
 import { getContentLength, normalizeIncomingHeaders } from './headers.js';
 
+type ProgressDirection = 'upload' | 'download';
+type ProgressState = { readonly loaded: number; readonly timestamp: number };
+
+const uploadState = new WeakMap<InternalRequestConfig, ProgressState>();
+const downloadState = new WeakMap<InternalRequestConfig, ProgressState>();
+
 export function reportUploadProgress(config: InternalRequestConfig, loaded: number, total?: number): void {
-    reportProgress(config.onUploadProgress, loaded, total);
+    reportProgress(config, 'upload', config.onUploadProgress, loaded, total);
 }
 
 export function reportDownloadProgress(config: InternalRequestConfig, loaded: number, total?: number): void {
-    reportProgress(config.onDownloadProgress, loaded, total);
+    reportProgress(config, 'download', config.onDownloadProgress, loaded, total);
 }
 
 export function attachStreamDownloadProgress(response: IncomingMessage, config: InternalRequestConfig): void {
@@ -30,11 +36,29 @@ export function toUploadBuffer(chunk: unknown): Buffer {
     return Buffer.from(String(chunk));
 }
 
-function reportProgress(callback: ((event: ProgressEvent) => void) | undefined, loaded: number, total?: number): void {
+function reportProgress(
+    config: InternalRequestConfig,
+    direction: ProgressDirection,
+    callback: ((event: ProgressEvent) => void) | undefined,
+    loaded: number,
+    total?: number
+): void {
     if (!callback) return;
-    if (total !== undefined && total > 0) {
-        callback({ loaded, total, percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))) });
-        return;
-    }
-    callback({ loaded });
+    const stateMap = direction === 'upload' ? uploadState : downloadState;
+    const previous = stateMap.get(config);
+    const now = Date.now();
+    const bytes = Math.max(0, loaded - (previous?.loaded ?? 0));
+    const elapsedMs = Math.max(1, now - (previous?.timestamp ?? now));
+    const rate = previous ? Math.round((bytes * 1000) / elapsedMs) : 0;
+    const event: ProgressEvent = {
+        loaded,
+        bytes,
+        rate,
+        ...(direction === 'upload' ? { upload: true as const } : { download: true as const }),
+        ...(total !== undefined ? { total } : {}),
+        ...(total !== undefined && total > 0 ? { percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))) } : {}),
+        ...(total !== undefined && rate > 0 ? { estimated: Number(((Math.max(0, total - loaded)) / rate).toFixed(3)) } : {}),
+    };
+    stateMap.set(config, { loaded, timestamp: now });
+    callback(event);
 }

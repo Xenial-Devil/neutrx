@@ -27,6 +27,9 @@ void test('NeutrxHeaders rejects invalid names and CRLF values', async () => {
     const { NeutrxHeaders } = await import(headersEntry) as typeof HeadersModule;
 
     assert.throws(() => new NeutrxHeaders().set('Bad Header', 'x'), /Header name/u);
+    assert.throws(() => new NeutrxHeaders().set('__proto__', 'x'), /Header name/u);
+    assert.throws(() => new NeutrxHeaders().set('constructor', 'x'), /Header name/u);
+    assert.throws(() => new NeutrxHeaders().set('prototype', 'x'), /Header name/u);
     assert.throws(() => new NeutrxHeaders().set('X-Test', 'ok\r\nInjected: yes'), /CRLF/u);
 });
 

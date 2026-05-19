@@ -17,6 +17,8 @@ void test('package self-reference imports expose ESM, CJS, and subpath APIs', as
     assert.equal(typeof propertyRecord(cjs, 'default').create, 'function');
     assert.equal(typeof headersEntry.NeutrxHeaders, 'function');
     assert.equal(typeof instrumentationEntry.OpenTelemetryInstrumentation, 'function');
+    assert.equal(adaptersEntry.HttpAdapter, 'http');
+    assert.equal(adaptersEntry.FetchAdapter, 'fetch');
     assert.equal(typeof adaptersEntry.fetchAdapter, 'function');
     assert.equal(typeof adaptersEntry.http2Adapter, 'function');
 });

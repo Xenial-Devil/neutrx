@@ -60,10 +60,11 @@ export class RetryEngine {
             const t0 = Date.now();
 
             try {
+                throwIfAbortedOrExpired(context);
                 if (attempt > 0 && lastError) {
                     const delay = this.#delay(attempt, lastError);
                     await this.#config.onRetry?.({ attempt, delay, error: lastError, context });
-                    await sleep(delay);
+                    await sleep(delay, context);
                 }
 
                 const result = await fn(attempt);
@@ -155,10 +156,47 @@ export class RetryEngine {
     }
 }
 
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => {
-        setTimeout(resolve, ms);
+function sleep(ms: number, context: RetryContext): Promise<void> {
+    if (context.signal?.aborted) return Promise.reject(abortError(context.signal));
+
+    const remaining = context.deadlineAt === undefined ? Number.POSITIVE_INFINITY : context.deadlineAt - Date.now();
+    if (remaining <= 0) return Promise.reject(deadlineError());
+
+    const delay = Math.min(ms, remaining);
+    const expiresDuringSleep = context.deadlineAt !== undefined && remaining < ms;
+    if (delay <= 0) return Promise.resolve();
+
+    return new Promise((resolve, reject) => {
+        const onAbort = (): void => {
+            clearTimeout(timer);
+            reject(abortError(context.signal));
+        };
+        const timer = setTimeout(() => {
+            context.signal?.removeEventListener('abort', onAbort);
+            if (expiresDuringSleep) {
+                reject(deadlineError());
+                return;
+            }
+            resolve();
+        }, delay);
+        context.signal?.addEventListener('abort', onAbort, { once: true });
     });
+}
+
+function throwIfAbortedOrExpired(context: RetryContext): void {
+    if (context.signal?.aborted) throw abortError(context.signal);
+    if (context.deadlineAt !== undefined && Date.now() >= context.deadlineAt) {
+        throw deadlineError();
+    }
+}
+
+function deadlineError(): Error {
+    return Object.assign(new Error('Retry deadline exceeded'), { code: 'RETRY_DEADLINE_EXCEEDED' });
+}
+
+function abortError(signal?: AbortSignal): Error {
+    if (signal?.reason instanceof Error) return signal.reason;
+    return Object.assign(new Error('Request aborted'), { name: 'AbortError' });
 }
 
 function normalizeError(error: unknown): Error {

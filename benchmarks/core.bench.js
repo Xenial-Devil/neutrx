@@ -55,7 +55,7 @@ try {
                             headers: { Accept: 'application/json' },
                             formSerializer: { dots: true, indexes: false, maxDepth: 8 },
                             security: {
-                                profile: 'balanced',
+                                profile: 'standard',
                                 enforceHTTPS: true,
                                 enableSSRFProtection: true,
                                 blockPrivateIPs: true,

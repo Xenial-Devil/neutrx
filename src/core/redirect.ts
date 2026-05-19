@@ -1,6 +1,7 @@
 import type { Headers, HttpMethod, InternalRequestConfig, RedirectContext } from '../types.js';
 
 export const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
+const REDIRECT_SENSITIVE_HEADER_RE = /(?:^|[-_])(authorization|cookie|proxy-authorization|token|access-token|refresh-token|secret|password|passwd|api-key|apikey|client-secret)(?:$|[-_])/i;
 
 export function shouldRedirectWithGet(statusCode: number, method: HttpMethod): boolean {
     if (statusCode === 303 && method !== 'HEAD') return true;
@@ -24,6 +25,7 @@ export function stripRedirectHeaders(headers: Headers, fromURL: string, toURL: s
     const next: Headers = {};
     for (const [key, value] of Object.entries(headers)) {
         const normalized = key.toLowerCase();
+        if ((crossOrigin || protocolDowngrade) && REDIRECT_SENSITIVE_HEADER_RE.test(normalized)) continue;
         if ((crossOrigin || protocolDowngrade) && stripped.has(normalized)) continue;
         if (bodyDropped && stripped.has(normalized)) continue;
         next[key] = value;

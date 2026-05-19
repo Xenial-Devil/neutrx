@@ -50,6 +50,7 @@ void test('fetch adapter honors credentials, custom fetch, timeout signal, and X
     });
 
     assert.equal(raw.status, 200);
+    assert.ok(raw.request instanceof Request);
     assert.equal(captured?.credentials, 'include');
     assert.equal(new Headers(captured?.headers).get('X-XSRF-TOKEN'), 'abc123');
 });

@@ -45,9 +45,10 @@ void test('OpenTelemetry instrumentation creates spans and propagates trace head
             }),
         });
 
-        const response = await api.get('https://api.example.com/test');
+        const response = await api.get('https://api.example.com/test?access_token=secret');
         assert.deepEqual(response.data, { trace: '00-test' });
         assert.equal(attributes['http.request.method'], 'GET');
+        assert.equal(attributes['url.path'], '/test');
         assert.equal(attributes['http.response.status_code'], 200);
         assert.equal(ended, true);
     } finally {

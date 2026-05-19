@@ -3,6 +3,7 @@ import net from 'node:net';
 import { Readable } from 'node:stream';
 import tls from 'node:tls';
 import type { PeerCertificate } from 'node:tls';
+import { domainToASCII } from 'node:url';
 
 import {
     NeutrxCertPinError,
@@ -12,7 +13,8 @@ import {
     NeutrxSecurityError,
 } from '../core/NeutrxError.js';
 import { assertHeadersSafe } from '../core/headers.js';
-import type { Headers, InternalRequestConfig, JsonValue, NeutrxResponse, ParsedResponseData, RequestBody, SecurityConfig } from '../types.js';
+import type { Headers, InternalRequestConfig, JsonValue, NeutrxResponse, ParsedResponseData, RequestBody, SecurityConfig, SecurityProfile } from '../types.js';
+import { normalizeSecurityProfile } from './profiles.js';
 
 const PRIVATE_HOST_PATTERNS = [
     /^localhost$/i,
@@ -26,7 +28,7 @@ const MAX_URL_LENGTH = 2048;
 const MAX_OBJECT_DEPTH = 10;
 
 interface NormalizedSecurityConfig {
-    readonly profile: 'strict' | 'balanced' | 'axios-compatible';
+    readonly profile: SecurityProfile;
     readonly allowedHosts?: readonly string[];
     readonly deniedHosts?: readonly string[];
     readonly allowedProtocols: readonly string[];
@@ -53,7 +55,7 @@ export default class SecurityManager {
     #signingAlgo = 'sha256';
 
     constructor(config: SecurityConfig = {}) {
-        const profile = config.profile ?? 'balanced';
+        const profile = normalizeSecurityProfile(config.profile);
         const defaults = profileDefaults(profile);
         this.#config = {
             profile,
@@ -130,6 +132,10 @@ export default class SecurityManager {
 
         if (!this.#config.allowedProtocols.map(protocol => `${protocol.replace(/:$/, '')}:`).includes(parsed.protocol)) {
             throw new NeutrxInjectionError('Protocol', parsed.protocol);
+        }
+
+        if ((parsed.username || parsed.password) && this.#config.profile !== 'legacy') {
+            throw new NeutrxSecurityError('Credentials in URL are blocked by security profile', { code: 'URL_CREDENTIALS_BLOCKED' });
         }
 
         if (this.#config.enforceHTTPS && parsed.protocol !== 'https:' && (this.#config.profile === 'strict' || process.env.NODE_ENV === 'production')) {
@@ -366,7 +372,7 @@ function safeDecodeURIComponent(value: string): string {
     }
 }
 
-function profileDefaults(profile: NormalizedSecurityConfig['profile']): Pick<NormalizedSecurityConfig,
+function profileDefaults(profile: SecurityProfile): Pick<NormalizedSecurityConfig,
     'allowedProtocols'
     | 'enforceHTTPS'
     | 'blockPrivateIPs'
@@ -388,7 +394,7 @@ function profileDefaults(profile: NormalizedSecurityConfig['profile']): Pick<Nor
             allowLocalhost: false,
         };
     }
-    if (profile === 'axios-compatible') {
+    if (profile === 'legacy') {
         return {
             allowedProtocols: ['http', 'https'],
             enforceHTTPS: false,
@@ -413,7 +419,9 @@ function profileDefaults(profile: NormalizedSecurityConfig['profile']): Pick<Nor
 }
 
 function normalizeHostname(hostname: string): string {
-    return hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+    const stripped = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+    if (net.isIP(stripped)) return stripped;
+    return domainToASCII(stripped) || stripped;
 }
 
 function hostCandidates(hostname: string): string[] {
@@ -476,7 +484,7 @@ function isPrivateIPv6(ip: string): boolean {
 function parseIPv4Variant(hostname: string): string | null {
     const raw = hostname.toLowerCase();
     if (/^0x[0-9a-f]+$/i.test(raw) || /^\d+$/.test(raw)) {
-        const numeric = Number.parseInt(raw, raw.startsWith('0x') ? 16 : 10);
+        const numeric = Number.parseInt(raw, raw.startsWith('0x') ? 16 : raw.startsWith('0') ? 8 : 10);
         return numberToIPv4(numeric);
     }
 
@@ -517,11 +525,19 @@ function numberToIPv4(value: number): string | null {
 
 function matchesHostPattern(hostname: string, pattern: string): boolean {
     const normalized = normalizeHostname(hostname);
-    const raw = normalizeHostname(pattern);
+    const raw = normalizeHostPattern(pattern);
     if (raw === '*') return true;
     if (raw.startsWith('*.')) return normalized === raw.slice(2) || normalized.endsWith(raw.slice(1));
     if (raw.startsWith('.')) return normalized === raw.slice(1) || normalized.endsWith(raw);
     return normalized === raw;
+}
+
+function normalizeHostPattern(pattern: string): string {
+    const raw = pattern.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+    if (raw === '*') return raw;
+    if (raw.startsWith('*.')) return `*.${normalizeHostname(raw.slice(2))}`;
+    if (raw.startsWith('.')) return `.${normalizeHostname(raw.slice(1))}`;
+    return normalizeHostname(raw);
 }
 
 function isBlobLike(value: unknown): value is Blob {

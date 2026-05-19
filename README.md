@@ -30,6 +30,12 @@ const created = await api.post('/users', { name: 'Ada Lovelace' });
 const direct = await neutrx('https://api.example.com/health');
 ```
 
+CommonJS is supported too:
+
+```js
+const { default: neutrx, isNeutrxError } = require('neutrx');
+```
+
 ## Migration From Other HTTP Clients
 
 Most common HTTP client patterns map cleanly:
@@ -49,7 +55,7 @@ await api.post('/users', { name: 'Ada' });
 await api.postForm('/uploads', { name: 'report', file: new Blob(['ok']) });
 ```
 
-See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for behavior differences.
+See [docs/migration-from-http-clients.md](docs/migration-from-http-clients.md) and [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for behavior differences.
 
 ## Why Neutrx
 
@@ -87,14 +93,33 @@ await api.get('/search', {
   params: { q: 'neutrx', tags: ['http', 'security'] },
   paramsSerializer: params => new URLSearchParams(params as Record<string, string>).toString(),
   timeout: 5_000,
+  adapter: 'http',
   maxContentLength: 10 * 1024 * 1024,
   maxBodyLength: 2 * 1024 * 1024,
+  maxRate: [64 * 1024, 256 * 1024],
   signal: AbortSignal.timeout(2_000),
+  onDownloadProgress(event) {
+    console.log(event.loaded, event.bytes, event.rate, event.estimated);
+  },
   transformResponse(data) {
     return data;
   },
 });
 ```
+
+Adapter selection defaults to Node HTTP in Node.js and fetch in browser-like runtimes. Use `adapter: 'http'`, `adapter: 'fetch'`, `adapter: 'http2'`, or a custom adapter function when you need explicit control.
+
+Global defaults are mutable and apply to new root requests and new instances:
+
+```ts
+neutrx.defaults.baseURL = 'https://api.example.com';
+neutrx.defaults.headers = { 'X-Service': 'billing' };
+
+const api = neutrx.create({ timeout: 5_000 });
+console.log(api.getUri({ url: '/users', params: { page: 1 } }));
+```
+
+Node-only transport options include `socketPath`, `decompress: false`, `httpAgent`, `httpsAgent`, `lookup`, and upload/download `maxRate`.
 
 ## Security Defaults
 
@@ -140,7 +165,7 @@ const local = neutrx.create({
 });
 ```
 
-See [docs/security.md](docs/security.md) and [THREATMODEL.md](THREATMODEL.md).
+See [docs/security-model.md](docs/security-model.md), [docs/security.md](docs/security.md), and [THREATMODEL.md](THREATMODEL.md).
 
 ## Retry
 
@@ -243,7 +268,7 @@ Browser support exists through `neutrx/browser` and the package `browser` condit
 
 ## API Reference
 
-See [docs/api.md](docs/api.md).
+See [docs/api.md](docs/api.md) and [docs/config-reference.md](docs/config-reference.md).
 
 ## Testing
 
@@ -277,4 +302,4 @@ Benchmarks are scripts only. They do not publish fake results. Optional comparis
 
 ## License
 
-Neutrx is source-available under a restrictive license. See [LICENSE](LICENSE).
+Neutrx is source-available under a restrictive project license. See [LICENSE](LICENSE).

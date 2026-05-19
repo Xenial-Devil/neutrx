@@ -29,10 +29,11 @@ export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
 export { fetchAdapter } from './adapters/fetch.js';
 export { http2Adapter } from './adapters/http2.js';
+export { FetchAdapter, Http2Adapter, HttpAdapter } from './adapters/index.js';
 export { NeutrxHeaders } from './core/headers.js';
 export { OpenTelemetryInstrumentation } from './monitoring/OpenTelemetryInstrumentation.js';
-export type { NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
-export type { AxiosInterceptorManager, AxiosInterceptors, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
+export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
+export type { NeutrxInterceptorManager, NeutrxInterceptors, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
 export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export { ALGORITHMS } from './security/RateLimiter.js';
@@ -57,6 +58,7 @@ export type {
     LookupFunction,
     MockController,
     MockResponse,
+    MaxRate,
     NeutrxResponse,
     OAuth2Config,
     PaginationOptions,
@@ -76,6 +78,8 @@ export type {
     RetryBudgetConfig,
     ResponseType,
     SecurityConfig,
+    DeprecatedSecurityProfile,
+    SecurityProfileInput,
     SecurityProfile,
     SseHandle,
     TransformRequest,

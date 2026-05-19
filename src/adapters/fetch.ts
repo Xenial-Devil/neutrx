@@ -1,5 +1,6 @@
 import { NeutrxResponseSizeError, NeutrxResponseTimeoutError } from '../core/NeutrxError.js';
 import { NeutrxHeaders } from '../core/headers.js';
+import { reportDownloadProgress, reportUploadProgress } from '../core/progress.js';
 import type { FetchCredentials, Headers, RawHttpResponse, RequestAdapter, RequestBody } from '../types.js';
 
 type FetchInit = RequestInit & { duplex?: 'half' };
@@ -35,15 +36,18 @@ export const fetchAdapter: RequestAdapter = async config => {
     };
 
     if (body !== undefined && (isNodeReadable(body) || isReadableStreamLike(body))) init.duplex = 'half';
+    reportFetchUploadProgress(config, body);
 
     try {
         const response = await fetchImpl(config.url, init);
+        const request = createFetchRequest(config.url, init);
         return {
             status: response.status,
             statusText: response.statusText,
             headers: fromFetchHeaders(response.headers),
             data: await readResponseBody(response, config),
             config: { ...config, headers: headers.toJSON() },
+            ...(request ? { request } : {}),
         } satisfies RawHttpResponse;
     } catch (error: unknown) {
         if (controller.signal.aborted && error instanceof Error && error.name === 'AbortError') {
@@ -118,14 +122,14 @@ async function readArrayBuffer(response: Response, config: Parameters<RequestAda
     if (!response.body || !config.onDownloadProgress) {
         const data = await response.arrayBuffer();
         if (data.byteLength > config.maxContentLength) throw new NeutrxResponseSizeError(data.byteLength, config.maxContentLength);
-        config.onDownloadProgress?.({ loaded: data.byteLength, total: total ?? data.byteLength, percent: 100 });
+        reportDownloadProgress(config, data.byteLength, total ?? data.byteLength);
         return data;
     }
 
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let loaded = 0;
-    config.onDownloadProgress({ loaded, ...(total !== undefined ? { total } : {}) });
+    reportDownloadProgress(config, loaded, total);
 
     let reading = true;
     while (reading) {
@@ -137,13 +141,36 @@ async function readArrayBuffer(response: Response, config: Parameters<RequestAda
         loaded += value.byteLength;
         if (loaded > config.maxContentLength) throw new NeutrxResponseSizeError(loaded, config.maxContentLength);
         chunks.push(value);
-        config.onDownloadProgress({
-            loaded,
-            ...(total !== undefined ? { total, percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))) } : {}),
-        });
+        reportDownloadProgress(config, loaded, total);
     }
 
     return toArrayBuffer(concatChunks(chunks, loaded));
+}
+
+function reportFetchUploadProgress(config: Parameters<RequestAdapter>[0], body: FetchBody | undefined): void {
+    if (!config.onUploadProgress || body === undefined || isNodeReadable(body) || isReadableStreamLike(body)) return;
+    const bytes = fetchBodyLength(body);
+    if (bytes !== undefined) reportUploadProgress(config, bytes, bytes);
+}
+
+function fetchBodyLength(body: FetchBody): number | undefined {
+    if (typeof body === 'string') return Buffer.byteLength(body);
+    if (Buffer.isBuffer(body)) return body.length;
+    if (body instanceof ArrayBuffer) return body.byteLength;
+    if (ArrayBuffer.isView(body)) return body.byteLength;
+    if (body instanceof URLSearchParams) return Buffer.byteLength(body.toString());
+    if (isBlobLike(body)) return body.size;
+    return undefined;
+}
+
+function createFetchRequest(url: string, init: FetchInit): Request | undefined {
+    if (typeof Request === 'undefined') return undefined;
+    if (init.body !== undefined && (isNodeReadable(init.body) || isReadableStreamLike(init.body))) return undefined;
+    try {
+        return new Request(url, init);
+    } catch {
+        return undefined;
+    }
 }
 
 function injectXsrfHeader(headers: NeutrxHeaders, config: Parameters<RequestAdapter>[0]): void {

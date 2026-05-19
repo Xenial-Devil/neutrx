@@ -20,7 +20,15 @@ export const fetchAdapter: RequestAdapter = async config => {
 
     const response = await globalThis.fetch(config.url, init);
     const data = await response.arrayBuffer();
-    config.onDownloadProgress?.({ loaded: data.byteLength, total: data.byteLength, percent: 100 });
+    config.onDownloadProgress?.({
+        loaded: data.byteLength,
+        total: data.byteLength,
+        percent: 100,
+        bytes: data.byteLength,
+        rate: 0,
+        estimated: 0,
+        download: true,
+    });
 
     return {
         status: response.status,
@@ -28,6 +36,7 @@ export const fetchAdapter: RequestAdapter = async config => {
         headers: fromFetchHeaders(response.headers),
         data,
         config,
+        ...requestReference(config.url, init),
     } satisfies RawHttpResponse;
 };
 
@@ -61,6 +70,16 @@ function fromFetchHeaders(headers: globalThis.Headers): Headers {
         next[key] = value;
     });
     return next;
+}
+
+function requestReference(url: string, init: FetchInit): { readonly request?: Request } {
+    if (typeof Request === 'undefined') return {};
+    if (init.body !== undefined && isStreamLike(init.body)) return {};
+    try {
+        return { request: new Request(url, init) };
+    } catch {
+        return {};
+    }
 }
 
 function isBlobLike(value: unknown): value is Blob {

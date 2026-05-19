@@ -7,9 +7,6 @@ const LARGE_SIZE = Number.parseInt(process.env.BENCH_LARGE_SIZE ?? String(1024 *
 
 const { default: neutrx } = await import('../dist/esm/index.js');
 
-const axios = await optionalImport('axios');
-const undici = await optionalImport('undici');
-
 const server = http.createServer((request, response) => {
   const chunks = [];
   request.on('data', chunk => chunks.push(chunk));
@@ -48,7 +45,7 @@ const address = server.address();
 const baseURL = `http://127.0.0.1:${address.port}`;
 const api = neutrx.create({
   baseURL,
-  security: { profile: 'axios-compatible', blockMetadataIPs: true },
+  security: { profile: 'legacy', blockMetadataIPs: true },
   resilience: { enableRetry: false, enableCircuitBreaker: false },
   performance: { enableCaching: false },
 });
@@ -82,35 +79,6 @@ const clients = [
   },
 ];
 
-if (axios) {
-  const axiosClient = axios.default.create({ baseURL, validateStatus: () => true });
-  clients.push({
-    name: 'axios',
-    get: () => axiosClient.get('/json'),
-    post: () => axiosClient.post('/json', { hello: 'world' }),
-    large: () => axiosClient.get('/large', { responseType: 'arraybuffer' }),
-    stream: async () => {
-      const response = await axiosClient.get('/stream', { responseType: 'stream' });
-      await drainNodeStream(response.data);
-    },
-    retryOverhead: () => axiosClient.get('/retry'),
-  });
-}
-
-if (undici) {
-  clients.push({
-    name: 'undici',
-    get: () => undici.request(`${baseURL}/json`).then(readUndiciJson),
-    post: () => undici.request(`${baseURL}/json`, { method: 'POST', body: JSON.stringify({ hello: 'world' }) }).then(readUndiciJson),
-    large: () => undici.request(`${baseURL}/large`).then(readUndiciBuffer),
-    stream: async () => {
-      const response = await undici.request(`${baseURL}/stream`);
-      await drainNodeStream(response.body);
-    },
-    retryOverhead: () => undici.request(`${baseURL}/retry`),
-  });
-}
-
 try {
   console.log(`HTTP client comparison, iterations=${ITERATIONS}, concurrency=${CONCURRENCY}`);
   for (const client of clients) {
@@ -140,14 +108,6 @@ async function runConcurrent(fn, count) {
   await Promise.all(Array.from({ length: count }, () => fn()));
 }
 
-async function optionalImport(name) {
-  try {
-    return await import(name);
-  } catch {
-    return null;
-  }
-}
-
 function listen(target) {
   return new Promise(resolve => target.listen(0, '127.0.0.1', resolve));
 }
@@ -167,14 +127,6 @@ async function drainWebStream(stream) {
     const { done } = await reader.read();
     if (done) return;
   }
-}
-
-async function readUndiciJson(response) {
-  return response.body.json();
-}
-
-async function readUndiciBuffer(response) {
-  return response.body.arrayBuffer();
 }
 
 function formatBytes(bytes) {

@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 
 import SecurityManager from '../security/SecurityManager.js';
 import { RateLimiter } from '../security/RateLimiter.js';
-import InterceptorChain, { type AxiosInterceptors } from '../interceptors/InterceptorChain.js';
+import InterceptorChain, { type NeutrxInterceptors } from '../interceptors/InterceptorChain.js';
 import CircuitBreaker from '../resilience/CircuitBreaker.js';
 import { RetryEngine } from '../resilience/RetryEngine.js';
 import Bulkhead from '../resilience/Bulkhead.js';
@@ -59,6 +59,7 @@ import type {
     Headers,
     InternalRequestConfig,
     JsonValue,
+    MaxRate,
     MockController,
     NeutrxResponse,
     NormalizedClientConfig,
@@ -69,6 +70,7 @@ import type {
     RawHttpResponse,
     RequestBody,
     RequestConfig,
+    RetryContext,
     SseHandle,
 } from '../types.js';
 
@@ -93,7 +95,7 @@ export default class NeutrxClient extends EventEmitter {
         options?: { readonly operationName?: string; readonly headers?: Headers }
     ) => Promise<GraphQLResult<TData>>;
     mock?: MockController;
-    readonly interceptors: AxiosInterceptors;
+    readonly interceptors: NeutrxInterceptors;
 
     #config: NormalizedClientConfig;
     #security: SecurityManager;
@@ -341,6 +343,7 @@ export default class NeutrxClient extends EventEmitter {
         let trackedUrl = config.url;
         let circuitChecked = false;
         let span: Awaited<ReturnType<OpenTelemetryInstrumentation['start']>>['span'] = null;
+        this.#metrics.recordStart();
 
         try {
             let rc: InternalRequestConfig = this.#buildRC(config, requestId);
@@ -372,13 +375,19 @@ export default class NeutrxClient extends EventEmitter {
             circuitChecked = true;
 
             const domain = this.#domain(rc.url);
+            const retryContext: RetryContext = {
+                url: rc.url,
+                method: rc.method,
+                deadlineAt: rc.startTime + rc.timeout,
+                ...(rc.signal ? { signal: rc.signal } : {}),
+            };
             const { result: response, attempts } = await this.#retryEngine.execute(
                 async (attempt): Promise<NeutrxResponse<TData>> => {
                     if (attempt > 0) this.#metrics.recordRetry(rc.url, attempt);
                     const raw = await this.#bulkhead.execute(domain, () => this.#dispatch(rc));
                     return this.#parse<TData>(raw, rc);
                 },
-                { url: rc.url, method: rc.method }
+                retryContext
             );
 
             response.attempts = attempts;
@@ -419,6 +428,8 @@ export default class NeutrxClient extends EventEmitter {
             const handled = await this.#interceptors.runError(normalized);
             if (handled instanceof Error) throw handled;
             return handled as NeutrxResponse<TData>;
+        } finally {
+            this.#metrics.recordEnd();
         }
     }
 
@@ -595,6 +606,7 @@ export default class NeutrxClient extends EventEmitter {
         return new Promise((resolve, reject) => {
             const isHTTPS = requestTarget.url.protocol === 'https:';
             const maxSize = runtimeConfig.maxContentLength;
+            const rate = parseMaxRate(runtimeConfig.maxRate);
             let settled = false;
             const fail = (error: Error): void => {
                 if (settled) return;
@@ -650,7 +662,7 @@ export default class NeutrxClient extends EventEmitter {
 
             const transport = isHTTPS ? https : http;
             const req = transport.request(options, response => {
-                void this.#handleHttpResponse(response, runtimeConfig, maxSize).then(result => {
+                void this.#handleHttpResponse(response, runtimeConfig, maxSize, req, rate.download).then(result => {
                     if (settled) return;
                     settled = true;
                     resolve(result);
@@ -688,20 +700,20 @@ export default class NeutrxClient extends EventEmitter {
 
             if (runtimeConfig.data !== undefined) {
                 if (body instanceof Readable) {
-                    this.#writeStreamBody(req, body, runtimeConfig, fail);
+                    this.#writeStreamBody(req, body, runtimeConfig, fail, rate.upload);
                     return;
                 }
 
                 if (body !== null) {
-                    const total = Buffer.byteLength(body);
+                    const payload = Buffer.isBuffer(body) ? body : Buffer.from(body);
+                    const total = payload.length;
                     if (total > runtimeConfig.maxBodyLength) {
                         req.destroy();
                         fail(new NeutrxRequestSizeError(total, runtimeConfig.maxBodyLength));
                         return;
                     }
-                    req.write(body, () => {
-                        reportUploadProgress(runtimeConfig, total, total);
-                    });
+                    this.#writeBufferBody(req, payload, runtimeConfig, total, rate.upload);
+                    return;
                 }
             }
 
@@ -709,7 +721,13 @@ export default class NeutrxClient extends EventEmitter {
         });
     }
 
-    async #handleHttpResponse(response: IncomingMessage, config: InternalRequestConfig, maxSize: number): Promise<RawHttpResponse> {
+    async #handleHttpResponse(
+        response: IncomingMessage,
+        config: InternalRequestConfig,
+        maxSize: number,
+        request: ClientRequest,
+        downloadRate?: number
+    ): Promise<RawHttpResponse> {
         if (response.statusCode && REDIRECT_CODES.has(response.statusCode) && config.followRedirects) {
             const hops = config.hops + 1;
             if (hops > config.maxRedirects) throw new Error('Max redirects exceeded');
@@ -738,12 +756,14 @@ export default class NeutrxClient extends EventEmitter {
         const statusText = response.statusMessage ?? '';
 
         if (config.responseType === 'stream') {
+            throttleReadable(response, downloadRate);
             attachStreamDownloadProgress(response, config);
-            return { status, statusText, headers: rawHeaders, data: response, config };
+            return { status, statusText, headers: rawHeaders, data: response, config, request };
         }
 
         const chunks: Buffer[] = [];
         let received = 0;
+        const downloadStartedAt = Date.now();
 
         return new Promise((resolve, reject) => {
             const total = getContentLength(rawHeaders);
@@ -759,10 +779,11 @@ export default class NeutrxClient extends EventEmitter {
                 }
                 chunks.push(buffer);
                 reportDownloadProgress(config, received, total);
+                throttleReadable(response, downloadRate, throttleDelay(received, downloadRate, downloadStartedAt));
             });
 
             response.on('end', () => {
-                resolve({ status, statusText, headers: rawHeaders, data: Buffer.concat(chunks), config });
+                resolve({ status, statusText, headers: rawHeaders, data: Buffer.concat(chunks), config, request });
             });
             response.on('error', error => reject(normalizeError(error)));
         });
@@ -779,6 +800,7 @@ export default class NeutrxClient extends EventEmitter {
             headers: raw.headers,
             data: applyResponseTransforms(parsed, raw.headers, raw.status, config.transformResponse) as TData,
             config,
+            ...(raw.request ? { request: raw.request } : {}),
             timing: { duration: Date.now() - config.startTime },
             requestId: config.requestId,
         };
@@ -843,6 +865,7 @@ export default class NeutrxClient extends EventEmitter {
             lookup: config.lookup ?? this.#config.lookup,
             socketPath: config.socketPath ?? this.#config.socketPath,
             decompress: config.decompress ?? this.#config.decompress,
+            maxRate: config.maxRate ?? this.#config.maxRate,
             followRedirects: config.followRedirects !== false,
             requestId,
             startTime: Date.now(),
@@ -873,9 +896,47 @@ export default class NeutrxClient extends EventEmitter {
         };
     }
 
-    #writeStreamBody(req: ClientRequest, body: Readable, config: InternalRequestConfig, fail: (error: Error) => void): void {
+    #writeBufferBody(req: ClientRequest, body: Buffer, config: InternalRequestConfig, total: number, uploadRate?: number): void {
+        if (!uploadRate) {
+            req.write(body, () => {
+                reportUploadProgress(config, total, total);
+                req.end();
+            });
+            return;
+        }
+
+        const startedAt = Date.now();
+        const chunkSize = Math.max(1, Math.floor(uploadRate / 10));
+        let offset = 0;
+        reportUploadProgress(config, offset, total);
+
+        const writeNext = (): void => {
+            if (offset >= body.length) {
+                req.end();
+                return;
+            }
+            const end = Math.min(body.length, offset + chunkSize);
+            const chunk = body.subarray(offset, end);
+            const nextLoaded = end;
+            const delay = throttleDelay(nextLoaded, uploadRate, startedAt);
+            setTimeout(() => {
+                req.write(chunk, () => {
+                    offset = nextLoaded;
+                    reportUploadProgress(config, offset, total);
+                    writeNext();
+                });
+            }, delay);
+        };
+
+        writeNext();
+    }
+
+    #writeStreamBody(req: ClientRequest, body: Readable, config: InternalRequestConfig, fail: (error: Error) => void, uploadRate?: number): void {
         const total = getContentLength(config.headers);
         let loaded = 0;
+        const startedAt = Date.now();
+        let ended = false;
+        let pendingWrites = 0;
 
         if (total !== undefined && total > config.maxBodyLength) {
             req.destroy();
@@ -893,15 +954,31 @@ export default class NeutrxClient extends EventEmitter {
                 fail(new NeutrxRequestSizeError(loaded + buffer.length, config.maxBodyLength));
                 return;
             }
-            req.write(buffer, () => {
-                loaded += buffer.length;
-                reportUploadProgress(config, loaded, total);
-                body.resume();
-            });
+            const nextLoaded = loaded + buffer.length;
+            const delay = throttleDelay(nextLoaded, uploadRate, startedAt);
+            const write = (): void => {
+                pendingWrites += 1;
+                req.write(buffer, () => {
+                    pendingWrites -= 1;
+                    loaded = nextLoaded;
+                    reportUploadProgress(config, loaded, total);
+                    if (ended && pendingWrites === 0) {
+                        req.end();
+                        return;
+                    }
+                    body.resume();
+                });
+            };
+            if (delay > 0) {
+                setTimeout(write, delay);
+            } else {
+                write();
+            }
         });
 
         body.on('end', () => {
-            req.end();
+            ended = true;
+            if (pendingWrites === 0) req.end();
         });
 
         body.on('error', error => {
@@ -957,6 +1034,33 @@ function withMultipartHeaders<TBody extends RequestBody>(config: BodyRequestConf
         ...config,
         headers: NeutrxHeaders.concat({ 'Content-Type': 'multipart/form-data' }, config.headers).toJSON(),
     };
+}
+
+function parseMaxRate(maxRate: MaxRate | undefined): { readonly upload?: number; readonly download?: number } {
+    if (maxRate === undefined) return {};
+    if (typeof maxRate === 'number') return positiveRate(maxRate) === undefined ? {} : { upload: maxRate, download: maxRate };
+    const [upload, download] = maxRate;
+    return {
+        ...(positiveRate(upload) !== undefined ? { upload } : {}),
+        ...(positiveRate(download) !== undefined ? { download } : {}),
+    };
+}
+
+function positiveRate(value: number | undefined): number | undefined {
+    return value !== undefined && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function throttleDelay(loaded: number, rate: number | undefined, startedAt: number): number {
+    if (!rate) return 0;
+    const expectedElapsed = (loaded / rate) * 1000;
+    return Math.max(0, expectedElapsed - (Date.now() - startedAt));
+}
+
+function throttleReadable(stream: Readable, rate: number | undefined, delay?: number): void {
+    const wait = delay ?? 0;
+    if (!rate || wait <= 0) return;
+    stream.pause();
+    setTimeout(() => stream.resume(), wait);
 }
 
 function sleep(ms: number): Promise<void> {

@@ -1,13 +1,16 @@
 # Contributing
 
-Thank you for contributing to Neutrx. Neutrx is source-available under a restrictive license. Contributions are welcome, but forks are allowed only for contribution back to the original repository.
+Thank you for contributing to Neutrx. Neutrx is source-available under a restrictive project license. Contributions, forks, and downstream usage must follow [LICENSE](LICENSE) and any written maintainer permissions.
 
-Publishing, redistributing, selling, rebranding, or releasing modified versions of Neutrx is not allowed without written permission from the project owner.
+Publishing, redistributing, selling, rebranding, sublicensing, or releasing modified versions of Neutrx is not allowed without written permission from the project owner.
 
-## Fork And Branch
+## Fork For Contribution Only
 
-1. Fork the repository only to prepare a contribution back to the original repository.
-2. Create a focused branch:
+Forks are allowed only to prepare contributions back to the original repository. Do not use a fork to publish, redistribute, sell, rebrand, or release a modified version.
+
+## Create A Branch
+
+Create a focused branch from the current main development branch:
 
 ```bash
 git checkout -b fix/short-description
@@ -27,7 +30,7 @@ Use clear branch prefixes:
 npm ci
 ```
 
-Neutrx supports Node.js >=22. Use the current supported Node.js line before running tests or builds.
+Neutrx supports Node.js >=22. Use a supported runtime before running tests or builds.
 
 ## Run Tests
 
@@ -60,9 +63,9 @@ npm run validate
 - Keep public API changes small, documented, and tested.
 - Prefer explicit configuration over hidden behavior.
 - Preserve security-first defaults.
-- Do not weaken SSRF, redirect, TLS, size-limit, or redaction behavior without maintainer approval.
-- Keep runtime dependency changes minimal and justified.
-- Add documentation when behavior, configuration, or migration guidance changes.
+- Do not weaken SSRF, redirect, TLS, size-limit, timeout, retry, circuit breaker, cache, metrics, or redaction behavior without maintainer approval.
+- Avoid new runtime dependencies unless a maintainer explicitly accepts the tradeoff.
+- Update documentation when behavior, configuration, or migration guidance changes.
 
 ## Tests Required
 
@@ -72,9 +75,9 @@ Add or update tests for:
 - Bug fixes.
 - Security-sensitive behavior.
 - Public API changes.
-- Retry, cache, interceptor, redirect, timeout, cancellation, or error handling changes.
+- Retry, cache, circuit breaker, interceptor, redirect, timeout, cancellation, or error handling changes.
 
-Documentation-only changes may skip tests unless examples or generated output are affected.
+Documentation-only changes may skip tests unless examples, generated output, or package contents are affected.
 
 ## Commit Messages
 
@@ -102,10 +105,9 @@ Before opening a pull request:
 - `npm run typecheck` passes.
 - `npm run validate` passes when practical.
 - Documentation is updated for user-visible changes.
-- Security impact is described for URL, DNS, redirect, header, TLS, body-size, retry, cache, or error changes.
-- No publishing, redistribution, selling, rebranding, or modified release is proposed without written permission.
+- Security impact is described for URL, DNS, redirect, header, TLS, body-size, timeout, retry, cache, circuit breaker, metrics, or error changes.
+- No publishing, redistribution, selling, rebranding, sublicensing, or modified release is proposed without written permission.
 
 ## License And Rights
 
 By contributing, you agree that your contribution may be included in Neutrx under the project license. Contribution credit does not grant publishing, distribution, sublicensing, rebranding, or release rights beyond the license terms and written permissions from the project owner.
-

@@ -1,4 +1,4 @@
-import type { Agent as HttpAgent, IncomingMessage, RequestOptions } from 'node:http';
+import type { Agent as HttpAgent, ClientRequest, IncomingMessage, RequestOptions } from 'node:http';
 import type { Agent as HttpsAgent } from 'node:https';
 import type { Readable } from 'node:stream';
 
@@ -18,9 +18,20 @@ export type RequestObjectBody = Record<string, unknown>;
 export type ResponseObjectData = Record<string, unknown>;
 export type RequestBody = JsonValue | RequestObjectBody | string | Buffer | Uint8Array | ArrayBuffer | URLSearchParams | Readable | Blob | FormData;
 export type ParsedResponseData = JsonValue | ResponseObjectData | string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | ReadableStream<Uint8Array> | null;
-export type ProgressEvent = { readonly loaded: number; readonly total?: number; readonly percent?: number };
+export type ProgressEvent = {
+    readonly loaded: number;
+    readonly total?: number;
+    readonly percent?: number;
+    readonly bytes: number;
+    readonly rate: number;
+    readonly estimated?: number;
+    readonly upload?: true;
+    readonly download?: true;
+};
 export type FetchCredentials = 'include' | 'omit' | 'same-origin';
 export type FetchImplementation = typeof fetch;
+export type MaxRate = number | readonly [number, number];
+export type TransportRequest = ClientRequest | Request;
 export type ParamsSerializer =
     | ((params: QueryParams) => string)
     | {
@@ -57,7 +68,9 @@ export interface RedirectContext {
     readonly headers: Headers;
 }
 
-export type SecurityProfile = 'strict' | 'balanced' | 'axios-compatible';
+export type SecurityProfile = 'strict' | 'standard' | 'legacy';
+export type DeprecatedSecurityProfile = 'balanced';
+export type SecurityProfileInput = SecurityProfile | DeprecatedSecurityProfile;
 
 export interface RetryBudgetConfig {
     readonly maxRetries: number;
@@ -65,7 +78,7 @@ export interface RetryBudgetConfig {
 }
 
 export interface SecurityConfig {
-    readonly profile?: SecurityProfile;
+    readonly profile?: SecurityProfileInput;
     readonly allowedHosts?: readonly string[];
     readonly deniedHosts?: readonly string[];
     readonly allowedProtocols?: readonly string[];
@@ -168,12 +181,13 @@ export interface ClientConfig {
     readonly lookup?: LookupFunction;
     readonly socketPath?: string;
     readonly decompress?: boolean;
+    readonly maxRate?: MaxRate;
     readonly security?: SecurityConfig;
     readonly resilience?: ResilienceConfig;
     readonly performance?: PerformanceConfig;
 }
 
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'security' | 'resilience' | 'performance'>> {
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'resilience' | 'performance'>> {
     readonly baseURL?: string;
     readonly headers?: Headers;
     readonly paramsSerializer?: ParamsSerializer;
@@ -195,7 +209,9 @@ export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'bas
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
     readonly socketPath?: string;
-    readonly security: Required<Omit<SecurityConfig, 'rateLimit' | 'allowedHosts' | 'deniedHosts' | 'allowedProtocols'>> & {
+    readonly maxRate?: MaxRate;
+    readonly security: Required<Omit<SecurityConfig, 'profile' | 'rateLimit' | 'allowedHosts' | 'deniedHosts' | 'allowedProtocols'>> & {
+        readonly profile: SecurityProfile;
         readonly allowedHosts?: readonly string[];
         readonly deniedHosts?: readonly string[];
         readonly allowedProtocols?: readonly string[];
@@ -248,6 +264,7 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly lookup?: LookupFunction;
     readonly socketPath?: string;
     readonly decompress?: boolean;
+    readonly maxRate?: MaxRate;
     readonly followRedirects?: boolean;
     readonly cache?: boolean;
     readonly signal?: AbortSignal;
@@ -284,6 +301,7 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly proxy?: ProxyConfig | false;
     readonly socketPath?: string;
     readonly decompress: boolean;
+    readonly maxRate?: MaxRate;
     readonly followRedirects: boolean;
     readonly requestId: string;
     readonly startTime: number;
@@ -297,6 +315,7 @@ export interface RawHttpResponse {
     readonly headers: Headers;
     readonly data: string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | ReadableStream<Uint8Array> | null;
     readonly config: InternalRequestConfig;
+    readonly request?: TransportRequest;
 }
 
 export interface NeutrxResponse<TData extends ParsedResponseData = ParsedResponseData> {
@@ -305,6 +324,7 @@ export interface NeutrxResponse<TData extends ParsedResponseData = ParsedRespons
     readonly headers: Headers;
     data: TData;
     readonly config: InternalRequestConfig;
+    readonly request?: TransportRequest;
     readonly timing: { readonly duration: number };
     readonly requestId: string;
     attempts?: readonly RetryAttempt[];
@@ -329,6 +349,8 @@ export interface RetryEvent {
 export interface RetryContext {
     readonly url?: string;
     readonly method?: HttpMethod;
+    readonly signal?: AbortSignal;
+    readonly deadlineAt?: number;
 }
 
 export interface ConcurrentOptions {

@@ -19,20 +19,6 @@ function writeJson(relativePath, data) {
   fs.writeFileSync(path.join(rootDir, relativePath), `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
-function replaceInFile(relativePath, replacements) {
-  const filePath = path.join(rootDir, relativePath);
-  let contents = fs.readFileSync(filePath, "utf8");
-
-  for (const [pattern, replacement] of replacements) {
-    if (!pattern.test(contents)) {
-      throw new Error(`Pattern not found in ${relativePath}: ${pattern}`);
-    }
-    contents = contents.replace(pattern, replacement);
-  }
-
-  fs.writeFileSync(filePath, contents, "utf8");
-}
-
 const packageJson = readJson("package.json");
 packageJson.version = version;
 writeJson("package.json", packageJson);
@@ -45,8 +31,10 @@ if (lockJson.packages?.[""]) {
 }
 writeJson("package-lock.json", lockJson);
 
-replaceInFile("src/version.ts", [
-  [/export const VERSION = '[^']+';/, `export const VERSION = '${version}';`],
-]);
+fs.writeFileSync(
+  path.join(rootDir, "src", "version.ts"),
+  `export const VERSION = '${version}';\n`,
+  "utf8"
+);
 
 console.log(`Set Neutrx version to ${version}`);

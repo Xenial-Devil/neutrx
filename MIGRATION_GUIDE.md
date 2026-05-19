@@ -1,6 +1,6 @@
 # Migration Guide
 
-This guide helps users move to Neutrx from another HTTP client or from legacy request libraries. It avoids one-to-one clone assumptions and focuses on safe Node.js 22+ backend usage.
+This guide helps users move to Neutrx from another HTTP client or from legacy request libraries. It focuses on secure Node.js 22+ backend usage rather than one-to-one compatibility.
 
 ## Installation
 
@@ -223,6 +223,4 @@ Cache only responses that are safe for your service and tenant model.
 - Retries are configured through resilience settings.
 - GET caching is explicit and should respect upstream cache headers where practical.
 - Interceptors are for small request and response transforms, not broad application control flow.
-- Forking is allowed only for contribution back to the original repository.
-- Publishing, redistributing, selling, rebranding, or releasing modified versions requires written permission.
-
+- Neutrx is source-available under a restrictive project license.

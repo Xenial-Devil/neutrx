@@ -1,4 +1,6 @@
 import { NeutrxSecurityError } from './NeutrxError.js';
+import { NeutrxHeaders } from './headers.js';
+import { normalizeSecurityProfile } from '../security/profiles.js';
 import type {
     ClientConfig,
     Headers,
@@ -16,7 +18,7 @@ import type {
 } from '../types.js';
 
 export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
-    const securityProfile = custom.security?.profile ?? 'balanced';
+    const securityProfile = normalizeSecurityProfile(custom.security?.profile);
     const securityDefaults = securityProfileDefaults(securityProfile);
 
     return {
@@ -24,10 +26,10 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         connectTimeout: custom.connectTimeout ?? 10_000,
         maxRedirects: custom.maxRedirects ?? 5,
         maxContentLength: custom.maxContentLength ?? 52_428_800,
-        maxBodyLength: custom.maxBodyLength ?? (securityProfile === 'strict' ? 10_485_760 : Number.POSITIVE_INFINITY),
+        maxBodyLength: custom.maxBodyLength ?? (securityProfile === 'legacy' ? Number.POSITIVE_INFINITY : 10_485_760),
         validateStatus: custom.validateStatus ?? ((status: number): boolean => status >= 200 && status < 300),
         ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
-        ...(custom.headers ? { headers: custom.headers } : {}),
+        ...(custom.headers ? { headers: NeutrxHeaders.from(custom.headers).toJSON() } : {}),
         ...(custom.paramsSerializer ? { paramsSerializer: custom.paramsSerializer } : {}),
         ...(custom.formSerializer ? { formSerializer: custom.formSerializer } : {}),
         ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
@@ -38,6 +40,7 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         ...(custom.httpsAgent ? { httpsAgent: custom.httpsAgent } : {}),
         ...(custom.lookup ? { lookup: custom.lookup } : {}),
         ...(custom.socketPath ? { socketPath: custom.socketPath } : {}),
+        ...(custom.maxRate !== undefined ? { maxRate: custom.maxRate } : {}),
         ...(custom.fetch ? { fetch: custom.fetch } : {}),
         ...(custom.httpVersion ? { httpVersion: custom.httpVersion } : {}),
         ...(custom.http2Options ? { http2Options: custom.http2Options } : {}),
@@ -101,13 +104,21 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
 }
 
 export function mergeConfig(base: NormalizedClientConfig, override: ClientConfig): ClientConfig {
-    const security = override.security?.profile && override.security.profile !== base.security.profile
-        ? override.security
-        : { ...base.security, ...(override.security ?? {}) };
+    const overrideProfile = override.security?.profile === undefined
+        ? undefined
+        : normalizeSecurityProfile(override.security.profile);
+    const security = overrideProfile && overrideProfile !== base.security.profile
+        ? { ...override.security, profile: overrideProfile }
+        : { ...base.security, ...(override.security ?? {}), ...(overrideProfile ? { profile: overrideProfile } : {}) };
+
+    const headers = base.headers || override.headers
+        ? NeutrxHeaders.concat(base.headers, override.headers).toJSON()
+        : undefined;
 
     return {
         ...base,
         ...override,
+        ...(headers ? { headers } : {}),
         security,
         resilience: { ...base.resilience, ...(override.resilience ?? {}) },
         performance: { ...base.performance, ...(override.performance ?? {}) },
@@ -205,7 +216,7 @@ function isHttp2Version(value: unknown): boolean {
     return value === 2 || value === '2';
 }
 
-function securityProfileDefaults(profile: NonNullable<ClientConfig['security']>['profile']): {
+function securityProfileDefaults(profile: NormalizedClientConfig['security']['profile']): {
     readonly enforceHTTPS: boolean;
     readonly blockPrivateIPs: boolean;
     readonly blockLinkLocalIPs: boolean;
@@ -214,7 +225,7 @@ function securityProfileDefaults(profile: NonNullable<ClientConfig['security']>[
     readonly blockDangerousPorts: boolean;
     readonly allowLocalhost: boolean;
 } {
-    if (profile === 'axios-compatible') {
+    if (profile === 'legacy') {
         return {
             enforceHTTPS: false,
             blockPrivateIPs: false,

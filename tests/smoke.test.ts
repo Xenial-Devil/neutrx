@@ -58,7 +58,7 @@ void test('browser build uses fetch without Node core imports', async () => {
     }
 });
 
-void test('mock plugin returns typed response through axios-style callable client', async () => {
+void test('mock plugin returns typed response through callable client', async () => {
     const { default: Neutrx, MockPlugin } = await import(builtEntry) as typeof PackageEntry;
     const api = Neutrx.create({ baseURL: 'https://api.example.com' });
     assert.equal(typeof api, 'function');
@@ -84,6 +84,7 @@ void test('stream upload reports progress with percent when content length is kn
         payload.subarray(48 * 1024),
     ];
     const progress: number[] = [];
+    const events: PackageEntry.ProgressEvent[] = [];
 
     const server = http.createServer((request, response) => {
         let received = 0;
@@ -118,12 +119,16 @@ void test('stream upload reports progress with percent when content length is kn
         const response = await api.upload<{ readonly received: number }, Readable>('/upload', upload, {
             headers: { 'Content-Length': payload.length },
             onUploadProgress(event) {
+                events.push(event);
                 if (event.percent !== undefined) progress.push(event.percent);
             },
         });
 
         assert.equal(response.data.received, payload.length);
         assert.deepEqual(progress, [0, 25, 50, 75, 100]);
+        assert.equal(events.at(-1)?.bytes, 16 * 1024);
+        assert.equal(events.at(-1)?.upload, true);
+        assert.equal(typeof events.at(-1)?.rate, 'number');
     } finally {
         await new Promise<void>(resolve => {
             server.close(() => resolve());
@@ -215,7 +220,7 @@ void test('invalid methods throw instead of silently becoming GET', async () => 
     );
 });
 
-void test('axios-style interceptors, serializers, transforms, and download progress work', async () => {
+void test('interceptors, serializers, transforms, and download progress work', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const progress: number[] = [];
     const server = http.createServer((request, response) => {
@@ -323,6 +328,92 @@ void test('named fetch adapter works through native fetch', async () => {
 
         const response = await api.get('/fetch');
         assert.deepEqual(response.data, { ok: true });
+    } finally {
+        await close(server);
+    }
+});
+
+void test('global defaults merge into root requests and new instances', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const previousDefaults = { ...Neutrx.defaults };
+    Neutrx.defaults.baseURL = 'https://defaults.example';
+    Neutrx.defaults.timeout = 1234;
+    Neutrx.defaults.headers = { 'X-Default': 'yes' };
+
+    try {
+        const root = await Neutrx.get('/root', {
+            adapter: config => ({
+                status: 200,
+                statusText: 'OK',
+                headers: { 'content-type': 'application/json' },
+                data: Buffer.from(JSON.stringify({
+                    url: config.url,
+                    timeout: config.timeout,
+                    header: config.headers['X-Default'],
+                })),
+                config,
+            }),
+        });
+        assert.deepEqual(root.data, {
+            url: 'https://defaults.example/root',
+            timeout: 1234,
+            header: 'yes',
+        });
+        assert.equal(Neutrx.getUri('/uri'), 'https://defaults.example/uri');
+
+        const api = Neutrx.create({
+            headers: { 'X-Default': 'override' },
+            adapter: config => ({
+                status: 200,
+                statusText: 'OK',
+                headers: { 'content-type': 'application/json' },
+                data: Buffer.from(JSON.stringify({
+                    url: config.url,
+                    timeout: config.timeout,
+                    header: config.headers['X-Default'],
+                })),
+                config,
+            }),
+        });
+        const response = await api.get('/instance');
+        assert.deepEqual(response.data, {
+            url: 'https://defaults.example/instance',
+            timeout: 1234,
+            header: 'override',
+        });
+    } finally {
+        for (const key of Object.keys(Neutrx.defaults) as Array<keyof typeof Neutrx.defaults>) delete Neutrx.defaults[key];
+        Object.assign(Neutrx.defaults, previousDefaults);
+    }
+});
+
+void test('node http adapter exposes response request reference and honors maxRate upload', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const payload = Buffer.alloc(320, 'r');
+    const server = http.createServer((request, response) => {
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+            response.setHeader('content-type', 'application/json');
+            response.end(JSON.stringify({ received: Buffer.concat(chunks).length }));
+        });
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            adapter: 'http',
+            baseURL: `http://127.0.0.1:${address.port}`,
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+        const started = Date.now();
+        const response = await api.post<{ readonly received: number }, Buffer>('/rate', payload, { maxRate: [1600, 0] });
+
+        assert.equal(response.data.received, payload.length);
+        assert.ok(response.request && typeof (response.request as { destroy?: unknown }).destroy === 'function');
+        assert.ok(Date.now() - started >= 100);
     } finally {
         await close(server);
     }

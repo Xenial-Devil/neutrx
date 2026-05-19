@@ -24,6 +24,8 @@ Strict and standard profiles block:
 
 DNS results are validated before dispatch. The Node HTTP adapter pins the validated records into a request-local lookup to reduce DNS rebinding exposure.
 
+`strict` and `standard` reject URLs with embedded username or password fields. Put credentials in headers instead so redirect handling and redaction can protect them.
+
 ```ts
 const api = neutrx.create({
   security: {
@@ -40,6 +42,7 @@ Neutrx validates each redirect target. Cross-origin redirects strip:
 - `Authorization`
 - `Cookie`
 - `Proxy-Authorization`
+- sensitive custom headers containing token, secret, password, or API key names
 - `Host`
 
 When a redirect changes a body method to `GET`, body headers such as `Content-Type`, `Content-Length`, and `Transfer-Encoding` are stripped.

@@ -25,6 +25,9 @@ void test('CacheEngine stores cacheable responses and returns HIT metadata', asy
 void test('MetricsCollector records success, errors, cache hits, retries, and prometheus output', async () => {
     const { default: Metrics } = await import(metricsEntry) as { readonly default: typeof MetricsCollector };
     const metrics = new Metrics();
+    metrics.recordStart();
+    assert.equal(metrics.getAll().requests.active, 1);
+    metrics.recordEnd();
     metrics.recordSuccess('https://api.example.com/users', 20, 200);
     metrics.recordError('https://api.example.com/users', Object.assign(new Error('boom'), { code: 'EBOOM' }));
     metrics.recordCacheHit('https://api.example.com/users');
@@ -32,8 +35,10 @@ void test('MetricsCollector records success, errors, cache hits, retries, and pr
 
     const snapshot = metrics.getAll();
     assert.equal(snapshot.requests.total, 3);
+    assert.equal(snapshot.requests.active, 0);
     assert.equal(snapshot.requests.retried, 1);
     assert.match(metrics.toPrometheus(), /neutrx_requests_total\{status="success"\} 1/u);
+    assert.match(metrics.toPrometheus(), /neutrx_active_requests 0/u);
     metrics.destroy();
 });
 

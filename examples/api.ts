@@ -40,7 +40,7 @@ const api = neutrx.create({
     },
     ...optionalProxyConfig,
     security: {
-        profile: 'balanced',
+        profile: 'standard',
         enforceHTTPS: true,
         enableSSRFProtection: true,
         blockPrivateIPs: true,

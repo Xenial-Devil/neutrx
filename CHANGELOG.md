@@ -37,11 +37,17 @@ This project follows Conventional Commits for future release notes.
 
 - Dual ESM/CJS package build outputs with shared declaration output.
 - Built-in `fetch` adapter name and adapter export.
+- Built-in adapter constants for explicit `http`, `fetch`, and `http2` selection.
 - `isNeutrxError(error)` type guard.
 - `getUri(config)` helper for URL construction without dispatch.
 - `socketPath` and `decompress` request/client config fields.
+- `maxRate` upload/download throttling config.
+- `neutrx.defaults` global defaults object.
+- `response.request` transport reference where adapters can expose it.
+- Richer progress event fields: `bytes`, `rate`, `estimated`, `upload`, and `download`.
 - Active CI and release-please workflows.
 
 ### Changed
 
 - Interceptor `synchronous` option now runs synchronous request interceptors before async chain scheduling.
+- Header normalization rejects prototype-pollution keys.
