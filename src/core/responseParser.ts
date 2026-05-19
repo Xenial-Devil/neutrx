@@ -3,7 +3,7 @@ import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
 import { promisify } from 'node:util';
 
-import type { Headers, JsonValue, ParsedResponseData, RawHttpResponse, ResponseType } from '../types.js';
+import type { Headers, JsonValue, ParseJson, ParsedResponseData, RawHttpResponse, ResponseType } from '../types.js';
 import { getHeader, headerToString } from './headers.js';
 
 const gunzip = promisify(zlib.gunzip);
@@ -24,7 +24,13 @@ export async function decompressResponseData(data: Buffer | IncomingMessage, hea
     return data;
 }
 
-export function parseResponseData(data: RawHttpResponse['data'] | IncomingMessage, type: ResponseType, headers: Headers, encoding: BufferEncoding): ParsedResponseData {
+export function parseResponseData(
+    data: RawHttpResponse['data'] | IncomingMessage,
+    type: ResponseType,
+    headers: Headers,
+    encoding: BufferEncoding,
+    parseJson: ParseJson = defaultParseJson
+): ParsedResponseData {
     if (type === 'stream') return data;
     if (type === 'blob' && isBlobLike(data)) return data;
     if (type === 'formData' && isFormDataLike(data)) return data;
@@ -36,12 +42,16 @@ export function parseResponseData(data: RawHttpResponse['data'] | IncomingMessag
     if (type === 'text') return text;
     if (type === 'json' || contentType.includes('application/json')) {
         try {
-            return JSON.parse(text, safeReviver) as JsonValue;
+            return parseJson(text);
         } catch {
             return text;
         }
     }
     return text;
+}
+
+function defaultParseJson(text: string): ParsedResponseData {
+    return JSON.parse(text, safeReviver) as JsonValue;
 }
 
 export function normalizeNodeResponseData(data: RawHttpResponse['data']): Buffer | IncomingMessage | Blob | FormData | ReadableStream<Uint8Array> {

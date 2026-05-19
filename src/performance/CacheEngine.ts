@@ -8,14 +8,23 @@ interface NormalizedCacheConfig {
     readonly defaultTTL: number;
     readonly maxEntrySize: number;
     readonly respectCacheHeaders: boolean;
+    readonly strategy: 'ttl' | 'stale-while-revalidate';
+    readonly staleMaxAge: number;
 }
 
 interface CacheEntry {
     readonly response: NeutrxResponse;
     readonly createdAt: number;
     readonly expiresAt: number;
+    readonly staleUntil: number;
     lastAccessed: number;
+    revalidatingAt?: number;
     readonly size: number;
+}
+
+export interface CacheLookup {
+    readonly response: NeutrxResponse;
+    readonly state: 'fresh' | 'stale';
 }
 
 interface MutableStats {
@@ -38,6 +47,8 @@ export default class CacheEngine {
             defaultTTL: config.cacheTTL ?? 300_000,
             maxEntrySize: config.cacheMaxEntrySize ?? 1_048_576,
             respectCacheHeaders: config.respectCacheHeaders ?? true,
+            strategy: config.cacheStrategy ?? 'ttl',
+            staleMaxAge: config.cacheStaleMax ?? Math.max(config.cacheTTL ?? 300_000, 1_500_000),
         };
 
         if (this.#config.enabled) {
@@ -47,28 +58,43 @@ export default class CacheEngine {
     }
 
     get(config: InternalRequestConfig): NeutrxResponse | null {
+        return this.getWithState(config)?.response ?? null;
+    }
+
+    getWithState(config: InternalRequestConfig): CacheLookup | null {
         if (!this.#config.enabled) return null;
 
         const key = this.#key(config);
         const entry = this.#store.get(key);
+        const now = Date.now();
 
-        if (!entry || Date.now() > entry.expiresAt) {
-            if (entry) this.#store.delete(key);
+        if (!entry) {
             this.#stats.misses += 1;
             return null;
         }
 
-        entry.lastAccessed = Date.now();
+        if (now > entry.expiresAt && (this.#config.strategy !== 'stale-while-revalidate' || now > entry.staleUntil)) {
+            this.#store.delete(key);
+            this.#stats.misses += 1;
+            return null;
+        }
+
+        entry.lastAccessed = now;
         this.#stats.hits += 1;
 
+        const state = now > entry.expiresAt ? 'stale' : 'fresh';
         return {
-            ...entry.response,
-            cached: true,
-            cacheAge: Date.now() - entry.createdAt,
-            headers: {
-                ...entry.response.headers,
-                'x-cache': 'HIT',
-                'x-cache-age': String(Math.floor((Date.now() - entry.createdAt) / 1000)),
+            state,
+            response: {
+                ...entry.response,
+                cached: true,
+                stale: state === 'stale',
+                cacheAge: now - entry.createdAt,
+                headers: {
+                    ...entry.response.headers,
+                    'x-cache': state === 'stale' ? 'STALE' : 'HIT',
+                    'x-cache-age': String(Math.floor((now - entry.createdAt) / 1000)),
+                },
             },
         };
     }
@@ -82,11 +108,13 @@ export default class CacheEngine {
         if (this.#store.size >= this.#config.maxSize) this.#evict();
 
         const ttl = this.#ttl(response) ?? this.#config.defaultTTL;
+        const now = Date.now();
         this.#store.set(this.#key(config), {
             response: { ...response },
-            createdAt: Date.now(),
-            expiresAt: Date.now() + ttl,
-            lastAccessed: Date.now(),
+            createdAt: now,
+            expiresAt: now + ttl,
+            staleUntil: now + Math.max(ttl, this.#config.staleMaxAge),
+            lastAccessed: now,
             size,
         });
 
@@ -107,6 +135,18 @@ export default class CacheEngine {
 
     reset(): void {
         this.#stats = { hits: 0, misses: 0, evictions: 0, sets: 0 };
+    }
+
+    markRevalidating(config: InternalRequestConfig): boolean {
+        const entry = this.#store.get(this.#key(config));
+        if (!entry || entry.revalidatingAt !== undefined) return false;
+        entry.revalidatingAt = Date.now();
+        return true;
+    }
+
+    finishRevalidating(config: InternalRequestConfig): void {
+        const entry = this.#store.get(this.#key(config));
+        if (entry) delete entry.revalidatingAt;
     }
 
     destroy(): void {
@@ -176,7 +216,8 @@ export default class CacheEngine {
     #sweep(): void {
         const now = Date.now();
         for (const [key, value] of this.#store) {
-            if (now > value.expiresAt) this.#store.delete(key);
+            const expiresAt = this.#config.strategy === 'stale-while-revalidate' ? value.staleUntil : value.expiresAt;
+            if (now > expiresAt) this.#store.delete(key);
         }
     }
 

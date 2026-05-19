@@ -92,6 +92,9 @@ Useful config:
 await api.get('/search', {
   params: { q: 'neutrx', tags: ['http', 'security'] },
   paramsSerializer: params => new URLSearchParams(params as Record<string, string>).toString(),
+  parseJson: text => JSON.parse(text),
+  stringifyJson: value => JSON.stringify(value),
+  throwHttpErrors: false,
   timeout: 5_000,
   adapter: 'http',
   maxContentLength: 10 * 1024 * 1024,
@@ -212,7 +215,10 @@ GET caching is in-memory and respects common cache headers where practical.
 const api = neutrx.create({
   performance: {
     enableCaching: true,
+    deduplicateRequests: true,
+    cacheStrategy: 'stale-while-revalidate',
     cacheTTL: 300_000,
+    cacheStaleMax: 1_500_000,
     respectCacheHeaders: true,
   },
 });
@@ -222,7 +228,7 @@ console.log(api.getCacheStats());
 api.clearCache();
 ```
 
-Redis/custom cache adapters are not implemented yet; see docs for extension direction.
+With `deduplicateRequests`, identical inflight `GET`/`HEAD` requests share one dispatch and joined responses set `response.deduplicated = true`. With `cacheStrategy: 'stale-while-revalidate'`, expired-but-allowed cache entries return immediately with `response.stale = true` while Neutrx refreshes them in the background. Redis/custom cache adapters are not implemented yet; see docs for extension direction.
 
 ## Interceptors
 
@@ -251,7 +257,7 @@ try {
 }
 ```
 
-`error.toJSON()` redacts sensitive URL params, headers, and response fields such as tokens, cookies, passwords, secrets, and API keys.
+`throwHttpErrors: false` returns non-2xx responses instead of throwing. `error.toJSON()` redacts sensitive URL params, headers, and response fields such as tokens, cookies, passwords, secrets, and API keys.
 
 ## TypeScript
 

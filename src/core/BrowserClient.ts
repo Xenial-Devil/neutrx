@@ -28,6 +28,7 @@ import type {
     NeutrxResponse,
     NormalizedClientConfig,
     OAuth2Config,
+    ParseJson,
     PaginationOptions,
     PaginationPage,
     ParsedResponseData,
@@ -615,7 +616,7 @@ export default class BrowserClient extends TinyEmitter {
     }
 
     #parse<TData extends ParsedResponseData>(raw: RawHttpResponse, config: InternalRequestConfig): NeutrxResponse<TData> {
-        const parsed = parseResponseData(raw.data, config.responseType, raw.headers, config.responseEncoding) as TData;
+        const parsed = parseResponseData(raw.data, config.responseType, raw.headers, config.responseEncoding, config.parseJson) as TData;
         const response: NeutrxResponse<TData> = {
             status: raw.status,
             statusText: raw.statusText,
@@ -625,9 +626,10 @@ export default class BrowserClient extends TinyEmitter {
             ...(raw.request ? { request: raw.request } : {}),
             timing: { duration: Date.now() - config.startTime },
             requestId: config.requestId,
+            ...(raw.deduplicated ? { deduplicated: true } : {}),
         };
 
-        if (!config.validateStatus(raw.status)) {
+        if (config.throwHttpErrors && !config.validateStatus(raw.status)) {
             throw NeutrxErrorFactory.fromHTTPStatus(response);
         }
 
@@ -671,6 +673,9 @@ export default class BrowserClient extends TinyEmitter {
             formSerializer: config.formSerializer ?? this.#config.formSerializer,
             transformRequest: mergeTransformRequest(this.#config.transformRequest, config.transformRequest),
             transformResponse: mergeTransformResponse(this.#config.transformResponse, config.transformResponse),
+            parseJson: config.parseJson ?? this.#config.parseJson,
+            stringifyJson: config.stringifyJson ?? this.#config.stringifyJson,
+            throwHttpErrors: config.throwHttpErrors ?? this.#config.throwHttpErrors,
             adapter: config.adapter ?? this.#config.adapter,
             fetch: config.fetch ?? this.#config.fetch,
             httpVersion: config.httpVersion ?? this.#config.httpVersion,
@@ -808,6 +813,7 @@ export default class BrowserClient extends TinyEmitter {
             maxContentLength: custom.maxContentLength ?? 10 * 1024 * 1024,
             maxBodyLength: custom.maxBodyLength ?? 10 * 1024 * 1024,
             validateStatus: custom.validateStatus ?? ((status): boolean => status >= 200 && status < 300),
+            throwHttpErrors: custom.throwHttpErrors ?? true,
             decompress: false,
             ...(custom.maxRate !== undefined ? { maxRate: custom.maxRate } : {}),
             ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
@@ -816,6 +822,8 @@ export default class BrowserClient extends TinyEmitter {
             ...(custom.formSerializer ? { formSerializer: custom.formSerializer } : {}),
             ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
             ...(custom.transformResponse ? { transformResponse: normalizeArray(custom.transformResponse) } : {}),
+            ...(custom.parseJson ? { parseJson: custom.parseJson } : {}),
+            ...(custom.stringifyJson ? { stringifyJson: custom.stringifyJson } : {}),
             adapter: custom.adapter ?? 'fetch',
             ...(custom.fetch ? { fetch: custom.fetch } : {}),
             ...(custom.withCredentials !== undefined ? { withCredentials: custom.withCredentials } : {}),
@@ -873,6 +881,9 @@ export default class BrowserClient extends TinyEmitter {
                 cacheTTL: custom.performance?.cacheTTL ?? 300_000,
                 cacheMaxEntrySize: custom.performance?.cacheMaxEntrySize ?? 1_048_576,
                 respectCacheHeaders: custom.performance?.respectCacheHeaders ?? true,
+                deduplicateRequests: custom.performance?.deduplicateRequests ?? false,
+                cacheStrategy: custom.performance?.cacheStrategy ?? 'ttl',
+                cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(custom.performance?.cacheTTL ?? 300_000, 1_500_000),
             },
         };
     }
@@ -1223,7 +1234,7 @@ function toFetchBody(config: RuntimeRequestConfig): FetchBody | undefined {
     if (isFormDataLike(data)) return data;
     if (isStreamLike(data)) return data as FetchBody;
 
-    const rendered = JSON.stringify(data);
+    const rendered = (config.stringifyJson ?? JSON.stringify)(data);
     reportUploadProgress(config, byteLength(rendered), byteLength(rendered));
     return rendered as FetchBody;
 }
@@ -1361,7 +1372,13 @@ async function readResponseData(response: Response, config: RuntimeRequestConfig
     return config.responseType === 'buffer' || config.responseType === 'arrayBuffer' ? buffer : decodeText(buffer, config.responseEncoding);
 }
 
-function parseResponseData(data: RawHttpResponse['data'], type: ResponseType, headers: Headers, encoding: BufferEncoding): ParsedResponseData {
+function parseResponseData(
+    data: RawHttpResponse['data'],
+    type: ResponseType,
+    headers: Headers,
+    encoding: BufferEncoding,
+    parseJson: ParseJson = defaultParseJson
+): ParsedResponseData {
     if (type === 'stream') return data;
     if (type === 'blob' && isBlobLike(data)) return data;
     if (type === 'formData' && isFormDataLike(data)) return data;
@@ -1382,12 +1399,16 @@ function parseResponseData(data: RawHttpResponse['data'], type: ResponseType, he
     if (type === 'text') return text;
     if (type === 'json' || contentType.includes('application/json')) {
         try {
-            return JSON.parse(text, safeReviver) as JsonValue;
+            return parseJson(text);
         } catch {
             return text;
         }
     }
     return text;
+}
+
+function defaultParseJson(text: string): ParsedResponseData {
+    return JSON.parse(text, safeReviver) as JsonValue;
 }
 
 function safeReviver(key: string, value: JsonValue): JsonValue | undefined {

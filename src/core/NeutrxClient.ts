@@ -110,6 +110,7 @@ export default class NeutrxClient extends EventEmitter {
     #otel: OpenTelemetryInstrumentation;
     #defaultHeaders: Headers;
     #agents: { http: http.Agent; https: https.Agent };
+    #inflight = new Map<string, Promise<RawHttpResponse>>();
 
     constructor(config: ClientConfig = {}) {
         super();
@@ -360,17 +361,19 @@ export default class NeutrxClient extends EventEmitter {
             rc = this.#security.validateRequest(rc);
             this.#rateLimiter.checkLimit(rc.url);
 
-            if (rc.method === 'GET' && rc.cache !== false) {
-                const hit = this.#cache.get(rc);
+            rc = await this.#interceptors.runRequest(rc);
+
+            if (this.#isCacheEligible(rc)) {
+                const hit = this.#cache.getWithState(rc);
                 if (hit) {
                     this.#metrics.recordCacheHit(rc.url);
-                    this.emit('cache:hit', { requestId, url: rc.url });
-                    this.#otel.finish(span, hit as NeutrxResponse<TData>, { retries: 0, cacheHit: true });
-                    return hit as NeutrxResponse<TData>;
+                    this.emit('cache:hit', { requestId, url: rc.url, state: hit.state });
+                    if (hit.state === 'stale') this.#revalidateCache(rc);
+                    this.#otel.finish(span, hit.response as NeutrxResponse<TData>, { retries: 0, cacheHit: true });
+                    return hit.response as NeutrxResponse<TData>;
                 }
             }
 
-            rc = await this.#interceptors.runRequest(rc);
             this.#circuitBreaker.canRequest(rc.url);
             circuitChecked = true;
 
@@ -384,7 +387,7 @@ export default class NeutrxClient extends EventEmitter {
             const { result: response, attempts } = await this.#retryEngine.execute(
                 async (attempt): Promise<NeutrxResponse<TData>> => {
                     if (attempt > 0) this.#metrics.recordRetry(rc.url, attempt);
-                    const raw = await this.#bulkhead.execute(domain, () => this.#dispatch(rc));
+                    const raw = await this.#bulkhead.execute(domain, () => this.#dispatchDeduped(rc));
                     return this.#parse<TData>(raw, rc);
                 },
                 retryContext
@@ -395,7 +398,7 @@ export default class NeutrxClient extends EventEmitter {
             next = await this.#interceptors.runResponse(next);
             next = await this.#plugins.runHook('afterRequest', next);
 
-            if (rc.method === 'GET' && rc.cache !== false) {
+            if (this.#isCacheEligible(rc)) {
                 this.#cache.set(rc, next);
             }
 
@@ -580,6 +583,53 @@ export default class NeutrxClient extends EventEmitter {
         if (adapter === 'http2') return http2Adapter(config);
         if (adapter !== 'http') throw new NeutrxSecurityError(`Unknown adapter: ${String(selectedAdapter)}`, { code: 'UNKNOWN_ADAPTER' });
         return this.#http(config);
+    }
+
+    async #dispatchDeduped(config: InternalRequestConfig): Promise<RawHttpResponse> {
+        if (!this.#isDeduplicationEligible(config)) return this.#dispatch(config);
+
+        const key = this.#dedupeKey(config);
+        const existing = this.#inflight.get(key);
+        if (existing) {
+            this.emit('request:deduplicated', { requestId: config.requestId, url: config.url, method: config.method });
+            const raw = await existing;
+            return { ...raw, config, data: cloneRawData(raw.data), deduplicated: true };
+        }
+
+        const pending = this.#dispatch(config);
+        this.#inflight.set(key, pending);
+        try {
+            const raw = await pending;
+            return { ...raw, data: cloneRawData(raw.data) };
+        } finally {
+            this.#inflight.delete(key);
+        }
+    }
+
+    #revalidateCache(config: InternalRequestConfig): void {
+        if (!this.#cache.markRevalidating(config)) return;
+        const revalidationConfig = withoutSignal({
+            ...config,
+            requestId: this.#id(),
+            startTime: Date.now(),
+            cache: false,
+        });
+
+        void (async (): Promise<void> => {
+            try {
+                const raw = await this.#dispatchDeduped(revalidationConfig);
+                const parsed = await this.#parse(raw, revalidationConfig);
+                let next: NeutrxResponse = this.#security.sanitizeResponse(parsed);
+                next = await this.#interceptors.runResponse(next);
+                next = await this.#plugins.runHook('afterRequest', next);
+                this.#cache.set(config, next);
+                this.emit('cache:revalidated', { requestId: revalidationConfig.requestId, url: config.url });
+            } catch (error: unknown) {
+                this.emit('cache:revalidate:error', { requestId: revalidationConfig.requestId, url: config.url, error: normalizeError(error) });
+            } finally {
+                this.#cache.finishRevalidating(config);
+            }
+        })();
     }
 
     async #http(config: InternalRequestConfig): Promise<RawHttpResponse> {
@@ -793,7 +843,7 @@ export default class NeutrxClient extends EventEmitter {
         let data = normalizeNodeResponseData(raw.data);
         if (Buffer.isBuffer(data) || isIncomingMessageLike(data)) data = await decompressResponseData(data, raw.headers, config.decompress);
 
-        const parsed = parseResponseData(data, config.responseType, raw.headers, config.responseEncoding) as TData;
+        const parsed = parseResponseData(data, config.responseType, raw.headers, config.responseEncoding, config.parseJson) as TData;
         const response: NeutrxResponse<TData> = {
             status: raw.status,
             statusText: raw.statusText,
@@ -803,9 +853,10 @@ export default class NeutrxClient extends EventEmitter {
             ...(raw.request ? { request: raw.request } : {}),
             timing: { duration: Date.now() - config.startTime },
             requestId: config.requestId,
+            ...(raw.deduplicated ? { deduplicated: true } : {}),
         };
 
-        if (!config.validateStatus(raw.status)) {
+        if (config.throwHttpErrors && !config.validateStatus(raw.status)) {
             throw NeutrxErrorFactory.fromHTTPStatus(response);
         }
 
@@ -849,6 +900,9 @@ export default class NeutrxClient extends EventEmitter {
             formSerializer: config.formSerializer ?? this.#config.formSerializer,
             transformRequest: mergeTransformRequest(this.#config.transformRequest, config.transformRequest),
             transformResponse: mergeTransformResponse(this.#config.transformResponse, config.transformResponse),
+            parseJson: config.parseJson ?? this.#config.parseJson,
+            stringifyJson: config.stringifyJson ?? this.#config.stringifyJson,
+            throwHttpErrors: config.throwHttpErrors ?? this.#config.throwHttpErrors,
             adapter: config.adapter ?? this.#config.adapter,
             fetch: config.fetch ?? this.#config.fetch,
             httpVersion: config.httpVersion ?? this.#config.httpVersion,
@@ -987,6 +1041,27 @@ export default class NeutrxClient extends EventEmitter {
         });
     }
 
+    #isCacheEligible(config: InternalRequestConfig): boolean {
+        return (config.method === 'GET' || config.method === 'HEAD') && config.cache !== false && config.responseType !== 'stream';
+    }
+
+    #isDeduplicationEligible(config: InternalRequestConfig): boolean {
+        return this.#config.performance.deduplicateRequests
+            && this.#isCacheEligible(config)
+            && typeof (config.adapter ?? this.#config.adapter) !== 'function';
+    }
+
+    #dedupeKey(config: InternalRequestConfig): string {
+        return JSON.stringify({
+            method: config.method,
+            url: config.url,
+            responseType: config.responseType,
+            accept: config.headers.Accept ?? config.headers.accept ?? '',
+            authorization: config.headers.Authorization ?? config.headers.authorization ?? '',
+            adapter: config.adapter ?? this.#config.adapter ?? detectAdapter(config),
+        });
+    }
+
     #setupAgents(): { readonly http: http.Agent; readonly https: https.Agent } {
         const options = { keepAlive: true, keepAliveMsecs: 1000, maxSockets: 50, maxFreeSockets: 10 };
         return {
@@ -1012,6 +1087,19 @@ function isIncomingMessageLike(data: unknown): data is IncomingMessage {
     return data !== null
         && typeof data === 'object'
         && 'pipe' in data;
+}
+
+function cloneRawData(data: RawHttpResponse['data']): RawHttpResponse['data'] {
+    if (Buffer.isBuffer(data)) return Buffer.from(data);
+    if (data instanceof ArrayBuffer) return data.slice(0);
+    if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    return data;
+}
+
+function withoutSignal(config: InternalRequestConfig): InternalRequestConfig {
+    const copy = { ...config } as { signal?: AbortSignal };
+    delete copy.signal;
+    return copy as InternalRequestConfig;
 }
 
 function dig(value: ParsedResponseData, path: string): ParsedResponseData {

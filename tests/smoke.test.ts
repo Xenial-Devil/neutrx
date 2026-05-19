@@ -469,6 +469,93 @@ void test('decompress false keeps compressed response bytes', async () => {
     }
 });
 
+void test('parseJson and stringifyJson override JSON codecs', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const captured: { body?: string } = {};
+    const server = http.createServer((request, response) => {
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+            captured.body = Buffer.concat(chunks).toString('utf8');
+            response.setHeader('content-type', 'application/json');
+            response.end('answer=42');
+        });
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            parseJson: text => ({ parsed: text }),
+            stringifyJson: value => `custom:${(value as { readonly name: string }).name}`,
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+
+        const response = await api.post<{ readonly parsed: string }>('/codec', { name: 'Ada' });
+
+        assert.equal(captured.body, 'custom:Ada');
+        assert.deepEqual(response.data, { parsed: 'answer=42' });
+    } finally {
+        await close(server);
+    }
+});
+
+void test('throwHttpErrors false returns non-2xx responses', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const api = Neutrx.create({
+        throwHttpErrors: false,
+        adapter: config => ({
+            status: 404,
+            statusText: 'Not Found',
+            headers: { 'content-type': 'application/json' },
+            data: Buffer.from(JSON.stringify({ missing: true })),
+            config,
+        }),
+    });
+
+    const response = await api.get<{ readonly missing: boolean }>('https://api.example.com/missing');
+
+    assert.equal(response.status, 404);
+    assert.deepEqual(response.data, { missing: true });
+});
+
+void test('deduplicateRequests shares identical inflight GET dispatches', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    let calls = 0;
+    const server = http.createServer((_request, response) => {
+        calls += 1;
+        setTimeout(() => {
+            response.setHeader('content-type', 'application/json');
+            response.end(JSON.stringify({ calls }));
+        }, 30);
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            performance: { enableCaching: false, deduplicateRequests: true },
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+
+        const [first, second] = await Promise.all([
+            api.get<{ readonly calls: number }>('/dedupe'),
+            api.get<{ readonly calls: number }>('/dedupe'),
+        ]);
+
+        assert.equal(calls, 1);
+        assert.deepEqual(first.data, { calls: 1 });
+        assert.deepEqual(second.data, { calls: 1 });
+        assert.equal(second.deduplicated, true);
+    } finally {
+        await close(server);
+    }
+});
+
 void test('synchronous request interceptors run before async chain begins', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const order: string[] = [];

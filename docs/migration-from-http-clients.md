@@ -37,6 +37,8 @@ api.interceptors.response.clear();
 ```ts
 const api = neutrx.create({
   paramsSerializer: params => new URLSearchParams(params as Record<string, string>).toString(),
+  parseJson: text => JSON.parse(text),
+  stringifyJson: value => JSON.stringify(value),
   transformRequest(data, headers) {
     headers['X-Transformed'] = 'yes';
     return data;
@@ -56,6 +58,8 @@ const api = neutrx.create({
 | Local addresses allowed by default | Blocked by stronger SSRF profiles |
 | Raw error serialization | `NeutrxError.toJSON()` redacts secrets |
 | Client-managed backend safeguards | Backend security defaults |
+| `throwHttpErrors: false` in Fetch-style clients | Supported per instance or request |
+| Duplicate concurrent `GET`s | Optional `performance.deduplicateRequests` shares inflight dispatches |
 
 ## Migration Profile
 

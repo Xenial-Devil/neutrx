@@ -79,6 +79,9 @@ Important fields:
 - `maxBodyLength`
 - `responseType`
 - `validateStatus`
+- `throwHttpErrors`
+- `parseJson`
+- `stringifyJson`
 - `transformRequest`
 - `transformResponse`
 - `adapter`
@@ -142,7 +145,10 @@ resilience: {
 ```ts
 performance: {
   enableCaching: true,
+  deduplicateRequests: true,
+  cacheStrategy: 'stale-while-revalidate',
   cacheTTL: 300_000,
+  cacheStaleMax: 1_500_000,
   cacheMaxSize: 500,
   respectCacheHeaders: true,
 }
@@ -181,4 +187,4 @@ try {
 }
 ```
 
-HTTP failures throw `NeutrxHTTPError` subclasses unless `validateStatus` accepts the status.
+HTTP failures throw `NeutrxHTTPError` subclasses unless `validateStatus` accepts the status or `throwHttpErrors: false` is set.

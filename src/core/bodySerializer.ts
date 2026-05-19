@@ -2,13 +2,14 @@ import { Readable } from 'node:stream';
 
 import { NeutrxSecurityError } from './NeutrxError.js';
 import { getHeader, hasHeader, headerToString, setHeader } from './headers.js';
-import type { FormSerializerOptions, Headers, RequestBody } from '../types.js';
+import type { FormSerializerOptions, Headers, RequestBody, StringifyJson } from '../types.js';
 
 export type SerializedBody = string | Buffer | Readable | null;
 type RuntimeBodyConfig = {
     readonly data?: RequestBody;
     readonly headers: Headers;
     readonly formSerializer?: FormSerializerOptions;
+    readonly stringifyJson?: StringifyJson;
 };
 
 export function detectContentType(data: RequestBody): string | undefined {
@@ -42,7 +43,7 @@ export async function serializeBody(config: RuntimeBodyConfig): Promise<Serializ
         return new URLSearchParams(toFormEntries(data, config.formSerializer)).toString();
     }
     if (!hasHeader(config.headers, 'Content-Type')) setHeader(config.headers, 'Content-Type', 'application/json');
-    return JSON.stringify(assertSerializable(data));
+    return (config.stringifyJson ?? JSON.stringify)(assertSerializable(data));
 }
 
 export function toFormData(data: Record<string, unknown>, options: FormSerializerOptions = {}): FormData {

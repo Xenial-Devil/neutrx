@@ -22,6 +22,26 @@ void test('CacheEngine stores cacheable responses and returns HIT metadata', asy
     cache.destroy();
 });
 
+void test('CacheEngine can return stale entries for stale-while-revalidate', async () => {
+    const { default: Cache } = await import(cacheEntry) as { readonly default: typeof CacheEngine };
+    const cache = new Cache({ cacheTTL: 10, cacheStrategy: 'stale-while-revalidate', cacheStaleMax: 1000 });
+    const config = requestConfig('https://api.example.com/stale');
+    const response = responseFor(config, { stale: true });
+
+    cache.set(config, response);
+    await sleep(20);
+    const hit = cache.getWithState(config);
+
+    assert.equal(hit?.state, 'stale');
+    assert.equal(hit?.response.stale, true);
+    assert.equal(hit?.response.headers['x-cache'], 'STALE');
+    assert.equal(cache.markRevalidating(config), true);
+    assert.equal(cache.markRevalidating(config), false);
+    cache.finishRevalidating(config);
+    assert.equal(cache.markRevalidating(config), true);
+    cache.destroy();
+});
+
 void test('MetricsCollector records success, errors, cache hits, retries, and prometheus output', async () => {
     const { default: Metrics } = await import(metricsEntry) as { readonly default: typeof MetricsCollector };
     const metrics = new Metrics();
@@ -55,6 +75,7 @@ function requestConfig(url: string): InternalRequestConfig {
         responseType: 'json',
         responseEncoding: 'utf8',
         validateStatus: status => status < 400,
+        throwHttpErrors: true,
         decompress: true,
         followRedirects: true,
         requestId: 'cache-test',
@@ -73,4 +94,10 @@ function responseFor(config: InternalRequestConfig, data: NeutrxResponse['data']
         timing: { duration: 1 },
         requestId: config.requestId,
     };
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => {
+        setTimeout(resolve, ms);
+    });
 }

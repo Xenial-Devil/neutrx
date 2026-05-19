@@ -34,6 +34,9 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         ...(custom.formSerializer ? { formSerializer: custom.formSerializer } : {}),
         ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
         ...(custom.transformResponse ? { transformResponse: normalizeArray(custom.transformResponse) } : {}),
+        ...(custom.parseJson ? { parseJson: custom.parseJson } : {}),
+        ...(custom.stringifyJson ? { stringifyJson: custom.stringifyJson } : {}),
+        throwHttpErrors: custom.throwHttpErrors ?? true,
         ...(custom.adapter ? { adapter: custom.adapter } : {}),
         ...(custom.proxy !== undefined ? { proxy: custom.proxy } : {}),
         ...(custom.httpAgent ? { httpAgent: custom.httpAgent } : {}),
@@ -99,6 +102,9 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
             cacheTTL: custom.performance?.cacheTTL ?? 300_000,
             cacheMaxEntrySize: custom.performance?.cacheMaxEntrySize ?? 1_048_576,
             respectCacheHeaders: custom.performance?.respectCacheHeaders ?? true,
+            deduplicateRequests: custom.performance?.deduplicateRequests ?? false,
+            cacheStrategy: custom.performance?.cacheStrategy ?? 'ttl',
+            cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(custom.performance?.cacheTTL ?? 300_000, 1_500_000),
         },
     };
 }

@@ -22,16 +22,15 @@ export const fetchAdapter: RequestAdapter = async config => {
     const headers = NeutrxHeaders.from(config.headers);
     injectXsrfHeader(headers, config);
 
-    const body = bodyless(config.method) ? undefined : toFetchBody(config.data);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new NeutrxResponseTimeoutError(config.url, config.timeout)), config.timeout);
-    config.signal?.addEventListener('abort', () => controller.abort(config.signal?.reason), { once: true });
+    const body = bodyless(config.method) ? undefined : toFetchBody(config.data, config.stringifyJson);
+    const timeoutSignal = AbortSignal.timeout(config.timeout);
+    const signal = config.signal ? AbortSignal.any([config.signal, timeoutSignal]) : timeoutSignal;
 
     const init: FetchInit = {
         method: config.method,
         headers: toFetchHeaders(headers.toJSON()),
         credentials: credentialsFor(config.withCredentials, config.credentials),
-        signal: controller.signal,
+        signal,
         ...(body !== undefined ? { body } : {}),
     };
 
@@ -50,13 +49,11 @@ export const fetchAdapter: RequestAdapter = async config => {
             ...(request ? { request } : {}),
         } satisfies RawHttpResponse;
     } catch (error: unknown) {
-        if (controller.signal.aborted && error instanceof Error && error.name === 'AbortError') {
-            const reason = abortReason(controller.signal);
+        if (signal.aborted) {
+            const reason = timeoutSignal.aborted ? new NeutrxResponseTimeoutError(config.url, config.timeout) : abortReason(signal);
             if (reason instanceof Error) throw reason;
         }
         throw error;
-    } finally {
-        clearTimeout(timeout);
     }
 };
 
@@ -68,7 +65,7 @@ function abortReason(signal: AbortSignal): unknown {
     return (signal as AbortSignalWithReason).reason;
 }
 
-function toFetchBody(data: RequestBody | undefined): FetchBody | undefined {
+function toFetchBody(data: RequestBody | undefined, stringifyJson = JSON.stringify): FetchBody | undefined {
     if (data === undefined) return undefined;
     if (typeof data === 'string') return data;
     if (Buffer.isBuffer(data)) return data;
@@ -78,7 +75,7 @@ function toFetchBody(data: RequestBody | undefined): FetchBody | undefined {
     if (isBlobLike(data)) return data;
     if (isFormDataLike(data)) return data;
     if (isReadableStreamLike(data) || isNodeReadable(data)) return data as FetchBody;
-    return JSON.stringify(data) as FetchBody;
+    return stringifyJson(data) as FetchBody;
 }
 
 function toFetchHeaders(headers: Headers): globalThis.Headers {

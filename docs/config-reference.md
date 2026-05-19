@@ -17,6 +17,9 @@ const api = neutrx.create({
   maxContentLength: 52_428_800,
   maxBodyLength: 10_485_760,
   maxRate: [64 * 1024, 256 * 1024],
+  parseJson: text => JSON.parse(text),
+  stringifyJson: value => JSON.stringify(value),
+  throwHttpErrors: true,
 });
 ```
 
@@ -48,6 +51,7 @@ await api.get('/users', {
   paramsSerializer: params => new URLSearchParams(params as Record<string, string>).toString(),
   signal: AbortSignal.timeout(2_000),
   validateStatus: status => status < 500,
+  throwHttpErrors: false,
 });
 ```
 
@@ -84,11 +88,16 @@ resilience: {
 ```ts
 performance: {
   enableCaching: true,
+  deduplicateRequests: true,
+  cacheStrategy: 'stale-while-revalidate',
   cacheTTL: 300_000,
+  cacheStaleMax: 1_500_000,
   cacheMaxSize: 500,
   respectCacheHeaders: true,
 }
 ```
+
+`deduplicateRequests` shares identical inflight `GET`/`HEAD` dispatches. `stale-while-revalidate` returns stale cache hits until `cacheStaleMax` while one background refresh updates the entry.
 
 ## Instrumentation
 

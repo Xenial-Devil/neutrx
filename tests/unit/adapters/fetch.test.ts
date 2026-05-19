@@ -38,6 +38,7 @@ void test('fetch adapter honors credentials, custom fetch, timeout signal, and X
         responseType: 'json',
         responseEncoding: 'utf8',
         validateStatus: status => status < 500,
+        throwHttpErrors: true,
         decompress: false,
         followRedirects: true,
         requestId: 'test',

@@ -50,6 +50,7 @@ export type {
     MaxRate,
     NeutrxResponse,
     OAuth2Config,
+    ParseJson,
     PaginationOptions,
     PaginationPage,
     ParsedResponseData,
@@ -68,6 +69,7 @@ export type {
     DeprecatedSecurityProfile,
     SecurityProfileInput,
     SecurityProfile,
+    StringifyJson,
     TransformRequest,
     TransformResponse,
 } from './types.js';

@@ -47,6 +47,8 @@ export interface FormSerializerOptions {
 }
 export type TransformRequest = (data: RequestBody | undefined, headers: Headers) => RequestBody | undefined;
 export type TransformResponse = (data: ParsedResponseData, headers: Headers, status: number) => ParsedResponseData;
+export type ParseJson = (text: string) => ParsedResponseData;
+export type StringifyJson = (value: unknown) => string;
 export type LookupFunction = NonNullable<RequestOptions['lookup']>;
 export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse | Promise<RawHttpResponse>;
 export type RequestAdapterName = 'http' | 'fetch' | 'http2';
@@ -136,6 +138,9 @@ export interface PerformanceConfig {
     readonly cacheTTL?: number;
     readonly cacheMaxEntrySize?: number;
     readonly respectCacheHeaders?: boolean;
+    readonly deduplicateRequests?: boolean;
+    readonly cacheStrategy?: 'ttl' | 'stale-while-revalidate';
+    readonly cacheStaleMax?: number;
 }
 
 export interface Http2Options {
@@ -165,6 +170,9 @@ export interface ClientConfig {
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly parseJson?: ParseJson;
+    readonly stringifyJson?: StringifyJson;
+    readonly throwHttpErrors?: boolean;
     readonly adapter?: RequestAdapterConfig;
     readonly fetch?: FetchImplementation;
     readonly httpVersion?: 1 | 2 | '1.1' | '2';
@@ -187,13 +195,15 @@ export interface ClientConfig {
     readonly performance?: PerformanceConfig;
 }
 
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'resilience' | 'performance'>> {
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'parseJson' | 'stringifyJson' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'resilience' | 'performance'>> {
     readonly baseURL?: string;
     readonly headers?: Headers;
     readonly paramsSerializer?: ParamsSerializer;
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
+    readonly parseJson?: ParseJson;
+    readonly stringifyJson?: StringifyJson;
     readonly adapter?: RequestAdapterConfig;
     readonly fetch?: FetchImplementation;
     readonly httpVersion?: 1 | 2 | '1.1' | '2';
@@ -247,6 +257,9 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly parseJson?: ParseJson;
+    readonly stringifyJson?: StringifyJson;
+    readonly throwHttpErrors?: boolean;
     readonly adapter?: RequestAdapterConfig;
     readonly fetch?: FetchImplementation;
     readonly httpVersion?: 1 | 2 | '1.1' | '2';
@@ -288,6 +301,9 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
+    readonly parseJson?: ParseJson;
+    readonly stringifyJson?: StringifyJson;
+    readonly throwHttpErrors: boolean;
     readonly adapter?: RequestAdapterConfig;
     readonly fetch?: FetchImplementation;
     readonly httpVersion?: 1 | 2 | '1.1' | '2';
@@ -316,6 +332,7 @@ export interface RawHttpResponse {
     readonly data: string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | ReadableStream<Uint8Array> | null;
     readonly config: InternalRequestConfig;
     readonly request?: TransportRequest;
+    readonly deduplicated?: boolean;
 }
 
 export interface NeutrxResponse<TData extends ParsedResponseData = ParsedResponseData> {
@@ -330,6 +347,8 @@ export interface NeutrxResponse<TData extends ParsedResponseData = ParsedRespons
     attempts?: readonly RetryAttempt[];
     cached?: boolean;
     cacheAge?: number;
+    stale?: boolean;
+    deduplicated?: boolean;
 }
 
 export interface RetryAttempt {
