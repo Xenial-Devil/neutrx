@@ -80,6 +80,7 @@ Important fields:
 - `timeout`
 - `connectTimeout`
 - `signal`
+- `cancelToken` (migration bridge; prefer `signal`)
 - `maxRedirects`
 - `maxContentLength`
 - `maxBodyLength`
@@ -107,6 +108,7 @@ Important fields:
 - `resilience`
 - `performance`
 - `instrumentation`
+- `validation`
 - `onUploadProgress`
 - `onDownloadProgress`
 
@@ -225,6 +227,17 @@ api.interceptors.request.clear();
 api.interceptors.response.use(response => response, error => error);
 api.interceptors.response.clear();
 ```
+
+## Plugins
+
+Built-in plugins:
+
+- `OAuth2Plugin`
+- `GraphQLPlugin`
+- `MockPlugin`
+- `ValidationPlugin`
+
+`ValidationPlugin` reads `config.validation.request` before dispatch and `config.validation.response` after parsing. Validators may be functions or schema-like objects with `safeParse`, `parse`, `validate`, or TypeBox-style `Check`/`Errors`. Failures throw `NeutrxValidationError`.
 
 ## Headers
 

@@ -1,6 +1,7 @@
 import http2 from 'node:http2';
 import { Readable } from 'node:stream';
 
+import { abortError } from '../core/cancel.js';
 import { NeutrxResponseSizeError, NeutrxResponseTimeoutError } from '../core/NeutrxError.js';
 import { serializeBody } from '../core/bodySerializer.js';
 import { getContentLength, hasHeader, normalizeIncomingHeaders, setHeader } from '../core/headers.js';
@@ -43,6 +44,8 @@ export const http2Adapter: RequestAdapter = async config => {
         ':authority': url.host,
         ...toHttp2Headers(runtimeHeaders),
     };
+
+    if (config.signal?.aborted) throw abortError(config.signal);
 
     return new Promise((resolve, reject) => {
         const request = session.request(headers);
@@ -103,7 +106,7 @@ export const http2Adapter: RequestAdapter = async config => {
 
         config.signal?.addEventListener('abort', () => {
             clearTimeout(timeout);
-            fail(Object.assign(new Error('Request aborted'), { name: 'AbortError' }));
+            fail(abortError(config.signal));
         }, { once: true });
 
         if (body instanceof Readable) {

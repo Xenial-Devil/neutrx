@@ -6,6 +6,7 @@ import type {
     RequestConfig,
 } from '../types.js';
 import BrowserClient from './BrowserClient.js';
+import { Cancel, CancelToken, isCancel } from './cancel.js';
 import { NeutrxHeaders } from './headers.js';
 
 type CallableRequestConfig<TBody extends RequestBody = RequestBody> = Omit<RequestConfig<TBody>, 'url'>;
@@ -25,7 +26,12 @@ export type NeutrxInstance = Omit<BrowserClient, 'create'> & CallableRequest & {
 };
 
 export type NeutrxDefaults = { -readonly [Key in keyof ClientConfig]?: ClientConfig[Key] };
-export type NeutrxStatic = NeutrxInstance & { defaults: NeutrxDefaults };
+export type NeutrxStatic = NeutrxInstance & {
+    readonly Cancel: typeof Cancel;
+    readonly CancelToken: typeof CancelToken;
+    readonly defaults: NeutrxDefaults;
+    readonly isCancel: typeof isCancel;
+};
 
 function createCallableClient(
     getClient: () => BrowserClient,
@@ -98,6 +104,18 @@ const Neutrx: NeutrxStatic = createCallableClient(
 
 Object.defineProperty(Neutrx, 'defaults', {
     value: defaults,
+    enumerable: true,
+});
+Object.defineProperty(Neutrx, 'Cancel', {
+    value: Cancel,
+    enumerable: true,
+});
+Object.defineProperty(Neutrx, 'CancelToken', {
+    value: CancelToken,
+    enumerable: true,
+});
+Object.defineProperty(Neutrx, 'isCancel', {
+    value: isCancel,
     enumerable: true,
 });
 

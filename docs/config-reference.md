@@ -95,6 +95,25 @@ await api.get('/users', {
 });
 ```
 
+`cancelToken` accepts `CancelToken.source().token` as an Axios migration bridge. Prefer `signal` for new code.
+
+`validation` is used by `ValidationPlugin`:
+
+```ts
+await api.post('/users', { name: 'Ada' }, {
+  validation: {
+    request: body => body && typeof body === 'object' ? true : [{ message: 'body is required' }],
+    response: {
+      safeParse(value) {
+        return value && typeof value === 'object' && 'id' in value
+          ? { success: true, data: value }
+          : { success: false, issues: [{ path: ['id'], message: 'id is required' }] };
+      },
+    },
+  },
+});
+```
+
 Node-only request fields:
 
 - `socketPath`: Unix domain socket path for HTTP requests.

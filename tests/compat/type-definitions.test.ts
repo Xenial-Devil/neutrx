@@ -11,14 +11,19 @@ void test('published TypeScript declarations support public Node API usage', () 
     fs.writeFileSync(fixturePath, `
 import neutrx, {
   NeutrxHeaders,
+  CancelToken,
+  NeutrxValidationError,
   OpenTelemetryInstrumentation,
   HttpAdapter,
   createSecureAdapter,
   fetchAdapter,
   http2Adapter,
   getHttp2SessionStats,
+  isCancel,
+  ValidationPlugin,
   type AdaptiveConcurrencyConfig,
   type CacheStore,
+  type CancelTokenSource,
   type CertificatePinConfig,
   type CircuitStateStore,
   type ClientConfig,
@@ -33,6 +38,8 @@ import neutrx, {
   type ServiceEndpoint,
   type ServiceResolver,
   type TlsConfig,
+  type ValidationPluginConfig,
+  type ValidationSchema,
 } from 'neutrx';
 
 const headers = new NeutrxHeaders({ 'content-type': 'application/json' })
@@ -72,6 +79,14 @@ const serviceDiscovery: ServiceDiscoveryConfig = {
   maxEndpoints: 10,
 };
 const proxy: ProxyConfig = { host: 'proxy.example.com', port: 8080, auth: { username: 'u', password: 'p' } };
+const cancelSource: CancelTokenSource = CancelToken.source();
+const userResponseSchema: ValidationSchema = {
+  safeParse: value => ({ success: true, data: value }),
+};
+const validation: ValidationPluginConfig = {
+  request: () => true,
+  response: userResponseSchema,
+};
 const config: ClientConfig = {
   baseURL: 'https://api.example.com',
   auth: { username: 'api-user', password: 'api-pass' },
@@ -108,8 +123,17 @@ const request: RequestConfig<FormData> = {
   xsrfCookieName: 'XSRF-TOKEN',
   xsrfHeaderName: 'X-XSRF-TOKEN',
   withXSRFToken: true,
+  cancelToken: cancelSource.token,
+  validation,
   serviceDiscovery: { resolver: ['https://uploads.example.com'], strategy: 'sticky-origin' },
 };
+cancelSource.cancel('typed cancel');
+const rootCancelSource = neutrx.CancelToken.source();
+rootCancelSource.cancel('root typed cancel');
+const wasCancel = isCancel(cancelSource.token.reason) && neutrx.isCancel(rootCancelSource.token.reason);
+neutrx.use(ValidationPlugin);
+neutrx.configureValidation?.(validation);
+const validationError = new NeutrxValidationError('response', [{ path: ['id'], message: 'id missing' }]);
 const response: Promise<NeutrxResponse<{ readonly ok: boolean }>> = neutrx.get('/health', {
   ...config,
   adapter: createSecureAdapter(inner => ({
@@ -122,6 +146,8 @@ const response: Promise<NeutrxResponse<{ readonly ok: boolean }>> = neutrx.get('
 });
 const encoded = neutrx.postUrlEncoded('/form', { name: 'Ada' });
 void request;
+void wasCancel;
+void validationError;
 void response;
 void encoded;
 void HttpAdapter;
@@ -130,6 +156,7 @@ void fetchAdapter;
 void http2Adapter;
 void getHttp2SessionStats;
 void OpenTelemetryInstrumentation;
+void ValidationPlugin;
 `);
 
     const tscPath = path.join(process.cwd(), 'node_modules', 'typescript', 'bin', 'tsc');

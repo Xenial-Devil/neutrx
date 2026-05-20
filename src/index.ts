@@ -23,10 +23,12 @@ export {
     NeutrxSecurityError,
     NeutrxServerError,
     NeutrxTimeoutError,
+    NeutrxValidationError,
     isNeutrxError,
 } from './core/NeutrxError.js';
 export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
+export { Cancel, CancelToken, isCancel } from './core/cancel.js';
 export { fetchAdapter } from './adapters/fetch.js';
 export { http2Adapter, getHttp2SessionStats } from './adapters/http2.js';
 export { FetchAdapter, Http2Adapter, HttpAdapter, createSecureAdapter, type SecureAdapterOptions } from './adapters/index.js';
@@ -34,17 +36,19 @@ export { NeutrxHeaders } from './core/headers.js';
 export { OpenTelemetryInstrumentation } from './monitoring/OpenTelemetryInstrumentation.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
 export type { NeutrxInterceptorManager, NeutrxInterceptors, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
-export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
+export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export { ALGORITHMS } from './security/RateLimiter.js';
 export type {
     AdaptiveConcurrencyConfig,
     AuthConfig,
     BasicAuthConfig,
+    Canceler,
     CacheRecord,
     CacheStore,
     BulkheadStats,
     CacheStats,
+    CancelTokenSource,
     CertificatePinConfig,
     CircuitBreakerStorageConfig,
     CircuitState,
@@ -109,6 +113,14 @@ export type {
     TlsConfig,
     TransformRequest,
     TransformResponse,
+    ValidationFailure,
+    ValidationFunction,
+    ValidationIssue,
+    ValidationPath,
+    ValidationPluginConfig,
+    ValidationResult,
+    ValidationSchema,
+    ValidationSuccess,
 } from './types.js';
 
 export default Neutrx;

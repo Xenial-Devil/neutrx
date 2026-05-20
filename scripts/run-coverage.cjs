@@ -5,9 +5,24 @@ const { spawnSync } = require("node:child_process");
 const major = Number.parseInt(process.env.NEUTRX_COVERAGE_NODE_MAJOR ?? process.versions.node.split(".")[0] ?? "0", 10);
 const testFiles = ["dist-tests/tests/**/*.test.js"];
 const coverageSupported = major >= 22;
+const thresholds = {
+  lines: process.env.NEUTRX_COVERAGE_LINES ?? "70",
+  branches: process.env.NEUTRX_COVERAGE_BRANCHES ?? "55",
+  functions: process.env.NEUTRX_COVERAGE_FUNCTIONS ?? "55",
+};
 
 const args = coverageSupported
-  ? ["--test", "--experimental-test-coverage", ...testFiles]
+  ? [
+      "--test",
+      "--experimental-test-coverage",
+      "--test-coverage-include=dist/esm/**/*.js",
+      "--test-coverage-exclude=dist/cjs/**",
+      "--test-coverage-exclude=dist/types/**",
+      `--test-coverage-lines=${thresholds.lines}`,
+      `--test-coverage-branches=${thresholds.branches}`,
+      `--test-coverage-functions=${thresholds.functions}`,
+      ...testFiles,
+    ]
   : ["--test", ...testFiles];
 
 if (!coverageSupported) {

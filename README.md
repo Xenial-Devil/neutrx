@@ -128,6 +128,27 @@ await api.get('/search', {
 
 Adapter selection defaults to Node HTTP in Node.js and fetch in browser-like runtimes. Use `adapter: 'http'`, `adapter: 'fetch'`, `adapter: 'http2'`, or a custom adapter function when you need explicit control.
 
+Cancellation uses native `AbortController`. A small `CancelToken` bridge exists for Axios migrations, but new code should prefer `signal`:
+
+```ts
+import neutrx, { CancelToken, isCancel } from 'neutrx';
+
+const source = CancelToken.source();
+const pending = neutrx.get('https://api.example.com/users', {
+  cancelToken: source.token,
+});
+
+source.cancel('request no longer needed');
+
+try {
+  await pending;
+} catch (error) {
+  if (isCancel(error)) {
+    console.log(error.message);
+  }
+}
+```
+
 Global defaults are mutable and apply to new root requests and new instances:
 
 ```ts
@@ -306,6 +327,31 @@ const id = api.interceptors.request.use(
 api.interceptors.request.eject(id);
 api.interceptors.response.clear();
 ```
+
+## Validation Plugin
+
+`ValidationPlugin` validates request bodies and parsed responses with user-provided schemas. It has no runtime dependency on Zod, TypeBox, Ajv, or any validator; pass a `safeParse`, `parse`, `validate`, `Check/Errors`, or function validator.
+
+```ts
+import neutrx, { ValidationPlugin } from 'neutrx';
+
+const api = neutrx.create({ baseURL: 'https://api.example.com' });
+api.use(ValidationPlugin);
+
+const userResponse = {
+  safeParse(value: unknown) {
+    return typeof value === 'object' && value !== null && 'id' in value
+      ? { success: true, data: value }
+      : { success: false, issues: [{ path: ['id'], message: 'id is required' }] };
+  },
+};
+
+const user = await api.get('/users/1', {
+  validation: { response: userResponse },
+});
+```
+
+Validation failures throw `NeutrxValidationError` and do not retry.
 
 ## Error Handling
 

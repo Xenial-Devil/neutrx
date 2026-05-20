@@ -16,7 +16,7 @@ It is not a general claim that Neutrx is better than Axios. Axios is broader, ol
 
 - Browser support is the main product surface.
 - React Native, Bun, Deno, or older Node versions are required.
-- You depend on Axios-specific community adapters or deprecated APIs such as `CancelToken`.
+- You depend heavily on Axios-specific community adapters or deprecated APIs beyond the small `CancelToken` migration bridge.
 - You need a general-purpose client more than a backend egress policy layer.
 
 ## Comparison

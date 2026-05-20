@@ -1,4 +1,4 @@
-import type { Headers, NeutrxResponse } from '../types.js';
+import type { Headers, NeutrxResponse, ValidationIssue } from '../types.js';
 
 const REDACTION = '[REDACTED]';
 const SENSITIVE_KEY_RE = /(?:^|[-_.])(authorization|cookie|set-cookie|proxy-authorization|token|access-token|refresh-token|secret|password|passwd|api-key|apikey|client-secret|idempotency-key)(?:$|[-_.])/i;
@@ -338,6 +338,39 @@ export class NeutrxRequestSizeError extends NeutrxError {
     }
 }
 
+export class NeutrxValidationError extends NeutrxError {
+    phase: 'request' | 'response';
+    issues: readonly ValidationIssue[];
+
+    constructor(phase: 'request' | 'response', issues: readonly ValidationIssue[], options: NeutrxErrorOptions = {}) {
+        const summary = summarizeIssues(issues);
+        super(`${capitalize(phase)} validation failed${summary ? `: ${summary}` : ''}`, {
+            ...options,
+            code: phase === 'request' ? 'REQUEST_VALIDATION_FAILED' : 'RESPONSE_VALIDATION_FAILED',
+            retryable: false,
+            context: {
+                ...options.context,
+                phase,
+                issueCount: issues.length,
+            },
+        });
+        this.phase = phase;
+        this.issues = issues;
+    }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            phase: this.phase,
+            issues: this.issues.map(issue => ({
+                ...(issue.path ? { path: [...issue.path] } : {}),
+                message: redactText(issue.message),
+                ...(issue.code ? { code: issue.code } : {}),
+            })),
+        };
+    }
+}
+
 export interface NodeLikeError extends Error {
     readonly code?: string;
     readonly errno?: string | number;
@@ -449,4 +482,15 @@ function redactUrl(value: string): string {
 
 function isSensitiveKey(key: string): boolean {
     return SENSITIVE_KEY_RE.test(key.toLowerCase());
+}
+
+function summarizeIssues(issues: readonly ValidationIssue[]): string {
+    return issues.slice(0, 3).map(issue => {
+        const path = issue.path?.length ? `${issue.path.join('.')}: ` : '';
+        return `${path}${issue.message}`;
+    }).join('; ');
+}
+
+function capitalize(value: string): string {
+    return value.charAt(0).toUpperCase() + value.slice(1);
 }

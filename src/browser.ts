@@ -20,20 +20,24 @@ export {
     NeutrxSecurityError,
     NeutrxServerError,
     NeutrxTimeoutError,
+    NeutrxValidationError,
     isNeutrxError,
 } from './core/NeutrxError.js';
 export { default as BrowserClient, default as NeutrxClient } from './core/BrowserClient.js';
+export { Cancel, CancelToken, isCancel } from './core/cancel.js';
 export { NeutrxHeaders } from './core/headers.js';
-export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
+export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/BrowserNeutrx.js';
 export type {
     AdaptiveConcurrencyConfig,
     AuthConfig,
     BulkheadStats,
+    Canceler,
     CacheRecord,
     CacheStore,
     CacheStats,
+    CancelTokenSource,
     CertificatePinConfig,
     CircuitBreakerStorageConfig,
     CircuitState,
@@ -91,6 +95,14 @@ export type {
     TlsConfig,
     TransformRequest,
     TransformResponse,
+    ValidationFailure,
+    ValidationFunction,
+    ValidationIssue,
+    ValidationPath,
+    ValidationPluginConfig,
+    ValidationResult,
+    ValidationSchema,
+    ValidationSuccess,
 } from './types.js';
 
 import Neutrx from './core/BrowserNeutrx.js';

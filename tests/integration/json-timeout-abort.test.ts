@@ -37,6 +37,76 @@ void test('local server JSON, timeout, and AbortSignal behavior', async () => {
     }
 });
 
+void test('local server abort during request tears down the client request', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    let markReceived!: () => void;
+    const received = new Promise<void>(resolve => {
+        markReceived = resolve;
+    });
+    const server = http.createServer((request, response) => {
+        if (request.url === '/hold') {
+            markReceived();
+            request.on('aborted', () => response.destroy());
+            return;
+        }
+        response.end('ok');
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            security: { profile: 'legacy', blockMetadataIPs: true },
+            resilience: { enableRetry: false },
+        });
+        const controller = new AbortController();
+        const pending = api.get('/hold', { signal: controller.signal, timeout: 5000 });
+        await received;
+        controller.abort();
+
+        await assert.rejects(pending, /aborted/u);
+    } finally {
+        await close(server);
+    }
+});
+
+void test('local server CancelToken abort preserves cancel reason', async () => {
+    const { CancelToken, default: Neutrx, isCancel } = await import(builtEntry) as typeof PackageEntry;
+    let markReceived!: () => void;
+    const received = new Promise<void>(resolve => {
+        markReceived = resolve;
+    });
+    const server = http.createServer((request, response) => {
+        if (request.url === '/hold') {
+            markReceived();
+            request.on('aborted', () => response.destroy());
+            return;
+        }
+        response.end('ok');
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            security: { profile: 'legacy', blockMetadataIPs: true },
+            resilience: { enableRetry: false },
+        });
+        const source = CancelToken.source();
+        const pending = api.get('/hold', { cancelToken: source.token, timeout: 5000 });
+        await received;
+        source.cancel('legacy cancel');
+
+        await assert.rejects(pending, error => isCancel(error) && error.message === 'legacy cancel');
+    } finally {
+        await close(server);
+    }
+});
+
 function isAddressInfo(address: string | AddressInfo | null): address is AddressInfo {
     return address !== null && typeof address === 'object';
 }

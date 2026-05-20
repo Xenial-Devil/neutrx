@@ -5,11 +5,12 @@ import { RetryEngine } from '../resilience/RetryEngine.js';
 import Bulkhead from '../resilience/Bulkhead.js';
 import { normalizeSecurityProfile } from '../security/profiles.js';
 import {
-    NeutrxError,
     NeutrxErrorFactory,
     NeutrxResponseSizeError,
+    NeutrxResponseTimeoutError,
     NeutrxSecurityError,
 } from './NeutrxError.js';
+import { abortError, abortReason, mergeCancellationSignal } from './cancel.js';
 import { resolveServiceEndpoint, type ServiceDiscoveryState } from './config.js';
 import type {
     AuthConfig,
@@ -45,6 +46,7 @@ import type {
     SseHandle,
     TransformRequest,
     TransformResponse,
+    ValidationPluginConfig,
 } from '../types.js';
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
@@ -106,6 +108,7 @@ class TinyEmitter {
 
 export default class BrowserClient extends TinyEmitter {
     configureOAuth2?: (config: OAuth2Config) => void;
+    configureValidation?: (config: ValidationPluginConfig) => void;
     gql?: <TData extends JsonValue = JsonValue>(
         endpoint: string,
         query: string,
@@ -603,9 +606,13 @@ export default class BrowserClient extends TinyEmitter {
         injectXsrfHeader(runtimeConfig);
         const headers = toFetchHeaders(runtimeConfig.headers);
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), runtimeConfig.timeout);
-        const abort = (): void => controller.abort();
-        runtimeConfig.signal?.addEventListener('abort', abort, { once: true });
+        const timeout = setTimeout(() => controller.abort(new NeutrxResponseTimeoutError(runtimeConfig.url, runtimeConfig.timeout)), runtimeConfig.timeout);
+        const abort = (): void => controller.abort(runtimeConfig.signal ? abortReason(runtimeConfig.signal) : undefined);
+        if (runtimeConfig.signal?.aborted) {
+            abort();
+        } else {
+            runtimeConfig.signal?.addEventListener('abort', abort, { once: true });
+        }
 
         try {
             const init: FetchInit = {
@@ -633,12 +640,7 @@ export default class BrowserClient extends TinyEmitter {
             } satisfies RawHttpResponse;
         } catch (error: unknown) {
             if (controller.signal.aborted) {
-                throw new NeutrxError(`Request timeout or abort: ${runtimeConfig.url}`, {
-                    code: 'REQUEST_ABORTED',
-                    url: runtimeConfig.url,
-                    method: runtimeConfig.method,
-                    retryable: true,
-                });
+                throw abortError(controller.signal);
             }
             throw NeutrxErrorFactory.fromNodeError(normalizeError(error), runtimeConfig);
         } finally {
@@ -680,6 +682,7 @@ export default class BrowserClient extends TinyEmitter {
             headers,
             mergeTransformRequest(this.#config.transformRequest, config.transformRequest)
         );
+        const signal = mergeCancellationSignal(config.signal, config.cancelToken);
 
         if (transformedData !== undefined && !hasHeader(headers, 'Content-Type')) {
             const contentType = detectContentType(transformedData);
@@ -728,6 +731,7 @@ export default class BrowserClient extends TinyEmitter {
             decompress: false,
             maxRate: config.maxRate ?? this.#config.maxRate,
             followRedirects: config.followRedirects !== false,
+            ...(signal ? { signal } : {}),
             requestId,
             startTime: Date.now(),
             hops: 0,

@@ -34,6 +34,24 @@ export type TransformResponse = (data: ParsedResponseData, headers: Headers, sta
 export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse | Promise<RawHttpResponse>;
 export type RequestAdapterName = 'fetch';
 export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
+export type Canceler = (message?: string) => void;
+export interface Cancel { readonly __CANCEL__: true; readonly name: string; readonly message: string }
+export interface CancelToken { readonly promise: Promise<Cancel>; readonly reason: Cancel | undefined; throwIfRequested(): void; toAbortSignal(): AbortSignal }
+export interface CancelTokenSource { readonly token: CancelToken; readonly cancel: Canceler }
+export type ValidationPath = readonly (string | number)[];
+export interface ValidationIssue { readonly path?: ValidationPath; readonly message: string; readonly code?: string }
+export interface ValidationSuccess<TData = unknown> { readonly success: true; readonly data?: TData }
+export interface ValidationFailure { readonly success: false; readonly error?: unknown; readonly issues?: readonly ValidationIssue[] }
+export type ValidationResult<TData = unknown> = boolean | void | ValidationIssue | readonly ValidationIssue[] | ValidationSuccess<TData> | ValidationFailure | TData;
+export type ValidationFunction<TData = unknown> = ((value: TData) => ValidationResult<TData> | Promise<ValidationResult<TData>>) & { readonly errors?: unknown };
+export type ValidationSchema<TData = unknown> =
+  | ValidationFunction<TData>
+  | { readonly parse: (value: TData) => TData | Promise<TData> }
+  | { readonly safeParse: (value: TData) => ValidationSuccess<TData> | ValidationFailure | Promise<ValidationSuccess<TData> | ValidationFailure> }
+  | { readonly validate: (value: TData) => ValidationResult<TData> | Promise<ValidationResult<TData>>; readonly errors?: unknown }
+  | { readonly Check: (value: TData) => boolean; readonly Errors?: (value: TData) => Iterable<unknown> };
+export interface RequestValidationConfig { readonly request?: ValidationSchema; readonly response?: ValidationSchema }
+export type ValidationPluginConfig = RequestValidationConfig;
 
 export type SecurityProfile = 'strict' | 'standard' | 'legacy';
 export type DeprecatedSecurityProfile = 'balanced';
@@ -154,6 +172,8 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
   readonly followRedirects?: boolean;
   readonly cache?: boolean;
   readonly signal?: AbortSignal;
+  readonly cancelToken?: CancelToken;
+  readonly validation?: RequestValidationConfig;
   readonly skipOAuth?: boolean;
   readonly onUploadProgress?: (event: ProgressEvent) => void;
   readonly onDownloadProgress?: (event: ProgressEvent) => void;
@@ -248,6 +268,16 @@ export class NeutrxHeaders {
   removeAuthorization(): this;
   redactSensitive(redaction?: string): Headers;
 }
+export class Cancel extends Error { readonly __CANCEL__: true; constructor(message?: string) }
+export class CancelToken {
+  readonly promise: Promise<Cancel>;
+  readonly reason: Cancel | undefined;
+  constructor(executor: (cancel: Canceler) => void);
+  throwIfRequested(): void;
+  toAbortSignal(): AbortSignal;
+  static source(): CancelTokenSource;
+}
+export function isCancel(error: unknown): error is Cancel;
 export interface NeutrxInterceptorManager<TValue> { use(onFulfilled?: (value: TValue) => TValue | Promise<TValue>, onRejected?: (error: Error) => TValue | Error | Promise<TValue | Error>, options?: { readonly synchronous?: boolean; readonly runWhen?: (config: InternalRequestConfig) => boolean }): number; eject(id: number): void; clear(): void }
 export interface NeutrxInterceptors { readonly request: NeutrxInterceptorManager<InternalRequestConfig>; readonly response: NeutrxInterceptorManager<NeutrxResponse> }
 export interface NeutrxPlugin { readonly name: string; readonly version?: string; install?(client: NeutrxInstance, api: { addHook(name: 'beforeRequest', fn: (context: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>): void; addHook(name: 'afterRequest', fn: (context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>): void; addHook(name: 'onError', fn: (context: Error) => Error | Promise<Error>): void; addInterceptor: NeutrxInstance['useRequest'] }): void; uninstall?(client: NeutrxInstance): void }
@@ -273,6 +303,7 @@ export class NeutrxMaxRetriesError extends NeutrxError {}
 export class NeutrxBulkheadError extends NeutrxError {}
 export class NeutrxResponseSizeError extends NeutrxError {}
 export class NeutrxRequestSizeError extends NeutrxError {}
+export class NeutrxValidationError extends NeutrxError { readonly phase: 'request' | 'response'; readonly issues: readonly ValidationIssue[] }
 export function isNeutrxError(error: unknown): error is NeutrxError;
 type CallableRequestConfig<TBody extends RequestBody = RequestBody> = Omit<RequestConfig<TBody>, 'url'>;
 export interface NeutrxInstance {
@@ -280,6 +311,7 @@ export interface NeutrxInstance {
   <TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(url: string, config?: CallableRequestConfig<TBody>): Promise<NeutrxResponse<TData>>;
   readonly interceptors: NeutrxInterceptors;
   configureOAuth2?: (config: OAuth2Config) => void;
+  configureValidation?: (config: ValidationPluginConfig) => void;
   gql?: <TData extends JsonValue = JsonValue>(endpoint: string, query: string, variables?: Record<string, JsonValue>, options?: { readonly operationName?: string; readonly headers?: Headers }) => Promise<GraphQLResult<TData>>;
   mock?: MockController;
   get<TData extends ParsedResponseData = ParsedResponseData>(url: string, config?: CallableRequestConfig): Promise<NeutrxResponse<TData>>;
@@ -312,10 +344,12 @@ export interface NeutrxInstance {
   getBulkheadStats(): BulkheadStats;
   destroy(): void;
 }
-export type NeutrxStatic = NeutrxInstance;
+export type NeutrxDefaults = { -readonly [Key in keyof ClientConfig]?: ClientConfig[Key] };
+export type NeutrxStatic = NeutrxInstance & { readonly Cancel: typeof Cancel; readonly CancelToken: typeof CancelToken; readonly defaults: NeutrxDefaults; readonly isCancel: typeof isCancel };
 export declare const OAuth2Plugin: NeutrxPlugin;
 export declare const GraphQLPlugin: NeutrxPlugin;
 export declare const MockPlugin: NeutrxPlugin;
+export declare const ValidationPlugin: NeutrxPlugin;
 export declare const STRATEGY: Readonly<{ readonly FIXED: 'fixed'; readonly LINEAR: 'linear'; readonly EXPONENTIAL: 'exponential'; readonly FIBONACCI: 'fibonacci' }>;
 export declare const VERSION: string;
 declare const Neutrx: NeutrxStatic;

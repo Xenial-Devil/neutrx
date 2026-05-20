@@ -58,6 +58,80 @@ export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse 
 export type RequestAdapterName = 'http' | 'fetch' | 'http2';
 export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
 export type MaybePromise<T> = T | Promise<T>;
+export type Canceler = (message?: string) => void;
+export type ValidationPath = readonly (string | number)[];
+
+export interface ValidationIssue {
+    readonly path?: ValidationPath;
+    readonly message: string;
+    readonly code?: string;
+}
+
+export interface ValidationSuccess<TData = unknown> {
+    readonly success: true;
+    readonly data?: TData;
+}
+
+export interface ValidationFailure {
+    readonly success: false;
+    readonly error?: unknown;
+    readonly issues?: readonly ValidationIssue[];
+}
+
+export type ValidationResult<TData = unknown> =
+    | boolean
+    | void
+    | ValidationIssue
+    | readonly ValidationIssue[]
+    | ValidationSuccess<TData>
+    | ValidationFailure
+    | TData;
+
+export type ValidationFunction<TData = unknown> = ((value: TData) => ValidationResult<TData> | Promise<ValidationResult<TData>>) & {
+    readonly errors?: unknown;
+};
+
+export type ValidationSchema<TData = unknown> =
+    | ValidationFunction<TData>
+    | {
+        readonly parse: (value: TData) => TData | Promise<TData>;
+    }
+    | {
+        readonly safeParse: (value: TData) => ValidationSuccess<TData> | ValidationFailure | Promise<ValidationSuccess<TData> | ValidationFailure>;
+    }
+    | {
+        readonly validate: (value: TData) => ValidationResult<TData> | Promise<ValidationResult<TData>>;
+        readonly errors?: unknown;
+    }
+    | {
+        readonly Check: (value: TData) => boolean;
+        readonly Errors?: (value: TData) => Iterable<unknown>;
+    };
+
+export interface RequestValidationConfig {
+    readonly request?: ValidationSchema;
+    readonly response?: ValidationSchema;
+}
+
+export type ValidationPluginConfig = RequestValidationConfig;
+
+export interface Cancel {
+    readonly __CANCEL__: true;
+    readonly name: string;
+    readonly message: string;
+}
+
+export interface CancelToken {
+    readonly promise: Promise<Cancel>;
+    readonly reason: Cancel | undefined;
+    throwIfRequested(): void;
+    toAbortSignal(): AbortSignal;
+}
+
+export interface CancelTokenSource {
+    readonly token: CancelToken;
+    readonly cancel: Canceler;
+}
 
 export interface ServiceEndpoint {
     readonly url: string;
@@ -457,6 +531,8 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly followRedirects?: boolean;
     readonly cache?: boolean;
     readonly signal?: AbortSignal;
+    readonly cancelToken?: CancelToken;
+    readonly validation?: RequestValidationConfig;
     readonly skipOAuth?: boolean;
     readonly onUploadProgress?: (event: ProgressEvent) => void;
     readonly onDownloadProgress?: (event: ProgressEvent) => void;

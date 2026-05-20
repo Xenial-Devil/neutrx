@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
 import { promisify } from 'node:util';
 
+import { NeutrxResponseSizeError } from './NeutrxError.js';
 import type { Headers, JsonValue, ParseJson, ParsedResponseData, RawHttpResponse, ResponseType } from '../types.js';
 import { getHeader, headerToString } from './headers.js';
 
@@ -10,18 +11,33 @@ const gunzip = promisify(zlib.gunzip);
 const inflate = promisify(zlib.inflate);
 const brotliDecompress = promisify(zlib.brotliDecompress);
 
-export async function decompressResponseData(data: Buffer | IncomingMessage, headers: Headers, enabled: boolean): Promise<Buffer | IncomingMessage> {
+export async function decompressResponseData(
+    data: Buffer | IncomingMessage,
+    headers: Headers,
+    enabled: boolean,
+    maxContentLength?: number
+): Promise<Buffer | IncomingMessage> {
     if (!enabled || !Buffer.isBuffer(data)) return data;
 
     const encoding = headerToString(getHeader(headers, 'Content-Encoding'));
     try {
-        if (encoding.includes('br')) return brotliDecompress(data);
-        if (encoding.includes('gzip')) return gunzip(data);
-        if (encoding.includes('deflate')) return inflate(data);
-    } catch {
+        const inflated = await inflateEncoded(data, encoding);
+        if (inflated && maxContentLength !== undefined && inflated.byteLength > maxContentLength) {
+            throw new NeutrxResponseSizeError(inflated.byteLength, maxContentLength);
+        }
+        if (inflated) return inflated;
+    } catch (error: unknown) {
+        if (error instanceof NeutrxResponseSizeError) throw error;
         return data;
     }
     return data;
+}
+
+async function inflateEncoded(data: Buffer, encoding: string): Promise<Buffer | null> {
+    if (encoding.includes('br')) return brotliDecompress(data);
+    if (encoding.includes('gzip')) return gunzip(data);
+    if (encoding.includes('deflate')) return inflate(data);
+    return null;
 }
 
 export function parseResponseData(

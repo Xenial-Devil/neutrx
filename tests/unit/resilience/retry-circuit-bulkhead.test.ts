@@ -73,6 +73,39 @@ void test('RetryEngine respects Retry-After before retrying', async () => {
     assert.equal(observedDelay, 10);
 });
 
+void test('RetryEngine adds bounded jitter to computed backoff delay', async () => {
+    const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
+    const originalRandom = Math.random;
+    Math.random = () => 0.001;
+    let observedDelay = 0;
+
+    try {
+        const engine = new RetryEngine({
+            maxRetries: 1,
+            retryDelay: 1,
+            maxRetryDelay: 100,
+            retryJitter: true,
+            retryableCodes: ['ETEST'],
+            onRetry: event => {
+                observedDelay = event.delay;
+            },
+        });
+        let calls = 0;
+
+        const result = await engine.execute(async () => {
+            await Promise.resolve();
+            calls += 1;
+            if (calls === 1) throw Object.assign(new Error('retry with jitter'), { code: 'ETEST' });
+            return 'ok';
+        }, { method: 'GET', url: 'https://api.example.com/users' });
+
+        assert.equal(result.result, 'ok');
+        assert.equal(observedDelay, 2);
+    } finally {
+        Math.random = originalRandom;
+    }
+});
+
 void test('RetryEngine stops during backoff when AbortSignal aborts', async () => {
     const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
     const controller = new AbortController();
@@ -99,7 +132,7 @@ void test('RetryEngine stops during backoff when AbortSignal aborts', async () =
 
 void test('RetryEngine stops when retry deadline expires', async () => {
     const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
-    const engine = new RetryEngine({ maxRetries: 2, retryDelay: 50, retryJitter: false, retryableCodes: ['ETEST'] });
+    const engine = new RetryEngine({ maxRetries: 2, retryDelay: 1000, retryJitter: false, retryableCodes: ['ETEST'] });
     let calls = 0;
 
     await assert.rejects(
@@ -107,7 +140,7 @@ void test('RetryEngine stops when retry deadline expires', async () => {
             await Promise.resolve();
             calls += 1;
             throw Object.assign(new Error('retry me'), { code: 'ETEST' });
-        }, { method: 'GET', deadlineAt: Date.now() + 1, url: 'https://api.example.com/users' }),
+        }, { method: 'GET', deadlineAt: Date.now() + 100, url: 'https://api.example.com/users' }),
         /deadline/u
     );
 

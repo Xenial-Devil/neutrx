@@ -17,7 +17,7 @@ This guide maps common Axios backend usage to Neutrx. Neutrx keeps familiar ergo
 | Non-2xx returns with custom status handling | `throwHttpErrors: false` | Similar | Neutrx throws by default for invalid status |
 | Request interceptors | `api.interceptors.request.use` | Similar | Documented and tested; request chain runs in registration order |
 | Response interceptors | `api.interceptors.response.use` | Similar | Response chain runs in registration order |
-| `CancelToken` | `AbortController` or `AbortSignal.timeout()` | Different | `CancelToken` is intentionally not in core |
+| `CancelToken` | `AbortController` preferred; `CancelToken.source()` bridge available | Similar | Bridge maps to `AbortSignal` internally for migrations |
 | `onUploadProgress` | `onUploadProgress` | Similar | Node and browser support depend on body/stream visibility |
 | `onDownloadProgress` | `onDownloadProgress` | Similar | Stream progress depends on adapter capabilities |
 | `FormData` upload | `api.postForm`, `api.putForm`, `api.patchForm` | Similar | Multipart helper sets safe headers |

@@ -43,6 +43,7 @@ import {
     type ServiceDiscoveryState,
 } from './config.js';
 import { detectContentType, serializeBody } from './bodySerializer.js';
+import { abortError, mergeCancellationSignal } from './cancel.js';
 import { createHttpsProxyConnection, directRequestTarget, proxyRequestTarget, resolveProxy } from './proxy.js';
 import { createLookup, validateProxyTarget } from './dns.js';
 import { NeutrxHeaders, getContentLength, hasHeader, normalizeIncomingHeaders, setHeader, toOutgoingHeaders } from './headers.js';
@@ -76,6 +77,7 @@ import type {
     RequestConfig,
     RetryContext,
     SseHandle,
+    ValidationPluginConfig,
 } from '../types.js';
 
 const SECURE_CIPHERS = [
@@ -92,6 +94,7 @@ type RuntimeRequestConfig = InternalRequestConfig & { headers: Headers };
 
 export default class NeutrxClient extends EventEmitter {
     configureOAuth2?: (config: OAuth2Config) => void;
+    configureValidation?: (config: ValidationPluginConfig) => void;
     gql?: <TData extends JsonValue = JsonValue>(
         endpoint: string,
         query: string,
@@ -750,7 +753,7 @@ export default class NeutrxClient extends EventEmitter {
             }
 
             if (runtimeConfig.signal?.aborted) {
-                fail(Object.assign(new Error('Request aborted'), { name: 'AbortError' }));
+                fail(abortError(runtimeConfig.signal));
                 return;
             }
 
@@ -831,7 +834,7 @@ export default class NeutrxClient extends EventEmitter {
 
             runtimeConfig.signal?.addEventListener('abort', () => {
                 req.destroy();
-                fail(Object.assign(new Error('Request aborted'), { name: 'AbortError' }));
+                fail(abortError(runtimeConfig.signal));
             }, { once: true });
 
             if (runtimeConfig.data !== undefined) {
@@ -927,7 +930,9 @@ export default class NeutrxClient extends EventEmitter {
 
     async #parse<TData extends ParsedResponseData>(raw: RawHttpResponse, config: InternalRequestConfig): Promise<NeutrxResponse<TData>> {
         let data = normalizeNodeResponseData(raw.data);
-        if (Buffer.isBuffer(data) || isIncomingMessageLike(data)) data = await decompressResponseData(data, raw.headers, config.decompress);
+        if (Buffer.isBuffer(data) || isIncomingMessageLike(data)) {
+            data = await decompressResponseData(data, raw.headers, config.decompress, config.maxContentLength);
+        }
 
         const parsed = parseResponseData(data, config.responseType, raw.headers, config.responseEncoding, config.parseJson) as TData;
         const response: NeutrxResponse<TData> = {
@@ -967,6 +972,7 @@ export default class NeutrxClient extends EventEmitter {
             headers,
             mergeTransformRequest(this.#config.transformRequest, config.transformRequest)
         );
+        const signal = mergeCancellationSignal(config.signal, config.cancelToken);
 
         if (transformedData !== undefined && !hasHeader(headers, 'Content-Type')) {
             const contentType = detectContentType(transformedData);
@@ -1014,6 +1020,7 @@ export default class NeutrxClient extends EventEmitter {
             decompress: config.decompress ?? this.#config.decompress,
             maxRate: config.maxRate ?? this.#config.maxRate,
             followRedirects: config.followRedirects !== false,
+            ...(signal ? { signal } : {}),
             requestId,
             startTime: Date.now(),
             hops: 0,
@@ -1215,8 +1222,9 @@ function cloneRawData(data: RawHttpResponse['data']): RawHttpResponse['data'] {
 }
 
 function withoutSignal(config: InternalRequestConfig): InternalRequestConfig {
-    const copy = { ...config } as { signal?: AbortSignal };
+    const copy = { ...config } as { cancelToken?: unknown; signal?: AbortSignal };
     delete copy.signal;
+    delete copy.cancelToken;
     return copy as InternalRequestConfig;
 }
 

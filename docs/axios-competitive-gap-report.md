@@ -30,7 +30,7 @@ Neutrx already includes several backend-first features Axios does not provide as
 - ESM, CJS, browser, and subpath exports.
 - Node 22+ only, zero runtime dependencies, and modern native API posture.
 - HTTP, fetch, and HTTP/2 adapters.
-- OAuth2, GraphQL, and mock plugins.
+- OAuth2, GraphQL, mock, and dependency-free validation plugins.
 - Idempotency-key helper for retry-safe `POST`/`PATCH` when upstream APIs support duplicate suppression.
 - Node TLS policy hooks for CA, mTLS client cert/key, SNI, and SHA-256 certificate pins with rotation windows.
 - Cache adapter interface with per-key refresh locks for stale-while-revalidate extension points.
@@ -90,7 +90,7 @@ These are not all features Neutrx must copy. They are gaps users will notice whe
 | Params serializer edge compatibility | Axios users rely on array index modes and custom encode helpers | Document current behavior; add tests for `indexes: true/false/null`, nested params, spaces, unicode |
 | Browser confidence | Axios has broad browser story | Add real browser CI with Playwright for browser entry, XSRF, progress, abort, FormData |
 | React Native/Bun/Deno statement | Axios documents broader runtime support | Decide explicit stance: unsupported, best effort, or smoke-tested |
-| CancelToken compatibility | Axios old users may still have it | Do not add to core unless needed; provide migration note to `AbortController` |
+| CancelToken compatibility | Axios old users may still have it | Small compatibility bridge now exists; keep `AbortController` as preferred API |
 | Interceptor execution contract | Axios users know LIFO request/FIFO response | Document Neutrx behavior with tests and migration notes |
 | Rich docs website | Axios has searchable docs | Add generated docs site from Markdown or TypeDoc output |
 | Ecosystem adapters/plugins | Axios has many userland adapters/interceptors | Publish plugin API guide and security contract |
@@ -112,6 +112,7 @@ These matter more than Axios parity for becoming "best" in Neutrx's chosen categ
 | P1 | Adaptive concurrency | Prevent overload better than static bulkheads | Implemented behind opt-in `resilience.adaptiveConcurrency` |
 | P1 | HTTP/2 production controls | Backend clients need session lifecycle clarity | Partially implemented: GOAWAY session retirement, session stats, max stream controls, redirect policy tests |
 | P1 | OTEL semantic conventions | Observability needs standard attributes and metrics | Implemented in core bridge: safe HTTP client semantic span attributes, retry/cache/service endpoint attrs, opt-in body sizes |
+| P1 | Schema validation plugin | Teams need response contracts without core runtime deps | Implemented: validator adapter accepts Zod-like, TypeBox-like, Ajv-like, or function validators |
 | P2 | OpenAPI typed client generator | Strong typed service clients drive adoption | Provide generator as dev-time tool; no core runtime dependency |
 | P2 | ETag revalidation and stale-if-error | Cache should be safe and useful during outages | Implemented: conditional headers, stale-if-error fallback, warning headers |
 | P2 | Request idempotency keys | Safe retries for POST need app help | Implemented: `idempotencyKey` helper and explicit retry opt-in for unsafe methods |
@@ -135,7 +136,7 @@ Neutrx should become the HTTP client a backend team chooses when outbound traffi
 - Do not claim Neutrx is generally better than Axios.
 - Do not make browser support the main product.
 - Do not add heavy runtime dependencies to core.
-- Do not chase deprecated Axios APIs unless migration data proves need.
+- Do not chase deprecated Axios APIs beyond low-risk migration bridges such as `CancelToken`.
 - Do not weaken security profiles to improve compatibility.
 
 ## Recommended Architecture
