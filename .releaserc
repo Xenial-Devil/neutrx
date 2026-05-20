@@ -1,35 +1,40 @@
 {
-  "branches": [
-    "main"
-  ],
-  "plugins": [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
-    "@semantic-release/changelog",
-    [
-      "@semantic-release/exec",
-      {
-        "prepareCmd": "npm run set-version -- ${nextRelease.version} && npm run release:validate"
-      }
+    "branches": [
+        "main"
     ],
-    "@semantic-release/npm",
-    [
-      "@semantic-release/git",
-      {
-        "assets": [
-          "package.json",
-          "package-lock.json",
-          "CHANGELOG.md",
-          "src/browser.ts",
-          "src/index.ts",
-          "src/core/BrowserClient.ts",
-          "src/core/BrowserNeutrx.ts",
-          "src/core/NeutrxClient.ts",
-          "src/plugins/PluginManager.ts"
+    "plugins": [
+        "@semantic-release/commit-analyzer",
+        "@semantic-release/release-notes-generator",
+        "@semantic-release/changelog",
+        [
+            "@semantic-release/exec",
+            {
+                "prepareCmd": "npm run set-version -- ${nextRelease.version} && npm run release:validate"
+            }
         ],
-        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
-      }
-    ],
-    "@semantic-release/github"
-  ]
+        "@semantic-release/npm",
+        [
+            "@semantic-release/git",
+            {
+                "assets": [
+                    "package.json",
+                    "package-lock.json",
+                    "CHANGELOG.md",
+                    "src/browser.ts",
+                    "src/index.ts",
+                    "src/core/BrowserClient.ts",
+                    "src/core/BrowserNeutrx.ts",
+                    "src/core/NeutrxClient.ts",
+                    "src/plugins/PluginManager.ts"
+                ],
+                "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+            }
+        ],
+        [
+            "@semantic-release/github",
+            {
+                "labels": false
+            }
+        ]
+    ]
 }
