@@ -1,3 +1,19 @@
+# [1.3.0](https://github.com/Xenial-Devil/neutrx/compare/v1.2.0...v1.3.0) (2026-05-20)
+
+
+### Bug Fixes
+
+* correct formatting and indentation in .releaserc configuration ([50bf8f6](https://github.com/Xenial-Devil/neutrx/commit/50bf8f61fd0623779c4ec4f9186e62b52d54dd99))
+* update environment variables for semantic-release in release workflow ([845b1d8](https://github.com/Xenial-Devil/neutrx/commit/845b1d847d020f677a8919600c0f982c63ec0813))
+
+
+### Features
+
+* add cancellation support with CancelToken and validation plugin ([bff2614](https://github.com/Xenial-Devil/neutrx/commit/bff26148b4fa1a77d2265d9609379ca3134e5b61))
+* add Neutrx vs Axios Competitive Gap Report and migration matrix ([46c7387](https://github.com/Xenial-Devil/neutrx/commit/46c7387aa004edbd6a9d95a54df529c65b07f1bc))
+* enhance API with custom JSON parsing and stringifying options ([f658de2](https://github.com/Xenial-Devil/neutrx/commit/f658de2f83ede11705df8cb7a32a9dc31cd5b411))
+* **tests:** enhance RetryEngine tests for Retry-After and abort scenarios ([97deeec](https://github.com/Xenial-Devil/neutrx/commit/97deeec5b01a58cfb4d68ab629ab26fdb2175159))
+
 # [1.2.0](https://github.com/Xenial-Devil/neutrx/compare/v1.1.0...v1.2.0) (2026-05-16)
 
 
