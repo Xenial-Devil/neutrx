@@ -131,7 +131,7 @@
     "cache",
     "fetch-alternative"
   ],
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "dependencies": {},
   "devDependencies": {
     "@types/node": "^24.10.1",

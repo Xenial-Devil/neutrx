@@ -1,6 +1,6 @@
 # Security Policy
 
-Neutrx is a source-available Node.js 22+ HTTP client with security-first defaults. This policy explains supported runtime versions, vulnerability reporting, private disclosure expectations, security controls, and supply-chain handling.
+Neutrx is a security-first Node.js 22+ HTTP client. This policy explains supported runtime versions, vulnerability reporting, private disclosure expectations, security controls, and supply-chain handling.
 
 ## Supported Runtime
 
@@ -90,6 +90,4 @@ Security dependency updates may be expedited, but still require maintainer revie
 - No pressure campaigns around embargoed reports.
 - Do not present an unofficial fork or patch as an official Neutrx security release.
 
-## License Boundaries
 
-Forks are allowed only for contribution back to the original repository. Publishing, redistributing, selling, rebranding, sublicensing, or releasing modified versions is not allowed without written permission from the project owner.

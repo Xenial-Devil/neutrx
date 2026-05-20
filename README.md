@@ -420,4 +420,5 @@ Benchmarks are scripts only. They do not publish fake results. Optional comparis
 
 ## License
 
-Neutrx is source-available under a restrictive project license. See [LICENSE](LICENSE).
+Neutrx is open-source software licensed under the [MIT License](LICENSE).
+

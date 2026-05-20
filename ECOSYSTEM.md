@@ -1,16 +1,14 @@
 # Ecosystem
 
-This document defines official Neutrx ecosystem status, integration rules, naming expectations, and plugin security expectations. Neutrx is source-available under a restrictive project license.
+This document defines official Neutrx ecosystem status, integration rules, naming expectations, and plugin security expectations. Neutrx is licensed under the MIT License.
 
 ## Official Package Status
 
-The official package is `neutrx` as published or approved by the project owner. Any other package, plugin, integration, wrapper, fork, mirror, or distribution is unofficial unless the project owner gives written permission.
-
-Publishing, redistributing, selling, rebranding, sublicensing, or releasing modified versions of Neutrx is not allowed without written permission.
+The official package is `neutrx` as published or approved by the project maintainers. Any other package, plugin, integration, wrapper, fork, mirror, or distribution is unofficial unless the project maintainers give written permission.
 
 ## Official Repository Status
 
-The official repository is the repository identified in the package metadata and project documentation. Forks are allowed only for contribution back to the original repository.
+The official repository is the repository identified in the package metadata and project documentation.
 
 Do not present a fork, mirror, copy, or modified release as official without written permission.
 

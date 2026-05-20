@@ -223,4 +223,4 @@ Cache only responses that are safe for your service and tenant model.
 - Retries are configured through resilience settings.
 - GET caching is explicit and should respect upstream cache headers where practical.
 - Interceptors are for small request and response transforms, not broad application control flow.
-- Neutrx is source-available under a restrictive project license.
+- Neutrx is open-source software licensed under the MIT License.

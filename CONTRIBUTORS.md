@@ -1,6 +1,6 @@
 # Contributors
 
-Neutrx is a source-available Node.js 22+ HTTP client project. This file recognizes project ownership and accepted contributions.
+Neutrx is a security-first Node.js 22+ HTTP client project. This file recognizes project ownership and accepted contributions.
 
 ## Project Owner
 
@@ -28,8 +28,6 @@ Add contributor names or handles after contributions are accepted by maintainers
 - Automated, spam, duplicate, or rejected submissions do not require credit.
 - Contribution size does not determine governance authority.
 
-## Rights And License Boundaries
+## License
 
-Contributors retain appropriate credit for accepted work, subject to the project license and contribution terms.
-
-Contribution does not grant permission to publish, redistribute, sell, rebrand, sublicense, or release modified versions of Neutrx. Forks are allowed only for contribution back to the original repository unless the project owner gives written permission.
+Contributions are licensed under the project's [MIT License](LICENSE).

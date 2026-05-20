@@ -1,12 +1,8 @@
 # Contributing
 
-Thank you for contributing to Neutrx. Neutrx is source-available under a restrictive project license. Contributions, forks, and downstream usage must follow [LICENSE](LICENSE) and any written maintainer permissions.
+Thank you for contributing to Neutrx. Neutrx is open-source software licensed under the [MIT License](LICENSE). Contributions, forks, and downstream usage must follow the license terms.
 
-Publishing, redistributing, selling, rebranding, sublicensing, or releasing modified versions of Neutrx is not allowed without written permission from the project owner.
 
-## Fork For Contribution Only
-
-Forks are allowed only to prepare contributions back to the original repository. Do not use a fork to publish, redistribute, sell, rebrand, or release a modified version.
 
 ## Create A Branch
 
@@ -97,7 +93,7 @@ Use `BREAKING CHANGE:` in the commit body for incompatible public API changes.
 
 Before opening a pull request:
 
-- Branch exists only to contribute back to the original repository.
+- Branch is clean and contains only the necessary changes.
 - Scope is focused and explained.
 - Tests are added or updated when behavior changes.
 - `npm test` passes.
@@ -106,8 +102,8 @@ Before opening a pull request:
 - `npm run validate` passes when practical.
 - Documentation is updated for user-visible changes.
 - Security impact is described for URL, DNS, redirect, header, TLS, body-size, timeout, retry, cache, circuit breaker, metrics, or error changes.
-- No publishing, redistribution, selling, rebranding, sublicensing, or modified release is proposed without written permission.
 
-## License And Rights
 
-By contributing, you agree that your contribution may be included in Neutrx under the project license. Contribution credit does not grant publishing, distribution, sublicensing, rebranding, or release rights beyond the license terms and written permissions from the project owner.
+## License
+
+By contributing, you agree that your contribution will be licensed under the project's [MIT License](LICENSE).

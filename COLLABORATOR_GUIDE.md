@@ -1,6 +1,6 @@
 # Collaborator Guide
 
-This guide is for Neutrx maintainers and trusted collaborators. Neutrx is source-available under a restrictive project license. Collaboration must protect users, project reputation, release integrity, and license boundaries.
+This guide is for Neutrx maintainers and trusted collaborators. Neutrx is licensed under the MIT License. Collaboration must protect users, project reputation, and release integrity.
 
 ## Collaborator Responsibilities
 
@@ -70,8 +70,7 @@ Documentation changes should be reviewed for:
 - Accuracy against current behavior.
 - Clear Node.js >=22 support language.
 - Security profile guidance using `strict`, `standard`, and `legacy`.
-- Correct source-available and restrictive license language.
-- No unsupported publishing, redistribution, selling, rebranding, or modified release claims.
+- Correct license compliance and references.
 - No confusing claims about official integrations or ecosystem status.
 
 ## Test Requirements Before Merge
@@ -87,6 +86,6 @@ Before merge, require applicable checks:
 
 Maintainers may approve documentation-only changes with reduced test scope when no executable behavior changes.
 
-## License And Fork Boundaries
+## License
 
-Forks are allowed only for contribution back to the original repository. Publishing, redistributing, selling, rebranding, sublicensing, or releasing modified versions is not allowed without written permission from the project owner.
+Neutrx is licensed under the MIT License. Downstream usage and contributions must preserve the license and copyright notice.

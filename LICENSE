@@ -1,34 +1,21 @@
-Neutrx Source-Available License
+MIT License
 
 Copyright (c) 2026 Neutrx contributors
 
-Permission is granted to view, inspect, test, and modify this software only for
-the purpose of evaluating Neutrx or preparing contributions back to the original
-repository.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Forks are allowed only for contribution back to the original repository. A fork,
-copy, patch, or modified version must not be used to publish, redistribute, sell,
-rebrand, sublicense, or release Neutrx or a derivative work without prior written
-permission from the project owner.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-The following actions are not allowed without prior written permission from the
-project owner:
-
-- Publishing or redistributing this software or a modified version.
-- Selling this software or a modified version.
-- Rebranding this software or presenting a modified version as a separate
-  product.
-- Releasing packages, binaries, containers, mirrors, hosted services, or other
-  distributions based on this software.
-- Using the Neutrx name, package identity, logo, or branding in a way that
-  implies official status, endorsement, or ownership.
-
-Contributions submitted to the original repository may be included in Neutrx
-under this license or a later project license chosen by the project owner.
-Contributors retain appropriate credit for accepted contributions, but
-contribution does not grant publishing, redistribution, selling, rebranding,
-sublicensing, or release rights.
-
-This software is provided without warranty of any kind. The authors and
-contributors are not liable for any claim, damages, or other liability arising
-from use of this software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

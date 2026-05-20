@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Neutrx is a source-available Node.js 22+ HTTP client project. Everyone participating in project spaces must keep discussion professional, respectful, and focused on secure backend HTTP client work.
+Neutrx is a security-first Node.js 22+ HTTP client project. Everyone participating in project spaces must keep discussion professional, respectful, and focused on secure backend HTTP client work.
 
 ## Expected Behavior
 
@@ -9,7 +9,7 @@ Neutrx is a source-available Node.js 22+ HTTP client project. Everyone participa
 - Welcome technical disagreement when it is evidence-based and constructive.
 - Ask clarifying questions before assuming intent.
 - Respect maintainer decisions about scope, security posture, releases, and licensing.
-- Follow the restrictive project license and contribution rules.
+- Follow the project license and contribution rules.
 - Keep project spaces useful, accurate, and safe for serious technical work.
 
 ## Unacceptable Behavior
@@ -62,4 +62,4 @@ Maintainers will avoid public disclosure of reporter details unless required for
 
 ## Maintainer Authority
 
-Maintainers have final authority over project spaces, contribution acceptance, release timing, security handling, branding, and license compliance. Participation in Neutrx is conditional on following this Code of Conduct and the restrictive project license.
+Maintainers have final authority over project spaces, contribution acceptance, release timing, security handling, and branding. Participation in Neutrx is conditional on following this Code of Conduct and the project license.
