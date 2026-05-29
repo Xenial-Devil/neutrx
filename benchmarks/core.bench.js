@@ -1,4 +1,4 @@
-import Neutrx, { MockPlugin, NeutrxHeaders } from '../dist/esm/index.js';
+import Neutrx, { MockPlugin, NeutrxHeaders } from '../dist/index.mjs';
 import { runSuite } from './runner.js';
 import { makeHeaders, makeJsonPayload, makeParams, makeRawAdapter } from './fixtures/payloads.js';
 

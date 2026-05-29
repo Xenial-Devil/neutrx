@@ -11,23 +11,45 @@ Neutrx config precedence is:
 ```ts
 const api = neutrx.create({
   baseURL: 'https://api.example.com',
+  allowAbsoluteUrls: true,
   timeout: 10_000,
   connectTimeout: 2_000,
   maxRedirects: 5,
   maxContentLength: 52_428_800,
   maxBodyLength: 10_485_760,
+  responseEncoding: 'utf8',
   maxRate: [64 * 1024, 256 * 1024],
   auth: { username: 'service', password: process.env.API_PASSWORD ?? '' },
   idempotencyKeyHeader: 'Idempotency-Key',
   parseJson: text => JSON.parse(text),
   stringifyJson: value => JSON.stringify(value),
   throwHttpErrors: true,
+  beforeRedirect(context) {
+    console.log(context.statusCode, context.toURL);
+  },
+  transitional: { clarifyTimeoutError: true },
 });
 ```
 
 `legacy` keeps request body size unlimited unless you set `maxBodyLength`. `strict` and `standard` use a finite default.
 
+`allowAbsoluteUrls` defaults to `true`, matching Axios: absolute request URLs replace `baseURL`. Set it to `false` when you want even absolute-looking request URLs to be appended to `baseURL` or a service-discovery endpoint.
+
+`responseEncoding` defaults to `utf8` for buffered text and JSON responses. It is Node-oriented; browser runtimes use platform `TextDecoder` support.
+
+`transitional.clarifyTimeoutError` mirrors Axios. By default, request timeouts use `ECONNABORTED` for Axios migration compatibility. When set to `true`, Neutrx uses `ETIMEDOUT` while still exposing typed timeout errors with a `phase`.
+
 `neutrx.defaults` is mutable and merges into new root requests and new instances. Instance config and per-request config override it. Headers are cloned and normalized during merges.
+
+Created clients also expose mutable `api.defaults` for common Axios migration patterns:
+
+```ts
+api.defaults.baseURL = 'https://api.example.com';
+api.defaults.timeout = 10_000;
+api.defaults.headers.common.Authorization = `Bearer ${token}`;
+```
+
+Per-request config still wins over `api.defaults`. Live instance defaults are shallow-mutable, with deep mutation intentionally supported for `headers.common` and method header buckets. Set security, resilience, and performance profiles during `neutrx.create()` so the constructed SSRF, redirect, retry, circuit breaker, and cache components stay consistent.
 
 ## Security
 
@@ -92,10 +114,15 @@ await api.get('/users', {
   signal: AbortSignal.timeout(2_000),
   validateStatus: status => status < 500,
   throwHttpErrors: false,
+  beforeRedirect(context) {
+    context.headers['X-Redirect-Hop'] = '1';
+  },
 });
 ```
 
 `cancelToken` accepts `CancelToken.source().token` as an Axios migration bridge. Prefer `signal` for new code.
+
+Headers merge case-insensitively through `NeutrxHeaders`. Set a request header value to `false` to suppress a default and block automatic overwrites without emitting that header; use `NeutrxHeaders.set(name, null)` to delete it outright.
 
 `validation` is used by `ValidationPlugin`:
 
@@ -116,11 +143,33 @@ await api.post('/users', { name: 'Ada' }, {
 
 Node-only request fields:
 
-- `socketPath`: Unix domain socket path for HTTP requests.
+- `socketPath`: absolute Unix domain socket path for HTTP requests. It cannot be combined with proxy config and only supports HTTP. The URL host is used as the HTTP `Host` header, not as a DNS or TCP target.
 - `decompress`: defaults to `true`; set `false` to keep gzip/deflate/br bytes compressed.
 - `maxRate`: bytes per second for both directions, or `[uploadBytesPerSec, downloadBytesPerSec]`.
 - `tls`: CA, client cert/key, SNI, and SHA-256 certificate pins.
 - `httpAgent`, `httpsAgent`, and `lookup`: Node transport customization.
+
+## Axios-Compatible And Neutrx-Specific Options
+
+Axios-compatible options supported by Neutrx include `baseURL`, `allowAbsoluteUrls`, `url`, `method`, `headers`, `auth`, `params`, `paramsSerializer`, `data`, `timeout`, `maxRedirects`, `maxContentLength`, `maxBodyLength`, `responseType`, `responseEncoding`, `validateStatus`, `transformRequest`, `transformResponse`, `adapter`, `beforeRedirect`, `decompress`, `withCredentials`, `xsrfCookieName`, `xsrfHeaderName`, `onUploadProgress`, `onDownloadProgress`, `cancelToken`, and `transitional.clarifyTimeoutError`.
+
+Neutrx-specific options are focused on secure backend service-to-service HTTP: `connectTimeout`, `throwHttpErrors`, `parseJson`, `stringifyJson`, `idempotencyKey`, `idempotencyKeyHeader`, `httpVersion`, `http2Options`, `serviceDiscovery`, `proxy`, `tls`, `httpAgent`, `httpsAgent`, `lookup`, `socketPath`, `maxRate`, `security`, `egressPolicy`, `resilience`, `performance`, `instrumentation`, `validation`, `skipOAuth`, `cache`, and `followRedirects`.
+
+Some compatible options have backend-first semantics. Redirects are followed by Neutrx so SSRF, downgrade, and credential-stripping policy stays in force; custom adapters should return redirect responses rather than following them internally. `decompress`, agents, lookup, sockets, TLS, and `responseEncoding` are Node transport controls and are unavailable or platform-limited in browsers.
+
+Docker Engine over the default Unix socket:
+
+```ts
+const docker = neutrx.create({
+  baseURL: 'http://docker',
+  socketPath: '/var/run/docker.sock',
+  proxy: false,
+});
+
+const version = await docker.get('/v1/version');
+```
+
+For `socketPath`, Neutrx validates the local socket path and skips DNS, SSRF, private-IP, HTTPS, and egress-policy network checks for the synthetic URL host. Treat `socketPath` as trusted local configuration and never derive it from user-controlled input.
 
 `idempotencyKey` sets the `Idempotency-Key` header. For `POST` and `PATCH`, it also marks the request as retryable when the error/status is otherwise retryable.
 
@@ -145,7 +194,9 @@ Adapter fields:
 - `adapter: 'http'`: Node HTTP/HTTPS adapter.
 - `adapter: 'fetch'`: native `globalThis.fetch`.
 - `adapter: 'http2'`: HTTP/2 adapter.
-- `adapter: config => RawHttpResponse`: custom adapter.
+- `adapter: (config: NeutrxRequestConfig) => RawHttpResponse`: custom adapter.
+
+Adapters are transport functions only. Neutrx runs request/response interceptors, retries, circuit breaker, cache, metrics, parsing, redaction, and redirect policy around the selected adapter, so instance-level and per-request adapter swaps do not change user request code.
 
 HTTP/2 options:
 

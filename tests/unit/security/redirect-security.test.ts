@@ -3,8 +3,8 @@ import test from 'node:test';
 import type * as SecurityModule from '../../../src/security/SecurityManager.js';
 import type * as RedirectModule from '../../../src/core/redirect.js';
 
-const securityEntry = '../../../../dist/esm/security/SecurityManager.js';
-const redirectEntry = '../../../../dist/esm/core/redirect.js';
+const securityEntry = '../../../../dist/security/SecurityManager.mjs';
+const redirectEntry = '../../../../dist/core/redirect.mjs';
 
 void test('SecurityManager blocks protocol downgrade and private redirects', async () => {
     const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;

@@ -57,6 +57,7 @@ function reportProgress(
         ...(direction === 'upload' ? { upload: true as const } : { download: true as const }),
         ...(total !== undefined ? { total } : {}),
         ...(total !== undefined && total > 0 ? { percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))) } : {}),
+        ...(total !== undefined && total > 0 ? { progress: Math.min(1, Number((loaded / total).toFixed(4))) } : {}),
         ...(total !== undefined && rate > 0 ? { estimated: Number(((Math.max(0, total - loaded)) / rate).toFixed(3)) } : {}),
     };
     stateMap.set(config, { loaded, timestamp: now });

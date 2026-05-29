@@ -9,7 +9,7 @@ Use built-in adapters for security-sensitive traffic whenever possible.
 A custom adapter must:
 
 - Use `config.url` exactly as passed unless it returns control to Neutrx for redirects.
-- Not follow redirects internally.
+- Not follow redirects internally; return the redirect response so Neutrx can apply redirect policy.
 - Not add credentials to cross-origin redirects.
 - Not bypass `config.signal`, `config.timeout`, `maxBodyLength`, or `maxContentLength` semantics without documenting why.
 - Preserve `config` on the returned `RawHttpResponse`.
@@ -42,7 +42,7 @@ The wrapper rejects:
 - A response whose `response.config.url` differs from the request URL.
 - Redirect responses with a `Location` header unless `allowRedirectResponses` is set.
 
-This wrapper does not make a custom adapter equivalent to Neutrx's Node HTTP adapter. DNS pinning, TLS policy, proxy safety, and redirect-chain validation must still be implemented by the adapter or avoided by using built-in adapters.
+This wrapper does not make a custom adapter equivalent to Neutrx's Node HTTP adapter. DNS pinning, TLS policy, and proxy safety must still be implemented by the adapter or avoided by using built-in adapters.
 
 ## When Not To Use A Custom Adapter
 

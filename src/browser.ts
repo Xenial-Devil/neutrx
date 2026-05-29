@@ -26,7 +26,7 @@ export {
 export { default as BrowserClient, default as NeutrxClient } from './core/BrowserClient.js';
 export { Cancel, CancelToken, isCancel } from './core/cancel.js';
 export { NeutrxHeaders } from './core/headers.js';
-export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
+export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/BrowserNeutrx.js';
 export type {
@@ -51,6 +51,8 @@ export type {
     FormSerializerOptions,
     GraphQLResult,
     Headers,
+    HeaderSource,
+    InternalHeaders,
     Http2Options,
     Http2SessionStats,
     HttpMethod,
@@ -63,7 +65,15 @@ export type {
     MockResponse,
     MaxRate,
     MaybePromise,
+    NeutrxAdapter,
+    NeutrxLogger,
+    NeutrxLogValue,
+    NeutrxRequestConfig,
     NeutrxResponse,
+    NeutrxWebSocketMessage,
+    NeutrxWebSocketOptions,
+    NeutrxWebSocketReconnectOptions,
+    NeutrxWSConnection,
     OAuth2Config,
     ParseJson,
     PaginationOptions,
@@ -72,6 +82,7 @@ export type {
     PerformanceConfig,
     ProgressEvent,
     QueryParams,
+    RawHttpResponse,
     RequestBody,
     RequestConfig,
     RequestAdapter,
@@ -93,6 +104,7 @@ export type {
     ServiceResolverContext,
     StringifyJson,
     TlsConfig,
+    TransitionalConfig,
     TransformRequest,
     TransformResponse,
     ValidationFailure,

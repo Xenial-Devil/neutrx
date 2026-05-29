@@ -1,6 +1,6 @@
-import Neutrx from '../dist/esm/index.js';
-import { parseResponseData } from '../dist/esm/core/responseParser.js';
-import { serializeBody } from '../dist/esm/core/bodySerializer.js';
+import Neutrx from '../dist/index.mjs';
+import { parseResponseData } from '../dist/core/responseParser.mjs';
+import { serializeBody } from '../dist/core/bodySerializer.mjs';
 import { runSuite } from './runner.js';
 import { makeFetch, makeJsonPayload, makeNestedPayload, makeParams, withEchoServer } from './fixtures/payloads.js';
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type * as PackageEntry from '../../../src/index.js';
 
-const builtEntry = '../../../../dist/esm/index.js';
+const builtEntry = '../../../../dist/index.mjs';
 
 type OTelGlobal = typeof globalThis & { __NEUTRX_OTEL_API__?: unknown };
 type SpanStatus = { readonly code: number; readonly message?: string };

@@ -5,7 +5,7 @@ const ITERATIONS = Number.parseInt(process.env.BENCH_ITERATIONS ?? '1000', 10);
 const CONCURRENCY = Number.parseInt(process.env.BENCH_CONCURRENCY ?? '50', 10);
 const LARGE_SIZE = Number.parseInt(process.env.BENCH_LARGE_SIZE ?? String(1024 * 1024), 10);
 
-const { default: neutrx } = await import('../dist/esm/index.js');
+const { default: neutrx } = await import('../dist/index.mjs');
 
 const server = http.createServer((request, response) => {
   const chunks = [];

@@ -29,6 +29,7 @@ const id = api.interceptors.request.use(config => ({
 });
 
 api.interceptors.request.eject(id);
+api.interceptors.request.clear();
 api.interceptors.response.clear();
 ```
 
@@ -53,7 +54,7 @@ const api = neutrx.create({
 
 | Previous pattern | Neutrx behavior |
 | --- | --- |
-| Broad runtime compatibility | Node.js >=22 only; browser entry is secondary |
+| Broad runtime compatibility | Node.js >=18; browser entry is secondary |
 | Retrying unsafe methods by default | Retries idempotent methods by default |
 | Local addresses allowed by default | Blocked by stronger SSRF profiles |
 | Raw error serialization | `NeutrxError.toJSON()` redacts secrets |

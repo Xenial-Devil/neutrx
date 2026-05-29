@@ -35,6 +35,20 @@ const api = neutrx.create({
 });
 ```
 
+## Unix Sockets
+
+Use `socketPath` only for trusted local services:
+
+```ts
+const docker = neutrx.create({
+  baseURL: 'http://docker',
+  socketPath: '/var/run/docker.sock',
+  proxy: false,
+});
+```
+
+With `socketPath`, Neutrx connects to the absolute local socket path and uses the URL host only as the HTTP `Host` header. DNS, SSRF, private-IP, HTTPS, and egress-policy network checks do not apply to that synthetic host. Neutrx still rejects unsafe socket paths, proxy/socket combinations, HTTPS socket URLs, unsafe headers, and URL credentials outside `legacy`.
+
 ## Egress Policy
 
 Use `egressPolicy` when the allowed outbound network shape should be reviewable:

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type * as PackageEntry from '../../../src/index.js';
 
-const builtEntry = '../../../../dist/esm/index.js';
+const builtEntry = '../../../../dist/index.mjs';
 
 void test('CancelToken source is idempotent and exposed on root client', async () => {
     const { Cancel, CancelToken, default: neutrx, isCancel } = await import(builtEntry) as typeof PackageEntry;

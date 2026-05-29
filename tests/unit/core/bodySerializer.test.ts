@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type * as BodyModule from '../../../src/core/bodySerializer.js';
+import type * as HeadersModule from '../../../src/core/headers.js';
 
-const bodyEntry = '../../../../dist/esm/core/bodySerializer.js';
+const bodyEntry = '../../../../dist/core/bodySerializer.mjs';
+const headersEntry = '../../../../dist/core/headers.mjs';
 
 void test('body serializer converts nested objects to FormData with array policies', async () => {
     const { toFormData } = await import(bodyEntry) as typeof BodyModule;
@@ -45,4 +47,15 @@ void test('body serializer preserves pass-through bodies and safe content-types'
 
     const buffer = Buffer.from('abc');
     assert.equal(await serializeBody({ data: buffer, headers: {} }), buffer);
+});
+
+void test('body serializer honors false header sentinels for automatic content-types', async () => {
+    const { serializeBody } = await import(bodyEntry) as typeof BodyModule;
+    const { NeutrxHeaders } = await import(headersEntry) as typeof HeadersModule;
+    const headers = new NeutrxHeaders({ 'Content-Type': false });
+
+    assert.equal(await serializeBody({ data: { ok: true }, headers }), '{"ok":true}');
+    assert.equal(headers.has('content-type'), true);
+    assert.equal(headers.get('content-type'), false);
+    assert.deepEqual(headers.toJSON(), {});
 });

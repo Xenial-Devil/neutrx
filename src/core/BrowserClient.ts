@@ -9,9 +9,12 @@ import {
     NeutrxResponseSizeError,
     NeutrxResponseTimeoutError,
     NeutrxSecurityError,
+    axiosTimeoutErrorCode,
 } from './NeutrxError.js';
 import { abortError, abortReason, mergeCancellationSignal } from './cancel.js';
 import { resolveServiceEndpoint, type ServiceDiscoveryState } from './config.js';
+import { createMutableDefaults, defaultsToConfig, type NeutrxDefaults } from './defaults.js';
+import { NeutrxHeaders, assertHeadersSafe, getHeader, hasHeader, headerToString } from './headers.js';
 import type {
     AuthConfig,
     BulkheadStats,
@@ -23,12 +26,18 @@ import type {
     EgressPolicyAudit,
     FetchCredentials,
     GraphQLResult,
+    HeaderSource,
     Headers,
     HttpMethod,
+    InternalHeaders,
+    InstrumentationConfig,
     InternalRequestConfig,
     JsonValue,
     MockController,
+    NeutrxLogger,
     NeutrxResponse,
+    NeutrxWebSocketOptions,
+    NeutrxWSConnection,
     NormalizedClientConfig,
     OAuth2Config,
     ParseJson,
@@ -52,13 +61,12 @@ import type {
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const MAX_URL_LENGTH = 2048;
-const MAX_HEADER_SIZE = 8192;
-const MAX_HEADER_COUNT = 100;
 const MAX_OBJECT_DEPTH = 10;
 
 type BodylessRequestConfig = Omit<RequestConfig, 'url' | 'method' | 'data'>;
 type BodyRequestConfig<TBody extends RequestBody> = Omit<RequestConfig<TBody>, 'url' | 'method' | 'data'>;
-type RuntimeRequestConfig = InternalRequestConfig & { headers: Headers };
+type RuntimeRequestConfig = InternalRequestConfig & { headers: InternalHeaders };
+type BeforeRequestResult = Omit<InternalRequestConfig, 'headers'> & { readonly headers: HeaderSource };
 type BrowserListener = (payload: unknown) => void;
 type FetchInit = RequestInit & { duplex?: 'half' };
 type FetchBody = NonNullable<RequestInit['body']>;
@@ -116,6 +124,9 @@ export default class BrowserClient extends TinyEmitter {
         options?: { readonly operationName?: string; readonly headers?: Headers }
     ) => Promise<GraphQLResult<TData>>;
     mock?: MockController;
+    ws?: (url: string, options?: NeutrxWebSocketOptions) => NeutrxWSConnection;
+    logger: NeutrxLogger | undefined = undefined;
+    readonly defaults: NeutrxDefaults;
     readonly interceptors: NeutrxInterceptors;
 
     #config: NormalizedClientConfig;
@@ -126,12 +137,13 @@ export default class BrowserClient extends TinyEmitter {
     #cache: BrowserCache;
     #metrics = new BrowserMetrics();
     #plugins: PluginManager;
-    #defaultHeaders: Headers;
+    #defaultHeaders: InternalHeaders;
     #serviceDiscovery: ServiceDiscoveryState = { counters: new Map<string, number>() };
 
     constructor(config: ClientConfig = {}) {
         super();
         this.#config = this.#buildConfig(config);
+        this.defaults = createMutableDefaults(this.#config);
         this.#circuitBreaker = new CircuitBreaker(this.#config.resilience);
         this.#retryEngine = new RetryEngine(this.#config.resilience);
         this.#bulkhead = new Bulkhead(this.#config.resilience);
@@ -265,7 +277,16 @@ export default class BrowserClient extends TinyEmitter {
         };
 
         const workers = Array.from({ length: Math.min(limit, requests.length) }, () => worker());
-        await Promise.race([Promise.all(workers), rejectAfter(timeout, 'concurrent timeout')]);
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutHandle = setTimeout(() => reject(new Error('concurrent timeout')), timeout);
+        });
+
+        try {
+            await Promise.race([Promise.all(workers), timeoutPromise]);
+        } finally {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+        }
         return { results, errors, completed };
     }
 
@@ -378,10 +399,10 @@ export default class BrowserClient extends TinyEmitter {
             let rc: InternalRequestConfig = await this.#buildRC(config, requestId);
             trackedUrl = rc.url;
 
-            rc = await this.#plugins.runHook('beforeRequest', rc);
+            rc = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', rc));
             if (rc.mockResponse) return rc.mockResponse as NeutrxResponse<TData>;
 
-            rc = this.#validateRequest(rc);
+            rc = toInternalRequestConfig(this.#validateRequest(rc));
 
             if (rc.method === 'GET' && rc.cache !== false) {
                 const hit = this.#cache.get(rc);
@@ -392,7 +413,7 @@ export default class BrowserClient extends TinyEmitter {
                 }
             }
 
-            rc = await this.#interceptors.runRequest(rc);
+            rc = toInternalRequestConfig(await this.#interceptors.runRequest(rc));
             await this.#circuitBreaker.canRequest(rc.url);
             circuitChecked = true;
 
@@ -455,16 +476,18 @@ export default class BrowserClient extends TinyEmitter {
     setBaseURL(url: string): this {
         this.#validateURL(url);
         this.#config = { ...this.#config, baseURL: url };
+        this.defaults.baseURL = url;
         return this;
     }
 
     setTimeout(ms: number): this {
         this.#config = { ...this.#config, timeout: ms };
+        this.defaults.timeout = ms;
         return this;
     }
 
     clearAuth(): this {
-        delete this.#defaultHeaders.Authorization;
+        this.#defaultHeaders.delete('Authorization');
         return this;
     }
 
@@ -480,22 +503,22 @@ export default class BrowserClient extends TinyEmitter {
 
     setHeader(key: string, value: Headers[string]): this {
         this.#validateHeaders({ [key]: value });
-        this.#defaultHeaders[key] = value;
+        this.#defaultHeaders.set(key, value);
         return this;
     }
 
     removeHeader(key: string): this {
-        delete this.#defaultHeaders[key];
+        this.#defaultHeaders.delete(key);
         return this;
     }
 
     setAuth(auth: AuthConfig): this {
         if (auth.bearer) {
-            this.#defaultHeaders.Authorization = `Bearer ${auth.bearer}`;
+            this.#defaultHeaders.setBearerAuth(auth.bearer);
         } else if (auth.basic) {
-            this.#defaultHeaders.Authorization = `Basic ${base64(`${auth.basic.username}:${auth.basic.password}`)}`;
+            this.#defaultHeaders.setAuthorization(`Basic ${base64(`${auth.basic.username}:${auth.basic.password}`)}`);
         } else if (auth.apiKey) {
-            this.#defaultHeaders[auth.apiKey.header ?? 'X-Api-Key'] = auth.apiKey.key;
+            this.#defaultHeaders.set(auth.apiKey.header ?? 'X-Api-Key', auth.apiKey.key);
         }
         return this;
     }
@@ -530,18 +553,38 @@ export default class BrowserClient extends TinyEmitter {
         throw new NeutrxSecurityError('Request signing is Node-only unless a Web Crypto signer is provided', { code: 'NODE_ONLY_FEATURE' });
     }
 
+    setLogger(logger: NeutrxLogger | undefined): this {
+        this.logger = logger;
+        return this;
+    }
+
+    enableOpenTelemetry(config: InstrumentationConfig = {}): this {
+        const instrumentation = {
+            ...this.#config.instrumentation,
+            openTelemetry: true,
+            propagateTraceHeaders: true,
+            ...config,
+        };
+        this.#config = {
+            ...this.#config,
+            instrumentation,
+        };
+        this.defaults.instrumentation = instrumentation;
+        return this;
+    }
+
     use(plugin: NeutrxPlugin): this {
         this.#plugins.use(plugin);
         return this;
     }
 
-    addPluginHook(name: 'beforeRequest', hook: (context: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>): void;
+    addPluginHook(name: 'beforeRequest', hook: (context: InternalRequestConfig) => BeforeRequestResult | Promise<BeforeRequestResult>): void;
     addPluginHook(name: 'afterRequest', hook: (context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>): void;
     addPluginHook(name: 'onError', hook: (context: Error) => Error | Promise<Error>): void;
     addPluginHook(
         name: 'beforeRequest' | 'afterRequest' | 'onError',
         hook:
-            | ((context: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>)
+            | ((context: InternalRequestConfig) => BeforeRequestResult | Promise<BeforeRequestResult>)
             | ((context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>)
             | ((context: Error) => Error | Promise<Error>)
     ): void {
@@ -573,11 +616,12 @@ export default class BrowserClient extends TinyEmitter {
     }
 
     getUri(config: string | RequestConfig): string {
-        return this.#buildURL(typeof config === 'string' ? { url: config } : config);
+        const requestConfig = typeof config === 'string' ? { url: config } : config;
+        return this.#buildURL(requestConfig, this.#configWithDefaults(requestConfig.method));
     }
 
     create(config: ClientConfig = {}): BrowserClient {
-        return new BrowserClient(mergeConfig(this.#config, config));
+        return new BrowserClient(mergeConfig(this.#configWithDefaults(), config));
     }
 
     destroy(): void {
@@ -601,12 +645,14 @@ export default class BrowserClient extends TinyEmitter {
             throw new NeutrxSecurityError('Fetch adapter requires globalThis.fetch', { code: 'FETCH_UNAVAILABLE' });
         }
 
-        const runtimeConfig: RuntimeRequestConfig = { ...config, headers: { ...config.headers } };
+        const runtimeConfig: RuntimeRequestConfig = { ...config, headers: toInternalHeaders(config.headers) };
         const body = bodyless(runtimeConfig.method) ? undefined : toFetchBody(runtimeConfig);
         injectXsrfHeader(runtimeConfig);
         const headers = toFetchHeaders(runtimeConfig.headers);
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(new NeutrxResponseTimeoutError(runtimeConfig.url, runtimeConfig.timeout)), runtimeConfig.timeout);
+        const timeout = setTimeout(() => controller.abort(new NeutrxResponseTimeoutError(runtimeConfig.url, runtimeConfig.timeout, {
+            code: axiosTimeoutErrorCode(runtimeConfig.transitional),
+        })), runtimeConfig.timeout);
         const abort = (): void => controller.abort(runtimeConfig.signal ? abortReason(runtimeConfig.signal) : undefined);
         if (runtimeConfig.signal?.aborted) {
             abort();
@@ -627,15 +673,13 @@ export default class BrowserClient extends TinyEmitter {
 
             const response = await fetchImpl(runtimeConfig.url, init);
             const total = contentLength(response.headers);
-            const data = runtimeConfig.responseType === 'stream'
-                ? response.body
-                : await readResponseData(response, runtimeConfig, total);
+            const data = await readResponseData(response, runtimeConfig, total);
 
             return {
                 status: response.status,
                 statusText: response.statusText,
                 headers: fromFetchHeaders(response.headers),
-                data: data as RawHttpResponse['data'],
+                data,
                 config: runtimeConfig,
             } satisfies RawHttpResponse;
         } catch (error: unknown) {
@@ -672,64 +716,67 @@ export default class BrowserClient extends TinyEmitter {
 
     async #buildRC<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): Promise<InternalRequestConfig<TBody>> {
         const method = normalizeMethod(config.method ?? 'GET');
-        const idempotencyKey = this.#resolveIdempotencyKey(config, requestId);
-        const idempotencyKeyHeader = config.idempotencyKeyHeader ?? this.#config.idempotencyKeyHeader ?? 'Idempotency-Key';
-        const headers = this.#buildHeaders(config, requestId, idempotencyKey, idempotencyKeyHeader);
-        const serviceEndpoint = await resolveServiceEndpoint(config, this.#config, method, this.#serviceDiscovery);
+        const defaults = this.#configWithDefaults(method);
+        const idempotencyKey = this.#resolveIdempotencyKey(config, requestId, defaults);
+        const idempotencyKeyHeader = config.idempotencyKeyHeader ?? defaults.idempotencyKeyHeader ?? 'Idempotency-Key';
+        const headers = this.#buildHeaders(config, defaults, requestId, idempotencyKey, idempotencyKeyHeader);
+        const serviceEndpoint = await resolveServiceEndpoint(config, defaults, method, this.#serviceDiscovery);
         const urlConfig = serviceEndpoint ? { ...config, baseURL: serviceEndpoint.url } : config;
         const transformedData = applyRequestTransforms(
             config.data,
             headers,
-            mergeTransformRequest(this.#config.transformRequest, config.transformRequest)
+            mergeTransformRequest(defaults.transformRequest, config.transformRequest)
         );
         const signal = mergeCancellationSignal(config.signal, config.cancelToken);
 
         if (transformedData !== undefined && !hasHeader(headers, 'Content-Type')) {
             const contentType = detectContentType(transformedData);
-            if (contentType) headers['Content-Type'] = contentType;
+            if (contentType) headers.setContentType(contentType);
         }
 
         const xsrfCookieName = config.xsrfCookieName !== undefined
             ? config.xsrfCookieName
-            : this.#config.xsrfCookieName !== undefined ? this.#config.xsrfCookieName : 'XSRF-TOKEN';
+            : defaults.xsrfCookieName !== undefined ? defaults.xsrfCookieName : 'XSRF-TOKEN';
         const xsrfHeaderName = config.xsrfHeaderName !== undefined
             ? config.xsrfHeaderName
-            : this.#config.xsrfHeaderName !== undefined ? this.#config.xsrfHeaderName : 'X-XSRF-TOKEN';
+            : defaults.xsrfHeaderName !== undefined ? defaults.xsrfHeaderName : 'X-XSRF-TOKEN';
         const requestConfig = {
             ...config,
-            url: this.#buildURL(urlConfig),
+            url: this.#buildURL(urlConfig, defaults),
             method,
             headers,
-            timeout: config.timeout ?? this.#config.timeout,
-            connectTimeout: config.connectTimeout ?? this.#config.connectTimeout,
-            maxRedirects: config.maxRedirects ?? this.#config.maxRedirects,
-            maxContentLength: config.maxContentLength ?? this.#config.maxContentLength,
-            maxBodyLength: config.maxBodyLength ?? this.#config.maxBodyLength,
+            allowAbsoluteUrls: config.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls,
+            timeout: config.timeout ?? defaults.timeout,
+            connectTimeout: config.connectTimeout ?? defaults.connectTimeout,
+            maxRedirects: config.maxRedirects ?? defaults.maxRedirects,
+            maxContentLength: config.maxContentLength ?? defaults.maxContentLength,
+            maxBodyLength: config.maxBodyLength ?? defaults.maxBodyLength,
             responseType: config.responseType ?? 'json',
-            responseEncoding: config.responseEncoding ?? 'utf8',
-            validateStatus: config.validateStatus ?? this.#config.validateStatus,
-            paramsSerializer: config.paramsSerializer ?? this.#config.paramsSerializer,
-            formSerializer: config.formSerializer ?? this.#config.formSerializer,
-            transformRequest: mergeTransformRequest(this.#config.transformRequest, config.transformRequest),
-            transformResponse: mergeTransformResponse(this.#config.transformResponse, config.transformResponse),
-            parseJson: config.parseJson ?? this.#config.parseJson,
-            stringifyJson: config.stringifyJson ?? this.#config.stringifyJson,
-            throwHttpErrors: config.throwHttpErrors ?? this.#config.throwHttpErrors,
-            adapter: config.adapter ?? this.#config.adapter,
-            fetch: config.fetch ?? this.#config.fetch,
-            httpVersion: config.httpVersion ?? this.#config.httpVersion,
-            http2Options: config.http2Options ?? this.#config.http2Options,
-            serviceDiscovery: config.serviceDiscovery ?? this.#config.serviceDiscovery,
+            responseEncoding: config.responseEncoding ?? defaults.responseEncoding,
+            validateStatus: config.validateStatus ?? defaults.validateStatus,
+            paramsSerializer: config.paramsSerializer ?? defaults.paramsSerializer,
+            formSerializer: config.formSerializer ?? defaults.formSerializer,
+            transformRequest: mergeTransformRequest(defaults.transformRequest, config.transformRequest),
+            transformResponse: mergeTransformResponse(defaults.transformResponse, config.transformResponse),
+            parseJson: config.parseJson ?? defaults.parseJson,
+            stringifyJson: config.stringifyJson ?? defaults.stringifyJson,
+            throwHttpErrors: config.throwHttpErrors ?? defaults.throwHttpErrors,
+            adapter: config.adapter ?? defaults.adapter,
+            fetch: config.fetch ?? defaults.fetch,
+            httpVersion: config.httpVersion ?? defaults.httpVersion,
+            http2Options: config.http2Options ?? defaults.http2Options,
+            serviceDiscovery: config.serviceDiscovery ?? defaults.serviceDiscovery,
             ...(serviceEndpoint ? { serviceEndpoint } : {}),
-            withCredentials: config.withCredentials ?? this.#config.withCredentials,
-            credentials: config.credentials ?? this.#config.credentials,
+            withCredentials: config.withCredentials ?? defaults.withCredentials,
+            credentials: config.credentials ?? defaults.credentials,
             xsrfCookieName,
             xsrfHeaderName,
-            withXSRFToken: config.withXSRFToken ?? this.#config.withXSRFToken,
-            instrumentation: config.instrumentation ?? this.#config.instrumentation,
+            withXSRFToken: config.withXSRFToken ?? defaults.withXSRFToken,
+            instrumentation: config.instrumentation ?? defaults.instrumentation,
             proxy: false,
             decompress: false,
-            maxRate: config.maxRate ?? this.#config.maxRate,
+            maxRate: config.maxRate ?? defaults.maxRate,
+            transitional: { ...defaults.transitional, ...(config.transitional ?? {}) },
             followRedirects: config.followRedirects !== false,
             ...(signal ? { signal } : {}),
             requestId,
@@ -749,16 +796,20 @@ export default class BrowserClient extends TinyEmitter {
         return requestConfig as InternalRequestConfig<TBody>;
     }
 
-    #buildURL(config: RequestConfig): string {
+    #buildURL(config: RequestConfig, defaults: NormalizedClientConfig = this.#configWithDefaults(config.method)): string {
         let url = config.url;
-        if (!/^https?:\/\//i.test(url)) {
-            const base = config.baseURL ?? this.#config.baseURL ?? '';
-            url = `${base.endsWith('/') ? base.slice(0, -1) : base}${url.startsWith('/') ? url : `/${url}`}`;
+        const isAbsoluteURL = /^https?:\/\//i.test(url);
+        const allowAbsoluteUrls = config.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls;
+        if (!isAbsoluteURL || allowAbsoluteUrls === false) {
+            const base = config.baseURL ?? defaults.baseURL ?? '';
+            if (base) {
+                url = `${base.endsWith('/') ? base.slice(0, -1) : base}${url.startsWith('/') ? url : `/${url}`}`;
+            }
         }
 
         if (config.params && Object.keys(config.params).length > 0) {
             const parsed = new URL(url);
-            const serializer = config.paramsSerializer ?? this.#config.paramsSerializer;
+            const serializer = config.paramsSerializer ?? defaults.paramsSerializer;
             const serialized = serializeParams(config.params, serializer);
             if (serialized) parsed.search = serialized.startsWith('?') ? serialized.slice(1) : serialized;
             url = parsed.toString();
@@ -769,24 +820,25 @@ export default class BrowserClient extends TinyEmitter {
 
     #buildHeaders<TBody extends RequestBody>(
         config: RequestConfig<TBody>,
+        defaults: NormalizedClientConfig,
         requestId: string,
         idempotencyKey?: string,
         idempotencyKeyHeader = 'Idempotency-Key'
-    ): Headers {
-        const headers: Headers = {
-            ...this.#defaultHeaders,
-            ...(this.#config.headers ?? {}),
-            ...(config.headers ?? {}),
-            'X-Request-ID': requestId,
-        };
-        if (idempotencyKey) headers[idempotencyKeyHeader] = idempotencyKey;
-        const auth = config.auth ?? this.#config.auth;
-        if (auth) headers.Authorization = `Basic ${base64(`${auth.username}:${auth.password}`)}`;
-        return headers;
+    ): InternalHeaders {
+        const headers = NeutrxHeaders.concat(this.#defaultHeaders, defaults.headers, config.headers);
+        headers.setIfNotBlocked('X-Request-ID', requestId);
+        if (idempotencyKey) headers.setIfNotBlocked(idempotencyKeyHeader, idempotencyKey);
+        const auth = config.auth ?? defaults.auth;
+        if (auth) headers.setIfNotBlocked('Authorization', `Basic ${base64(`${auth.username}:${auth.password}`)}`);
+        return toInternalHeaders(headers);
     }
 
-    #resolveIdempotencyKey<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): string | undefined {
-        const key = config.idempotencyKey ?? this.#config.idempotencyKey;
+    #resolveIdempotencyKey<TBody extends RequestBody>(
+        config: RequestConfig<TBody>,
+        requestId: string,
+        defaults: NormalizedClientConfig
+    ): string | undefined {
+        const key = config.idempotencyKey ?? defaults.idempotencyKey;
         if (key === undefined) return undefined;
         const resolved = key === true ? requestId : typeof key === 'function' ? key() : key;
         if (!resolved || /[\r\n]/.test(resolved)) {
@@ -795,10 +847,14 @@ export default class BrowserClient extends TinyEmitter {
         return resolved;
     }
 
-    #buildDefaultHeaders(): Headers {
-        return {
+    #configWithDefaults(method?: HttpMethod | Lowercase<HttpMethod>): NormalizedClientConfig {
+        return this.#buildConfig(mergeConfig(this.#config, defaultsToConfig(this.defaults, method, { rejectUnsafe: true })));
+    }
+
+    #buildDefaultHeaders(): InternalHeaders {
+        return toInternalHeaders({
             Accept: 'application/json, text/plain, */*',
-        };
+        });
     }
 
     #validateRequest<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {
@@ -844,44 +900,26 @@ export default class BrowserClient extends TinyEmitter {
         return parsed;
     }
 
-    #validateHeaders(headers: Headers): void {
-        const entries = Object.entries(headers);
-        if (entries.length > MAX_HEADER_COUNT) {
-            throw new NeutrxSecurityError(`Too many headers: ${entries.length}`, { code: 'TOO_MANY_HEADERS' });
-        }
-
-        let totalSize = 0;
-        for (const [key, value] of entries) {
-            if (!/^[a-zA-Z0-9\-_]+$/.test(key) || DANGEROUS_KEYS.has(key.toLowerCase())) {
-                throw new NeutrxSecurityError(`Invalid header name: ${key}`, { code: 'INVALID_HEADER' });
-            }
-
-            const rendered = Array.isArray(value) ? value.join(',') : String(value);
-            if (/[\r\n]/.test(`${key}${rendered}`)) {
-                throw new NeutrxSecurityError(`Header injection detected: ${key}`, { code: 'HEADER_INJECTION' });
-            }
-
-            totalSize += key.length + rendered.length;
-            if (totalSize > MAX_HEADER_SIZE) {
-                throw new NeutrxSecurityError('Headers too large', { code: 'HEADERS_TOO_LARGE' });
-            }
-        }
+    #validateHeaders(headers: Headers | NeutrxHeaders): void {
+        assertHeadersSafe(headers);
     }
 
     #buildConfig(custom: ClientConfig): NormalizedClientConfig {
         const securityProfile = normalizeSecurityProfile(custom.security?.profile);
         return {
+            allowAbsoluteUrls: custom.allowAbsoluteUrls ?? true,
             timeout: custom.timeout ?? 30_000,
             connectTimeout: custom.connectTimeout ?? custom.timeout ?? 30_000,
             maxRedirects: custom.maxRedirects ?? 5,
             maxContentLength: custom.maxContentLength ?? 10 * 1024 * 1024,
             maxBodyLength: custom.maxBodyLength ?? 10 * 1024 * 1024,
+            responseEncoding: custom.responseEncoding ?? 'utf8',
             validateStatus: custom.validateStatus ?? ((status): boolean => status >= 200 && status < 300),
             throwHttpErrors: custom.throwHttpErrors ?? true,
             decompress: false,
             ...(custom.maxRate !== undefined ? { maxRate: custom.maxRate } : {}),
             ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
-            ...(custom.headers ? { headers: custom.headers } : {}),
+            ...(custom.headers ? { headers: NeutrxHeaders.from(custom.headers) } : {}),
             ...(custom.auth ? { auth: custom.auth } : {}),
             ...(custom.idempotencyKey !== undefined ? { idempotencyKey: custom.idempotencyKey } : {}),
             ...(custom.idempotencyKeyHeader ? { idempotencyKeyHeader: custom.idempotencyKeyHeader } : {}),
@@ -901,6 +939,10 @@ export default class BrowserClient extends TinyEmitter {
             ...(custom.withXSRFToken !== undefined ? { withXSRFToken: custom.withXSRFToken } : {}),
             ...(custom.instrumentation ? { instrumentation: custom.instrumentation } : {}),
             proxy: false,
+            ...(custom.beforeRedirect ? { beforeRedirect: custom.beforeRedirect } : {}),
+            transitional: {
+                clarifyTimeoutError: custom.transitional?.clarifyTimeoutError ?? false,
+            },
             security: {
                 profile: securityProfile,
                 allowedProtocols: custom.security?.allowedProtocols ?? ['http', 'https'],
@@ -1245,7 +1287,7 @@ function mergeTransformResponse(
 
 function applyRequestTransforms(
     data: RequestBody | undefined,
-    headers: Headers,
+    headers: InternalHeaders,
     transforms?: readonly TransformRequest[]
 ): RequestBody | undefined {
     return (transforms ?? []).reduce<RequestBody | undefined>((current, transform) => transform(current, headers), data);
@@ -1304,43 +1346,43 @@ function toFetchBody(config: RuntimeRequestConfig): FetchBody | undefined {
     const data = config.data;
     if (data === undefined) return undefined;
     if (typeof data === 'string') {
-        reportUploadProgress(config, byteLength(data), byteLength(data));
+        reportKnownUploadProgress(config, byteLength(data));
         return data;
     }
     if (data instanceof ArrayBuffer) {
-        reportUploadProgress(config, data.byteLength, data.byteLength);
+        reportKnownUploadProgress(config, data.byteLength);
         return data;
     }
     if (ArrayBuffer.isView(data)) {
-        reportUploadProgress(config, data.byteLength, data.byteLength);
+        reportKnownUploadProgress(config, data.byteLength);
         return data;
     }
     if (data instanceof URLSearchParams) {
         const rendered = data.toString();
-        reportUploadProgress(config, byteLength(rendered), byteLength(rendered));
+        reportKnownUploadProgress(config, byteLength(rendered));
         return data;
     }
     if (isBlobLike(data)) {
-        reportUploadProgress(config, data.size, data.size);
+        reportKnownUploadProgress(config, data.size);
         return data;
     }
     if (isFormDataLike(data)) return data;
-    if (isStreamLike(data)) return data as FetchBody;
+    if (isStreamLike(data)) return trackReadableStreamUploadProgress(data, config, requestContentLength(config.headers)) as FetchBody;
 
     if (isUrlEncodedRequest(config.headers) && isPlainBodyRecord(data)) {
         const rendered = toUrlEncodedBody(data).toString();
-        reportUploadProgress(config, byteLength(rendered), byteLength(rendered));
+        reportKnownUploadProgress(config, byteLength(rendered));
         return rendered as FetchBody;
     }
 
     const rendered = (config.stringifyJson ?? JSON.stringify)(data);
-    reportUploadProgress(config, byteLength(rendered), byteLength(rendered));
+    reportKnownUploadProgress(config, byteLength(rendered));
     return rendered as FetchBody;
 }
 
-function toFetchHeaders(headers: Headers): globalThis.Headers {
+function toFetchHeaders(headers: Headers | NeutrxHeaders): globalThis.Headers {
     const next = new globalThis.Headers();
-    for (const [key, value] of Object.entries(headers)) next.set(key, Array.isArray(value) ? value.join(', ') : String(value));
+    for (const [key, value] of Object.entries(NeutrxHeaders.from(headers).toJSON())) next.set(key, Array.isArray(value) ? value.join(', ') : String(value));
     return next;
 }
 
@@ -1351,7 +1393,7 @@ function injectXsrfHeader(config: RuntimeRequestConfig): void {
         : config.withXSRFToken === true || (config.withXSRFToken !== false && isSameOrigin(config.url));
     if (!shouldInject) return;
     const token = readCookie(config.xsrfCookieName);
-    if (token) config.headers[config.xsrfHeaderName] = token;
+    if (token) config.headers.setIfNotBlocked(config.xsrfHeaderName, token);
 }
 
 function credentialsFor(withCredentials: boolean | undefined, credentials: RuntimeRequestConfig['credentials']): FetchCredentials {
@@ -1364,10 +1406,7 @@ function credentialsFor(withCredentials: boolean | undefined, credentials: Runti
 function withUrlEncodedHeaders<TBody extends RequestBody>(config: BodyRequestConfig<TBody>): BodyRequestConfig<TBody> {
     return {
         ...config,
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
-            ...(config.headers ?? {}),
-        },
+        headers: NeutrxHeaders.concat({ 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }, config.headers),
     };
 }
 
@@ -1433,8 +1472,8 @@ function scalarToString(value: unknown): string {
     return JSON.stringify(value) ?? '';
 }
 
-function isUrlEncodedRequest(headers: Headers): boolean {
-    return headerToString(headers['Content-Type'] ?? headers['content-type']).includes('application/x-www-form-urlencoded');
+function isUrlEncodedRequest(headers: Headers | NeutrxHeaders): boolean {
+    return headerToString(getHeader(headers, 'Content-Type')).includes('application/x-www-form-urlencoded');
 }
 
 function isPlainBodyRecord(value: RequestBody): value is Record<string, unknown> {
@@ -1512,9 +1551,10 @@ function fromFetchHeaders(headers: globalThis.Headers): Headers {
 async function readResponseData(response: Response, config: RuntimeRequestConfig, total?: number): Promise<RawHttpResponse['data']> {
     if (config.responseType === 'blob' && typeof response.blob === 'function') return response.blob();
     if (config.responseType === 'formData' && typeof response.formData === 'function') return response.formData();
-    if (config.responseType === 'stream') return response.body;
+    if (config.responseType === 'stream') return trackFetchDownloadStream(response.body, config, total);
 
     if (!response.body || !config.onDownloadProgress) {
+        reportDownloadProgress(config, 0, total);
         const buffer = await response.arrayBuffer();
         if (buffer.byteLength > config.maxContentLength) throw new NeutrxResponseSizeError(buffer.byteLength, config.maxContentLength);
         reportDownloadProgress(config, buffer.byteLength, total ?? buffer.byteLength);
@@ -1649,17 +1689,6 @@ function sanitizeString(value: string): string {
     return sanitized;
 }
 
-function hasHeader(headers: Headers, key: string): boolean {
-    const lower = key.toLowerCase();
-    return Object.keys(headers).some(header => header.toLowerCase() === lower);
-}
-
-function headerToString(value: Headers[string] | undefined): string {
-    if (value == null) return '';
-    if (Array.isArray(value)) return value.join(', ');
-    return String(value);
-}
-
 function contentLength(headers: globalThis.Headers): number | undefined {
     const value = headers.get('content-length');
     if (!value) return undefined;
@@ -1678,6 +1707,52 @@ function reportUploadProgress(config: InternalRequestConfig, loaded: number, tot
 
 function reportDownloadProgress(config: InternalRequestConfig, loaded: number, total?: number): void {
     reportProgress(config, 'download', config.onDownloadProgress, loaded, total);
+}
+
+function reportKnownUploadProgress(config: InternalRequestConfig, total: number): void {
+    reportUploadProgress(config, 0, total);
+    reportUploadProgress(config, total, total);
+}
+
+function requestContentLength(headers: Headers | NeutrxHeaders): number | undefined {
+    const length = Number.parseInt(headerToString(getHeader(headers, 'Content-Length')), 10);
+    return Number.isFinite(length) && length >= 0 ? length : undefined;
+}
+
+function trackReadableStreamUploadProgress(
+    stream: ReadableStream<Uint8Array>,
+    config: InternalRequestConfig,
+    total?: number
+): ReadableStream<Uint8Array> {
+    if (!config.onUploadProgress || typeof TransformStream === 'undefined') return stream;
+
+    let loaded = 0;
+    reportUploadProgress(config, loaded, total);
+    return stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller): void {
+            loaded += chunk.byteLength;
+            reportUploadProgress(config, loaded, total);
+            controller.enqueue(chunk);
+        },
+    }));
+}
+
+function trackFetchDownloadStream(
+    stream: ReadableStream<Uint8Array> | null,
+    config: InternalRequestConfig,
+    total?: number
+): ReadableStream<Uint8Array> | null {
+    if (!stream || !config.onDownloadProgress || typeof TransformStream === 'undefined') return stream;
+
+    let loaded = 0;
+    reportDownloadProgress(config, loaded, total);
+    return stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller): void {
+            loaded += chunk.byteLength;
+            reportDownloadProgress(config, loaded, total);
+            controller.enqueue(chunk);
+        },
+    }));
 }
 
 function reportProgress(
@@ -1701,6 +1776,7 @@ function reportProgress(
         ...(direction === 'upload' ? { upload: true as const } : { download: true as const }),
         ...(total !== undefined ? { total } : {}),
         ...(total !== undefined && total > 0 ? { percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))) } : {}),
+        ...(total !== undefined && total > 0 ? { progress: Math.min(1, Number((loaded / total).toFixed(4))) } : {}),
         ...(total !== undefined && rate > 0 ? { estimated: Number(((Math.max(0, total - loaded)) / rate).toFixed(3)) } : {}),
     });
     stateMap.set(config, { loaded, timestamp: now });
@@ -1781,15 +1857,20 @@ function normalizeError(error: unknown): Error {
     return new Error(String(error));
 }
 
+function toInternalHeaders(headers: Headers | NeutrxHeaders): InternalHeaders {
+    return NeutrxHeaders.from(headers) as unknown as InternalHeaders;
+}
+
+function toInternalRequestConfig<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {
+    return {
+        ...config,
+        headers: toInternalHeaders(config.headers),
+    };
+}
+
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => {
         setTimeout(resolve, ms);
-    });
-}
-
-function rejectAfter(ms: number, message: string): Promise<never> {
-    return new Promise((_, reject) => {
-        setTimeout(() => reject(new Error(message)), ms);
     });
 }
 
@@ -1800,12 +1881,17 @@ function mergeConfig(base: NormalizedClientConfig, override: ClientConfig): Clie
     const security = overrideProfile && overrideProfile !== base.security.profile
         ? { ...override.security, profile: overrideProfile }
         : { ...base.security, ...(override.security ?? {}), ...(overrideProfile ? { profile: overrideProfile } : {}) };
+    const headers = base.headers || override.headers
+        ? NeutrxHeaders.concat(base.headers, override.headers)
+        : undefined;
 
-    return {
-        ...base,
-        ...override,
-        security,
-        resilience: { ...base.resilience, ...(override.resilience ?? {}) },
-        performance: { ...base.performance, ...(override.performance ?? {}) },
-    };
+        return {
+            ...base,
+            ...override,
+            ...(headers ? { headers } : {}),
+            security,
+            transitional: { ...base.transitional, ...(override.transitional ?? {}) },
+            resilience: { ...base.resilience, ...(override.resilience ?? {}) },
+            performance: { ...base.performance, ...(override.performance ?? {}) },
+        };
 }

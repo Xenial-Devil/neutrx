@@ -12,13 +12,14 @@ import {
     NeutrxSSRFError,
     NeutrxSecurityError,
 } from '../core/NeutrxError.js';
-import { assertHeadersSafe } from '../core/headers.js';
+import { NeutrxHeaders, assertHeadersSafe } from '../core/headers.js';
 import type {
     CertificatePinConfig,
     EgressPolicyAudit,
     EgressPolicyConfig,
     EgressPolicyMode,
     Headers,
+    InternalHeaders,
     InternalRequestConfig,
     JsonValue,
     NeutrxResponse,
@@ -115,11 +116,15 @@ export default class SecurityManager {
     }
 
     validateRequest<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {
-        this.validateURL(config.url);
-        this.validateSNI(config.url, config.tls?.servername);
+        if (config.socketPath) {
+            this.validateSocketURL(config.url);
+        } else {
+            this.validateURL(config.url);
+            this.validateSNI(config.url, config.tls?.servername);
+            this.#checkBlocklist(config.url);
+        }
         this.#validateMethod(config.method);
         this.#validateHeaders(config.headers);
-        this.#checkBlocklist(config.url);
 
         let next = config;
         if (config.data !== undefined && this.#config.sanitizeInputs) {
@@ -152,20 +157,7 @@ export default class SecurityManager {
     }
 
     validateURL(url: string): URL {
-        if (!url || typeof url !== 'string') {
-            throw new NeutrxSecurityError('URL must be a non-empty string', { code: 'INVALID_URL' });
-        }
-
-        if (url.length > MAX_URL_LENGTH) {
-            throw new NeutrxSecurityError(`URL too long: ${url.length} > ${MAX_URL_LENGTH}`, { code: 'URL_TOO_LONG' });
-        }
-
-        let parsed: URL;
-        try {
-            parsed = new URL(url);
-        } catch {
-            throw new NeutrxSecurityError(`Malformed URL: ${url}`, { code: 'MALFORMED_URL' });
-        }
+        const parsed = parseURL(url);
 
         if (!this.#config.allowedProtocols.map(protocol => `${protocol.replace(/:$/, '')}:`).includes(parsed.protocol)) {
             throw new NeutrxInjectionError('Protocol', parsed.protocol);
@@ -182,6 +174,21 @@ export default class SecurityManager {
 
         if (this.#config.enableSSRFProtection) {
             this.#validateSSRF(parsed);
+        }
+
+        this.#detectURLInjection(url);
+        return parsed;
+    }
+
+    validateSocketURL(url: string): URL {
+        const parsed = parseURL(url);
+
+        if (parsed.protocol !== 'http:') {
+            throw new NeutrxSecurityError('socketPath supports HTTP URLs only', { code: 'SOCKET_HTTP_REQUIRED' });
+        }
+
+        if ((parsed.username || parsed.password) && this.#config.profile !== 'legacy') {
+            throw new NeutrxSecurityError('Credentials in URL are blocked by security profile', { code: 'URL_CREDENTIALS_BLOCKED' });
         }
 
         this.#detectURLInjection(url);
@@ -465,25 +472,39 @@ export default class SecurityManager {
 
         return {
             ...config,
-            headers: {
-                ...config.headers,
-                'X-Neutrx-Timestamp': timestamp,
-                'X-Neutrx-Signature': signature,
-            },
+            headers: NeutrxHeaders
+                .from(config.headers)
+                .setIfNotBlocked('X-Neutrx-Timestamp', timestamp)
+                .setIfNotBlocked('X-Neutrx-Signature', signature) as unknown as InternalHeaders,
         };
     }
 
-    #injectSecurityHeaders(headers: Headers, requestId: string): Headers {
-        return {
-            ...headers,
-            'X-Request-ID': requestId,
-            'X-Content-Type-Options': 'nosniff',
-        };
+    #injectSecurityHeaders(headers: Headers | NeutrxHeaders, requestId: string): InternalHeaders {
+        return NeutrxHeaders
+            .from(headers)
+            .setIfNotBlocked('X-Request-ID', requestId)
+            .setIfNotBlocked('X-Content-Type-Options', 'nosniff') as unknown as InternalHeaders;
     }
 }
 
 function isJsonContainer(value: ParsedResponseData): value is JsonValue {
     return value !== null && typeof value === 'object' && !Buffer.isBuffer(value) && !(value instanceof URLSearchParams) && !('pipe' in value);
+}
+
+function parseURL(url: string): URL {
+    if (!url || typeof url !== 'string') {
+        throw new NeutrxSecurityError('URL must be a non-empty string', { code: 'INVALID_URL' });
+    }
+
+    if (url.length > MAX_URL_LENGTH) {
+        throw new NeutrxSecurityError(`URL too long: ${url.length} > ${MAX_URL_LENGTH}`, { code: 'URL_TOO_LONG' });
+    }
+
+    try {
+        return new URL(url);
+    } catch {
+        throw new NeutrxSecurityError(`Malformed URL: ${url}`, { code: 'MALFORMED_URL' });
+    }
 }
 
 function serializeForSignature(data: RequestBody): string {

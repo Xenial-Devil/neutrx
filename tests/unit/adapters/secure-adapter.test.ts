@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type * as PackageEntry from '../../../src/index.js';
 
-const builtEntry = '../../../../dist/esm/index.js';
+const builtEntry = '../../../../dist/index.mjs';
 
 void test('createSecureAdapter rejects custom adapter URL mutation and redirect responses', async () => {
     const { createSecureAdapter, default: Neutrx } = await import(builtEntry) as typeof PackageEntry;

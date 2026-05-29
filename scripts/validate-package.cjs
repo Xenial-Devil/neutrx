@@ -48,17 +48,12 @@ for (const target of collectExportTargets(packageJson.exports)) {
   requireFile(target, "exports target");
 }
 
-const cjsPackage = readJson("dist/cjs/package.json");
-if (cjsPackage.type !== "commonjs") {
-  failures.push("dist/cjs/package.json must set type=commonjs");
-}
-
-for (const target of ["dist/esm/browser.js", "dist/esm/core/BrowserClient.js", "dist/esm/core/BrowserNeutrx.js", "dist/esm/adapters/browser.js"]) {
+for (const target of ["dist/browser.mjs", "dist/adapters/browser.mjs"]) {
   const contents = fs.readFileSync(path.join(rootDir, target), "utf8");
   if (contents.includes("node:")) failures.push(`browser build imports Node core module: ${target}`);
 }
 
-const browserTypes = fs.readFileSync(path.join(rootDir, "dist/types/browser.d.ts"), "utf8");
+const browserTypes = fs.readFileSync(path.join(rootDir, "dist/browser.d.ts"), "utf8");
 if (browserTypes.includes("node:")) failures.push("browser types import Node core modules");
 
 if (failures.length > 0) {
@@ -67,12 +62,13 @@ if (failures.length > 0) {
 }
 
 async function validateRuntime() {
-  const nodeEsm = await import(pathToFileURL(path.join(rootDir, "dist/esm/index.js")).href);
+  const nodeEsm = await import(pathToFileURL(path.join(rootDir, normalizeTarget(packageJson.module))).href);
   assert.equal(typeof nodeEsm.default, "function");
   assert.equal(nodeEsm.VERSION, packageJson.version);
 
   const requireFromRoot = createRequire(path.join(rootDir, "package.json"));
   const cjs = requireFromRoot(path.join(rootDir, normalizeTarget(packageJson.main)));
+  assert.equal(typeof cjs, "function");
   assert.equal(typeof cjs.default, "function");
   assert.equal(cjs.VERSION, packageJson.version);
 
@@ -105,14 +101,17 @@ function validatePackList() {
     "README.md",
     "SECURITY.md",
     "THREATMODEL.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "MIGRATION_GUIDE.md",
     "CHANGELOG.md",
+    "ROADMAP.md",
     "LICENSE",
     "package.json",
     normalizeTarget(packageJson.browser),
     normalizeTarget(packageJson.main),
     normalizeTarget(packageJson.module),
     normalizeTarget(packageJson.types),
-    "dist/cjs/package.json",
   ]) {
     if (!files.has(target)) failures.push(`package tarball missing: ${target}`);
   }

@@ -1,13 +1,16 @@
 import type {
     ClientConfig,
+    HttpMethod,
     NeutrxResponse,
     ParsedResponseData,
     RequestBody,
     RequestConfig,
 } from '../types.js';
 import { Cancel, CancelToken, isCancel } from './cancel.js';
-import { NeutrxHeaders } from './headers.js';
+import { createMutableDefaults, mergeDefaults, type NeutrxDefaults } from './defaults.js';
 import NeutrxClient from './NeutrxClient.js';
+
+export type { NeutrxDefaults } from './defaults.js';
 
 type CallableRequestConfig<TBody extends RequestBody = RequestBody> = Omit<RequestConfig<TBody>, 'url'>;
 
@@ -25,7 +28,6 @@ export type NeutrxInstance = Omit<NeutrxClient, 'create'> & CallableRequest & {
     create(config?: ClientConfig): NeutrxInstance;
 };
 
-export type NeutrxDefaults = { -readonly [Key in keyof ClientConfig]?: ClientConfig[Key] };
 export type NeutrxStatic = NeutrxInstance & {
     readonly Cancel: typeof Cancel;
     readonly CancelToken: typeof CancelToken;
@@ -94,7 +96,7 @@ function createCallableClient(
     return proxy;
 }
 
-const defaults: NeutrxDefaults = {};
+const defaults = createMutableDefaults();
 const rootClient = new NeutrxClient({});
 const Neutrx: NeutrxStatic = createCallableClient(
     () => rootClient,
@@ -126,22 +128,15 @@ function mergeRequestDefaults<TBody extends RequestBody>(
     config: RequestConfig<TBody>
 ): RequestConfig<TBody> {
     if (!defaultsConfig) return config;
-    return mergeClientDefaults(defaultsConfig, config) as RequestConfig<TBody>;
+    return mergeClientDefaults(defaultsConfig, config, config.method) as RequestConfig<TBody>;
 }
 
-function mergeClientDefaults(defaultsConfig: NeutrxDefaults, config: ClientConfig): ClientConfig {
-    const headers = defaultsConfig.headers || config.headers
-        ? NeutrxHeaders.concat(defaultsConfig.headers, config.headers).toJSON()
-        : undefined;
-    return {
-        ...defaultsConfig,
-        ...config,
-        ...(headers ? { headers } : {}),
-        ...(defaultsConfig.security || config.security ? { security: { ...defaultsConfig.security, ...config.security } } : {}),
-        ...(defaultsConfig.resilience || config.resilience ? { resilience: { ...defaultsConfig.resilience, ...config.resilience } } : {}),
-        ...(defaultsConfig.performance || config.performance ? { performance: { ...defaultsConfig.performance, ...config.performance } } : {}),
-        ...(defaultsConfig.instrumentation || config.instrumentation ? { instrumentation: { ...defaultsConfig.instrumentation, ...config.instrumentation } } : {}),
-    };
+function mergeClientDefaults(
+    defaultsConfig: NeutrxDefaults,
+    config: ClientConfig,
+    method?: HttpMethod | Lowercase<HttpMethod>
+): ClientConfig {
+    return mergeDefaults(defaultsConfig, config, method);
 }
 
 function invokeWithDefaults(
@@ -160,10 +155,10 @@ function invokeWithDefaults(
         return isRequestConfig(input) ? client.getUri(mergeRequestDefaults(defaultsConfig, input)) : method.apply(client, args);
     }
     if (isBodylessMethod(property) && typeof args[0] === 'string') {
-        return method.call(client, args[0], mergeClientDefaults(defaultsConfig, configArg(args[1])));
+        return method.call(client, args[0], mergeClientDefaults(defaultsConfig, configArg(args[1]), methodForProperty(property)));
     }
     if (isBodyMethod(property) && typeof args[0] === 'string') {
-        return method.call(client, args[0], args[1], mergeClientDefaults(defaultsConfig, configArg(args[2])));
+        return method.call(client, args[0], args[1], mergeClientDefaults(defaultsConfig, configArg(args[2]), methodForProperty(property)));
     }
     return method.apply(client, args);
 }
@@ -195,4 +190,15 @@ function isBodyMethod(property: string | symbol): boolean {
         || property === 'putUrlEncoded'
         || property === 'patchUrlEncoded'
         || property === 'upload';
+}
+
+function methodForProperty(property: string | symbol): HttpMethod | undefined {
+    if (property === 'delete') return 'DELETE';
+    if (property === 'head') return 'HEAD';
+    if (property === 'options') return 'OPTIONS';
+    if (property === 'put' || property === 'putForm' || property === 'putUrlEncoded') return 'PUT';
+    if (property === 'patch' || property === 'patchForm' || property === 'patchUrlEncoded') return 'PATCH';
+    if (property === 'post' || property === 'postForm' || property === 'postUrlEncoded' || property === 'upload') return 'POST';
+    if (property === 'get' || property === 'download') return 'GET';
+    return undefined;
 }

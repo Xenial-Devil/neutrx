@@ -1,6 +1,6 @@
 # Legacy HTTP Client Migration
 
-Neutrx keeps an ergonomic request API while focusing on secure Node.js 22+ backend service calls. This guide highlights common migration patterns from another HTTP client or legacy request library.
+Neutrx keeps an ergonomic request API while focusing on secure Node.js 18+ backend service calls. This guide highlights common migration patterns from another HTTP client or legacy request library.
 
 ## Common Patterns
 
@@ -37,7 +37,7 @@ Supported migration pieces:
 
 ## Intentional Differences
 
-- Node.js >=22 only.
+- Node.js >=18.
 - Default security profile is `standard`.
 - `strict` and `standard` block private/internal targets and metadata endpoints.
 - `legacy` is for trusted migrations and local testing only.
@@ -53,9 +53,12 @@ Supported migration pieces:
 const id = api.interceptors.request.use(config => ({
   ...config,
   headers: { ...config.headers, 'X-Service': 'billing' },
-}));
+}), undefined, {
+  runWhen: config => config.method === 'GET',
+});
 
 api.interceptors.request.eject(id);
+api.interceptors.request.clear();
 api.interceptors.response.clear();
 ```
 

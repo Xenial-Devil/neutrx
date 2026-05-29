@@ -1,69 +1,79 @@
-# [1.3.0](https://github.com/Xenial-Devil/neutrx/compare/v1.2.0...v1.3.0) (2026-05-20)
-
-
-### Bug Fixes
-
-* correct formatting and indentation in .releaserc configuration ([50bf8f6](https://github.com/Xenial-Devil/neutrx/commit/50bf8f61fd0623779c4ec4f9186e62b52d54dd99))
-* update environment variables for semantic-release in release workflow ([845b1d8](https://github.com/Xenial-Devil/neutrx/commit/845b1d847d020f677a8919600c0f982c63ec0813))
-
-
-### Features
-
-* add cancellation support with CancelToken and validation plugin ([bff2614](https://github.com/Xenial-Devil/neutrx/commit/bff26148b4fa1a77d2265d9609379ca3134e5b61))
-* add Neutrx vs Axios Competitive Gap Report and migration matrix ([46c7387](https://github.com/Xenial-Devil/neutrx/commit/46c7387aa004edbd6a9d95a54df529c65b07f1bc))
-* enhance API with custom JSON parsing and stringifying options ([f658de2](https://github.com/Xenial-Devil/neutrx/commit/f658de2f83ede11705df8cb7a32a9dc31cd5b411))
-* **tests:** enhance RetryEngine tests for Retry-After and abort scenarios ([97deeec](https://github.com/Xenial-Devil/neutrx/commit/97deeec5b01a58cfb4d68ab629ab26fdb2175159))
-
-# [1.2.0](https://github.com/Xenial-Devil/neutrx/compare/v1.1.0...v1.2.0) (2026-05-16)
-
-
-### Features
-
-* enhance SecurityManager profiles and tests ([660abd5](https://github.com/Xenial-Devil/neutrx/commit/660abd536b79370b532bd37edfe45d99df519100))
-* update CI workflow to include additional Node.js versions and enhance tsconfig paths ([3c287ed](https://github.com/Xenial-Devil/neutrx/commit/3c287ed8fb31a45bbc88d704f7d907d206ce62fa))
-
-# [1.1.0](https://github.com/Xenial-Devil/neutrx/compare/v1.0.0...v1.1.0) (2026-05-14)
-
-
-### Features
-
-* add redirect handling and response parsing ([368878b](https://github.com/Xenial-Devil/neutrx/commit/368878b23e96c87815923e26f58f2132fbf8f506))
-* update tsconfig.json with baseUrl and paths for module resolution ([388770f](https://github.com/Xenial-Devil/neutrx/commit/388770f44df6e460287b94911b38a67386a2af17))
-
-# 1.0.0 (2026-05-13)
-
-
-### Features
-
-* add BrowserNeutrx client implementation ([11acbc1](https://github.com/Xenial-Devil/neutrx/commit/11acbc17e484c60c8ac4198d8ddc5bf4b6299bd9))
-* enhance NeutrxClient with DNS lookup and request size validation ([34cd0ab](https://github.com/Xenial-Devil/neutrx/commit/34cd0aba5be071ae25540ecf22e91cf9febe68f1))
-* enhance NeutrxClient with support for custom adapters, proxy configuration, and multipart/form-data serialization ([62d62eb](https://github.com/Xenial-Devil/neutrx/commit/62d62eb83650e6de47741c7aa1636eb65a3b2289))
-* enhance release workflow and CI integration ([9d97929](https://github.com/Xenial-Devil/neutrx/commit/9d97929046e9dd64e4c7fb63a1d970ebae38ec32))
-* implement resilience patterns including Bulkhead, Circuit Breaker, Retry Engine, and Rate Limiter ([ef08390](https://github.com/Xenial-Devil/neutrx/commit/ef083902d85d0f9d9f7786192638d94a60b6626d))
-
 # Changelog
 
-All notable changes to this project will be documented here.
+All notable changes to Neutrx are documented here.
 
-This project follows Conventional Commits for future release notes.
+This project uses Conventional Commits. Maintainers can preview generated release notes with `npm run changelog:preview`; the release workflow publishes GitHub release notes and updates this file from the same commit history.
 
 ## [Unreleased]
 
 ### Added
 
-- Dual ESM/CJS package build outputs with shared declaration output.
-- Built-in `fetch` adapter name and adapter export.
-- Built-in adapter constants for explicit `http`, `fetch`, and `http2` selection.
-- `isNeutrxError(error)` type guard.
-- `getUri(config)` helper for URL construction without dispatch.
-- `socketPath` and `decompress` request/client config fields.
-- `maxRate` upload/download throttling config.
-- `neutrx.defaults` global defaults object.
-- `response.request` transport reference where adapters can expose it.
-- Richer progress event fields: `bytes`, `rate`, `estimated`, `upload`, and `download`.
-- Active CI and release-please workflows.
+- Locked `conventional-changelog` as the local changelog generator.
+- Added repeatable changelog preview/write scripts for maintainers.
 
 ### Changed
 
-- Interceptor `synchronous` option now runs synchronous request interceptors before async chain scheduling.
-- Header normalization rejects prototype-pollution keys.
+- Documented the release process so future GitHub releases include changelog updates, package validation, and release notes.
+
+## [1.3.0](https://github.com/Xenial-Devil/neutrx/compare/v1.2.0...v1.3.0) - 2026-05-20
+
+### Highlights
+
+- Added CancelToken-compatible cancellation helpers for smoother Axios migrations.
+- Added the validation plugin while keeping validator libraries optional and outside the runtime dependency tree.
+- Expanded Axios comparison and migration documentation.
+- Improved release workflow fixes around semantic-release environment handling.
+
+### Bug Fixes
+
+- Corrected `.releaserc` formatting and indentation.
+- Updated semantic-release environment variables in the release workflow.
+
+### Features
+
+- Added cancellation support with CancelToken and the validation plugin.
+- Added the Neutrx vs Axios competitive gap report and migration matrix.
+- Added custom JSON parsing and stringifying options.
+- Expanded RetryEngine tests for `Retry-After` and abort scenarios.
+
+## [1.2.0](https://github.com/Xenial-Devil/neutrx/compare/v1.1.0...v1.2.0) - 2026-05-16
+
+### Highlights
+
+- Strengthened security profile behavior and corresponding test coverage.
+- Expanded CI coverage across supported Node.js versions.
+
+### Features
+
+- Enhanced SecurityManager profiles and tests.
+- Updated CI workflow and TypeScript module-resolution paths.
+
+## [1.1.0](https://github.com/Xenial-Devil/neutrx/compare/v1.0.0...v1.1.0) - 2026-05-14
+
+### Highlights
+
+- Added redirect handling and response parsing foundations.
+- Improved TypeScript module resolution with base URL and path configuration.
+
+### Features
+
+- Added redirect handling and response parsing.
+- Updated TypeScript configuration for module resolution.
+
+## [1.0.0](https://github.com/Xenial-Devil/neutrx/releases/tag/v1.0.0) - 2026-05-13
+
+### Highlights
+
+- Established Neutrx as a backend-first HTTP client for Node.js services.
+- Added SSRF-aware DNS lookup and request size validation.
+- Added custom adapters, proxy configuration, multipart/form-data serialization, and browser client foundations.
+- Added resilience primitives: retry engine, circuit breaker, bulkhead, and rate limiter.
+- Added the initial release workflow and CI integration.
+
+### Features
+
+- Added BrowserNeutrx client implementation.
+- Enhanced NeutrxClient with DNS lookup and request size validation.
+- Enhanced NeutrxClient with custom adapters, proxy configuration, and multipart/form-data serialization.
+- Enhanced release workflow and CI integration.
+- Implemented resilience patterns including Bulkhead, Circuit Breaker, Retry Engine, and Rate Limiter.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type * as PackageEntry from '../../src/index.js';
 
-const builtEntry = '../../../dist/esm/index.js';
+const builtEntry = '../../../dist/index.mjs';
 
 void test('ergonomic API surface supports verbs, create, defaults, transforms, adapters, and errors', async () => {
     const { default: Neutrx, isNeutrxError } = await import(builtEntry) as typeof PackageEntry;
@@ -85,6 +85,63 @@ void test('client default precedence follows library, instance, then request con
         header: 'request',
         url: 'https://api.example.com/users',
     });
+});
+
+void test('mutable instance defaults apply after client creation and request config still wins', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const api = Neutrx.create({
+        baseURL: 'https://initial.example',
+        timeout: 1000,
+        headers: { 'X-Level': 'instance' },
+        adapter: config => ({
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/json' },
+            data: Buffer.from(JSON.stringify({
+                timeout: config.timeout,
+                url: config.url,
+                authorization: config.headers.Authorization,
+                level: config.headers['X-Level'],
+                leakedCommon: config.headers.common,
+            })),
+            config,
+        }),
+    });
+
+    api.defaults.baseURL = 'https://tenant.example/v2';
+    api.defaults.timeout = 10_000;
+    api.defaults.headers.common.Authorization = 'Bearer dynamic-token';
+    api.defaults.headers.common['X-Level'] = 'defaults';
+
+    const first = await api.get('/users');
+    const second = await api.get('/users', {
+        baseURL: 'https://request.example',
+        timeout: 250,
+        headers: {
+            Authorization: 'Bearer request-token',
+            'X-Level': 'request',
+        },
+    });
+
+    assert.deepEqual(first.data, {
+        timeout: 10_000,
+        url: 'https://tenant.example/v2/users',
+        authorization: 'Bearer dynamic-token',
+        level: 'defaults',
+    });
+    assert.deepEqual(second.data, {
+        timeout: 250,
+        url: 'https://request.example/users',
+        authorization: 'Bearer request-token',
+        level: 'request',
+    });
+
+    api.defaults.security = { enforceHTTPS: false };
+    await assert.rejects(
+        api.get('/unsafe-default'),
+        /Cannot mutate live instance defaults\.security/u
+    );
+    delete api.defaults.security;
 });
 
 void test('service discovery resolves relative requests with round-robin endpoints', async () => {

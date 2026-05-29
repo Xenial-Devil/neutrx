@@ -1,5 +1,6 @@
-import { NeutrxResponseSizeError, NeutrxResponseTimeoutError } from '../core/NeutrxError.js';
-import type { FetchCredentials, Headers, InternalRequestConfig, ProgressEvent, RawHttpResponse, RequestAdapter, RequestBody } from '../types.js';
+import { NeutrxResponseSizeError, NeutrxResponseTimeoutError, axiosTimeoutErrorCode } from '../core/NeutrxError.js';
+import { NeutrxHeaders, getContentLength } from '../core/headers.js';
+import type { FetchCredentials, Headers, InternalHeaders, InternalRequestConfig, ProgressEvent, RawHttpResponse, RequestAdapter, RequestBody } from '../types.js';
 
 type FetchInit = RequestInit & { duplex?: 'half' };
 type FetchBody = NonNullable<RequestInit['body']>;
@@ -22,10 +23,14 @@ export const fetchAdapter: RequestAdapter = async config => {
         throw new Error('Fetch adapter requires globalThis.fetch');
     }
 
-    const headers = toFetchHeaders(config.headers);
-    injectXsrfHeader(headers, config);
+    const requestHeaders = NeutrxHeaders.from(config.headers);
+    injectXsrfHeader(requestHeaders, config);
+    const headers = toFetchHeaders(requestHeaders);
 
-    const body = bodyless(config.method) ? undefined : toFetchBody(config.data, config.stringifyJson);
+    const body = trackFetchUploadProgress(
+        config,
+        bodyless(config.method) ? undefined : toFetchBody(config.data, config.stringifyJson)
+    );
     const abort = composeAbort(config);
     const init: FetchInit = {
         method: config.method,
@@ -36,7 +41,6 @@ export const fetchAdapter: RequestAdapter = async config => {
     };
 
     if (body !== undefined && isStreamLike(body)) init.duplex = 'half';
-    reportFetchUploadProgress(config, body);
 
     try {
         const response = await fetchImpl(config.url, init);
@@ -46,11 +50,15 @@ export const fetchAdapter: RequestAdapter = async config => {
             statusText: response.statusText,
             headers: fromFetchHeaders(response.headers),
             data: await readResponseBody(response, config),
-            config: { ...config, headers: fromFetchHeaders(headers) },
+            config: { ...config, headers: requestHeaders as unknown as InternalHeaders },
             ...(request ? { request } : {}),
         } satisfies RawHttpResponse;
     } catch (error: unknown) {
-        if (abort.timedOut()) throw new NeutrxResponseTimeoutError(config.url, config.timeout);
+        if (abort.timedOut()) {
+            throw new NeutrxResponseTimeoutError(config.url, config.timeout, {
+                code: axiosTimeoutErrorCode(config.transitional),
+            });
+        }
         if (abort.signal.aborted) {
             const reason = abortReason(abort.signal);
             if (reason instanceof Error) throw reason;
@@ -87,7 +95,9 @@ function composeAbort(config: InternalRequestConfig): {
 
     const timer = setTimeout(() => {
         timeoutHit = true;
-        abort(new NeutrxResponseTimeoutError(config.url, config.timeout));
+        abort(new NeutrxResponseTimeoutError(config.url, config.timeout, {
+            code: axiosTimeoutErrorCode(config.transitional),
+        }));
     }, Math.max(0, config.timeout));
 
     return {
@@ -116,9 +126,9 @@ function toFetchBody(data: RequestBody | undefined, stringifyJson = JSON.stringi
     return stringifyJson(data) as FetchBody;
 }
 
-function toFetchHeaders(headers: Headers): globalThis.Headers {
+function toFetchHeaders(headers: Headers | NeutrxHeaders): globalThis.Headers {
     const next = new globalThis.Headers();
-    for (const [key, value] of Object.entries(headers)) {
+    for (const [key, value] of Object.entries(NeutrxHeaders.from(headers).toJSON())) {
         if (key.toLowerCase() === 'content-length') continue;
         next.set(key, Array.isArray(value) ? value.join(', ') : String(value));
     }
@@ -136,7 +146,7 @@ function fromFetchHeaders(headers: globalThis.Headers): Headers {
 async function readResponseBody(response: Response, config: InternalRequestConfig): Promise<RawHttpResponse['data']> {
     switch (config.responseType) {
         case 'stream':
-            return response.body;
+            return trackFetchDownloadStream(response.body, config, contentLength(response.headers));
         case 'blob':
             return typeof response.blob === 'function' ? response.blob() : readArrayBuffer(response, config);
         case 'formData':
@@ -154,6 +164,7 @@ async function readResponseBody(response: Response, config: InternalRequestConfi
 async function readArrayBuffer(response: Response, config: InternalRequestConfig): Promise<ArrayBuffer> {
     const total = contentLength(response.headers);
     if (!response.body || !config.onDownloadProgress) {
+        reportDownloadProgress(config, 0, total);
         const data = await response.arrayBuffer();
         assertContentLength(data.byteLength, config.maxContentLength);
         reportDownloadProgress(config, data.byteLength, total ?? data.byteLength);
@@ -184,10 +195,17 @@ function assertContentLength(size: number, limit: number): void {
     if (size > limit) throw new NeutrxResponseSizeError(size, limit);
 }
 
-function reportFetchUploadProgress(config: InternalRequestConfig, body: FetchBody | undefined): void {
-    if (!config.onUploadProgress || body === undefined || isStreamLike(body)) return;
-    const bytes = fetchBodyLength(body);
-    if (bytes !== undefined) reportUploadProgress(config, bytes, bytes);
+function trackFetchUploadProgress(config: InternalRequestConfig, body: FetchBody | undefined): FetchBody | undefined {
+    if (!config.onUploadProgress || body === undefined) return body;
+
+    const knownBytes = fetchBodyLength(body);
+    if (knownBytes !== undefined) {
+        reportKnownUploadProgress(config, knownBytes);
+        return body;
+    }
+
+    if (isStreamLike(body)) return trackReadableStreamUploadProgress(body, config, getContentLength(config.headers));
+    return body;
 }
 
 function fetchBodyLength(body: FetchBody): number | undefined {
@@ -199,7 +217,48 @@ function fetchBodyLength(body: FetchBody): number | undefined {
     return undefined;
 }
 
-function injectXsrfHeader(headers: globalThis.Headers, config: InternalRequestConfig): void {
+function reportKnownUploadProgress(config: InternalRequestConfig, total: number): void {
+    reportUploadProgress(config, 0, total);
+    reportUploadProgress(config, total, total);
+}
+
+function trackReadableStreamUploadProgress(
+    stream: ReadableStream<Uint8Array>,
+    config: InternalRequestConfig,
+    total?: number
+): ReadableStream<Uint8Array> {
+    if (typeof TransformStream === 'undefined') return stream;
+
+    let loaded = 0;
+    reportUploadProgress(config, loaded, total);
+    return stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller): void {
+            loaded += chunk.byteLength;
+            reportUploadProgress(config, loaded, total);
+            controller.enqueue(chunk);
+        },
+    }));
+}
+
+function trackFetchDownloadStream(
+    stream: ReadableStream<Uint8Array> | null,
+    config: InternalRequestConfig,
+    total?: number
+): ReadableStream<Uint8Array> | null {
+    if (!stream || !config.onDownloadProgress || typeof TransformStream === 'undefined') return stream;
+
+    let loaded = 0;
+    reportDownloadProgress(config, loaded, total);
+    return stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller): void {
+            loaded += chunk.byteLength;
+            reportDownloadProgress(config, loaded, total);
+            controller.enqueue(chunk);
+        },
+    }));
+}
+
+function injectXsrfHeader(headers: NeutrxHeaders, config: InternalRequestConfig): void {
     if (!isStandardBrowserEnvironment()) return;
     if (!config.xsrfCookieName || !config.xsrfHeaderName) return;
 
@@ -209,7 +268,7 @@ function injectXsrfHeader(headers: globalThis.Headers, config: InternalRequestCo
     if (!shouldInject) return;
 
     const token = readCookie(config.xsrfCookieName);
-    if (token) headers.set(config.xsrfHeaderName, token);
+    if (token) headers.setIfNotBlocked(config.xsrfHeaderName, token);
 }
 
 function credentialsFor(withCredentials: boolean | undefined, credentials: FetchCredentials | undefined): FetchCredentials {
@@ -288,6 +347,7 @@ function reportProgress(
         ...(direction === 'upload' ? { upload: true as const } : { download: true as const }),
         ...(total !== undefined ? { total } : {}),
         ...(total !== undefined && total > 0 ? { percent: Math.min(100, Number(((loaded / total) * 100).toFixed(2))) } : {}),
+        ...(total !== undefined && total > 0 ? { progress: Math.min(1, Number((loaded / total).toFixed(4))) } : {}),
         ...(total !== undefined && rate > 0 ? { estimated: Number(((Math.max(0, total - loaded)) / rate).toFixed(3)) } : {}),
     };
     stateMap.set(config, { loaded, timestamp: now });

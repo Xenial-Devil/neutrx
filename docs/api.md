@@ -68,6 +68,7 @@ neutrx.defaults.headers = { 'X-Service': 'billing' };
 Important fields:
 
 - `baseURL`
+- `allowAbsoluteUrls`
 - `url`
 - `method`
 - `params`
@@ -85,6 +86,7 @@ Important fields:
 - `maxContentLength`
 - `maxBodyLength`
 - `responseType`
+- `responseEncoding`
 - `validateStatus`
 - `throwHttpErrors`
 - `parseJson`
@@ -101,8 +103,10 @@ Important fields:
 - `httpAgent`
 - `httpsAgent`
 - `socketPath` (Node only)
+- `beforeRedirect`
 - `decompress` (Node only)
 - `maxRate` (Node only, bytes per second or `[upload, download]`)
+- `transitional.clarifyTimeoutError`
 - `security`
 - `egressPolicy`
 - `resilience`
@@ -112,9 +116,32 @@ Important fields:
 - `onUploadProgress`
 - `onDownloadProgress`
 
-Progress events include `loaded`, `total`, `percent`, `bytes`, `rate`, `estimated`, and `upload` or `download`.
+Progress events include `loaded`, `total`, `percent`, `progress`, `bytes`, `rate`, `estimated`, and `upload` or `download`.
 
-Adapters can be selected with `adapter: 'http'`, `adapter: 'fetch'`, `adapter: 'http2'`, constants such as `HttpAdapter`, or a custom adapter function. Node uses HTTP by default; browser-like runtimes use fetch.
+```ts
+import type { ProgressEvent } from 'neutrx';
+
+function renderProgress(event: ProgressEvent) {
+  const percent = event.percent === undefined ? 'unknown' : `${event.percent.toFixed(1)}%`;
+  const eta = event.estimated === undefined ? 'unknown' : `${event.estimated.toFixed(1)}s`;
+  console.log(`${percent} complete, +${event.bytes} bytes, ${event.rate} B/s, eta ${eta}`);
+}
+
+await api.get('/exports/monthly.csv', {
+  responseType: 'buffer',
+  onDownloadProgress: renderProgress,
+});
+```
+
+`bytes` is the delta since the previous event for that request direction. `rate` is bytes per second from the previous event. `estimated` is only present when Neutrx knows `total` and has a positive rate. Node HTTP can measure buffered bodies, Node streams, buffered responses, and response streams as callers consume them. Fetch-based adapters depend on platform `ReadableStream` support. Browser `FormData`, opaque platform-managed request bodies, missing `Content-Length`, and runtimes without readable response streams may only produce a final event or omit `total`, `percent`, and `estimated`.
+
+Adapters can be selected with `adapter: 'http'`, `adapter: 'fetch'`, `adapter: 'http2'`, constants such as `HttpAdapter`, or a custom `NeutrxAdapter` function. Node uses HTTP by default; browser-like runtimes use fetch.
+
+Axios-compatible migration options include `allowAbsoluteUrls`, `beforeRedirect`, `decompress`, `responseEncoding`, and `transitional.clarifyTimeoutError`. `allowAbsoluteUrls: false` forces absolute-looking request URLs through `baseURL`; `beforeRedirect` runs after Neutrx validates and prepares the next redirect hop; `decompress: false` preserves compressed bytes; `responseEncoding` controls buffered text decoding; `transitional.clarifyTimeoutError: true` switches timeout error codes from `ECONNABORTED` to `ETIMEDOUT`.
+
+Neutrx-specific options include backend safety and resilience controls such as `security`, `egressPolicy`, `resilience`, `performance`, `instrumentation`, `serviceDiscovery`, `tls`, `socketPath`, `maxRate`, `validation`, and `idempotencyKey`.
+
+Custom adapters receive the fully prepared `NeutrxRequestConfig` and return a `RawHttpResponse`. Interceptors, retries, circuit breaker, cache, metrics, response parsing, and redirect policy stay in the client lifecycle outside the adapter.
 
 Responses include `request` when the adapter can expose a safe transport reference: Node HTTP returns `ClientRequest`, fetch returns `Request` where possible.
 
@@ -220,7 +247,14 @@ performance: {
 ## Interceptors
 
 ```ts
-const id = api.interceptors.request.use(config => config);
+const id = api.interceptors.request.use(
+  config => config,
+  undefined,
+  {
+    synchronous: true,
+    runWhen: config => config.method === 'GET',
+  }
+);
 api.interceptors.request.eject(id);
 api.interceptors.request.clear();
 
@@ -236,16 +270,31 @@ Built-in plugins:
 - `GraphQLPlugin`
 - `MockPlugin`
 - `ValidationPlugin`
+- `WebSocketPlugin`
+- `LogPlugin`
+- `OtelPlugin`
 
 `ValidationPlugin` reads `config.validation.request` before dispatch and `config.validation.response` after parsing. Validators may be functions or schema-like objects with `safeParse`, `parse`, `validate`, or TypeBox-style `Check`/`Errors`. Failures throw `NeutrxValidationError`.
+
+`WebSocketPlugin` adds `api.ws(url, options)` with native `WebSocket`, callback hooks, and bounded exponential reconnect controls.
+
+`LogPlugin` writes structured request success and error entries to any logger installed with `api.setLogger(logger)`.
+
+`OtelPlugin` enables the built-in OpenTelemetry bridge through `api.use(OtelPlugin)` without adding a runtime dependency to Neutrx.
 
 ## Headers
 
 ```ts
 const headers = new NeutrxHeaders({ Authorization: 'Bearer secret' });
 headers.setContentType('application/json');
+headers.setAuthorization(false);
+headers.setUserAgent('billing-service/1.0');
+headers.normalize();
+for (const [name, value] of headers) console.log(name, value);
 headers.redactSensitive();
 ```
+
+Header names are case-insensitive. Calling `set(name, false)` stores a non-emitted sentinel that blocks automatic overwrites such as inferred `Content-Type`; calling `set(name, null)` deletes the header.
 
 ## Errors
 

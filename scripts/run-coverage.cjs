@@ -15,9 +15,10 @@ const args = coverageSupported
   ? [
       "--test",
       "--experimental-test-coverage",
-      "--test-coverage-include=dist/esm/**/*.js",
-      "--test-coverage-exclude=dist/cjs/**",
-      "--test-coverage-exclude=dist/types/**",
+      "--test-coverage-include=dist/index.mjs",
+      "--test-coverage-include=dist/browser.mjs",
+      "--test-coverage-exclude=dist/**/*.cjs",
+      "--test-coverage-exclude=dist/**/*.d.ts",
       `--test-coverage-lines=${thresholds.lines}`,
       `--test-coverage-branches=${thresholds.branches}`,
       `--test-coverage-functions=${thresholds.functions}`,
@@ -26,8 +27,7 @@ const args = coverageSupported
   : ["--test", ...testFiles];
 
 if (!coverageSupported) {
-  console.error(`Node ${process.versions.node} is unsupported. Neutrx requires Node.js >=22.0.0.`);
-  process.exit(1);
+  console.warn(`Node ${process.versions.node} does not support the coverage thresholds used here; running tests without coverage.`);
 }
 
 const result = spawnSync(process.execPath, args, {

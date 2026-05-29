@@ -34,14 +34,7 @@ writeJson("package-lock.json", lockJson);
 fs.writeFileSync(
   path.join(rootDir, "src", "version.ts"),
   [
-    "import { readFileSync } from 'node:fs';",
-    "import { resolve } from 'node:path';",
-    "",
-    "type PackageMetadata = { readonly version: string };",
-    "",
-    "const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as PackageMetadata;",
-    "",
-    "export const VERSION = packageJson.version;",
+    `export const VERSION = ${JSON.stringify(version)};`,
     "",
   ].join("\n"),
   "utf8"

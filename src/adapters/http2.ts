@@ -2,11 +2,11 @@ import http2 from 'node:http2';
 import { Readable } from 'node:stream';
 
 import { abortError } from '../core/cancel.js';
-import { NeutrxResponseSizeError, NeutrxResponseTimeoutError } from '../core/NeutrxError.js';
+import { NeutrxResponseSizeError, NeutrxResponseTimeoutError, axiosTimeoutErrorCode } from '../core/NeutrxError.js';
 import { serializeBody } from '../core/bodySerializer.js';
-import { getContentLength, hasHeader, normalizeIncomingHeaders, setHeader } from '../core/headers.js';
+import { NeutrxHeaders, getContentLength, hasHeader, normalizeIncomingHeaders, setHeader } from '../core/headers.js';
 import { reportDownloadProgress, reportUploadProgress, toUploadBuffer } from '../core/progress.js';
-import type { Headers, Http2SessionStats, RawHttpResponse, RequestAdapter } from '../types.js';
+import type { Headers, InternalHeaders, Http2SessionStats, RawHttpResponse, RequestAdapter } from '../types.js';
 
 interface SessionRecord {
     readonly session: http2.ClientHttp2Session;
@@ -24,7 +24,7 @@ export const http2Adapter: RequestAdapter = async config => {
         throw new Error(`HTTP/2 adapter cannot handle protocol ${url.protocol}`);
     }
 
-    const runtimeHeaders: Headers = { ...config.headers };
+    const runtimeHeaders = NeutrxHeaders.from(config.headers) as unknown as InternalHeaders;
     const body = config.data === undefined ? null : await serializeBody({ ...config, headers: runtimeHeaders });
     if (body !== null && !(body instanceof Readable) && !hasHeader(runtimeHeaders, 'Content-Length')) {
         setHeader(runtimeHeaders, 'Content-Length', Buffer.byteLength(body));
@@ -63,7 +63,9 @@ export const http2Adapter: RequestAdapter = async config => {
             reject(error);
         };
 
-        const timeout = setTimeout(() => fail(new NeutrxResponseTimeoutError(config.url, config.timeout)), config.timeout);
+        const timeout = setTimeout(() => fail(new NeutrxResponseTimeoutError(config.url, config.timeout, {
+            code: axiosTimeoutErrorCode(config.transitional),
+        })), config.timeout);
         request.once('close', () => {
             record.activeStreams = Math.max(0, record.activeStreams - 1);
         });

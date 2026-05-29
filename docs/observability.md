@@ -23,6 +23,8 @@ Tracked signals:
 
 Prometheus text is available through `api.getMetricsPrometheus()`.
 
+A starter Grafana dashboard is available at [grafana-dashboard.json](grafana-dashboard.json). Import it into Grafana and point panels at the Prometheus data source scraping `api.getMetricsPrometheus()`.
+
 ## Events
 
 ```ts
@@ -30,6 +32,18 @@ api.on('request:success', event => console.log(event.status, event.duration));
 api.on('request:error', event => console.error(event.error.code));
 api.on('cache:hit', event => console.log(event.url));
 ```
+
+## Structured Logging
+
+```ts
+import neutrx, { LogPlugin } from 'neutrx';
+
+const api = neutrx.create({ baseURL: 'https://api.example.com' });
+api.use(LogPlugin);
+api.setLogger(console);
+```
+
+`LogPlugin` emits redaction-friendly fields such as request id, method, URL, status, duration, attempt count, cache state, error code, and error name. It accepts console-like, pino-like, or winston-like loggers with `info` and `error` methods.
 
 ## OpenTelemetry Bridge
 
@@ -43,6 +57,15 @@ const api = neutrx.create({
     propagateTraceHeaders: true,
   },
 });
+```
+
+Or enable the same bridge through a plugin:
+
+```ts
+import neutrx, { OtelPlugin } from 'neutrx';
+
+const api = neutrx.create({ baseURL: 'https://api.example.com' });
+api.use(OtelPlugin);
 ```
 
 Span attributes include method, scheme, host, port, path without query string, status code, retry count, and cache hit state.

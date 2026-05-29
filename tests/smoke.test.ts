@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import zlib from 'node:zlib';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
@@ -9,8 +11,8 @@ import test from 'node:test';
 import type * as PackageEntry from '../src/index.js';
 import type { LookupFunction } from '../src/index.js';
 
-const builtEntry = '../../dist/esm/index.js';
-const browserEntry = '../../dist/esm/browser.js';
+const builtEntry = '../../dist/index.mjs';
+const browserEntry = '../../dist/browser.mjs';
 const require = createRequire(import.meta.url);
 const packageJson = require('../../package.json') as { readonly version: string };
 
@@ -23,7 +25,8 @@ void test('package exports load from built output', async () => {
 });
 
 void test('CommonJS build can be required', () => {
-    const mod = require('../../dist/cjs/index.js') as typeof PackageEntry;
+    const mod = require('../../dist/index.cjs') as typeof PackageEntry & { readonly default: typeof PackageEntry.default };
+    assert.equal(typeof mod, 'function');
     assert.equal(typeof mod.default, 'function');
     assert.equal(typeof mod.default.create, 'function');
     assert.equal(mod.VERSION, packageJson.version);
@@ -31,10 +34,8 @@ void test('CommonJS build can be required', () => {
 
 void test('browser build uses fetch without Node core imports', async () => {
     for (const file of [
-        'dist/esm/browser.js',
-        'dist/esm/core/BrowserClient.js',
-        'dist/esm/core/BrowserNeutrx.js',
-        'dist/esm/adapters/browser.js',
+        'dist/browser.mjs',
+        'dist/adapters/browser.mjs',
     ]) {
         assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /node:/);
     }
@@ -84,6 +85,7 @@ void test('stream upload reports progress with percent when content length is kn
         payload.subarray(48 * 1024),
     ];
     const progress: number[] = [];
+    const ratios: number[] = [];
     const events: PackageEntry.ProgressEvent[] = [];
 
     const server = http.createServer((request, response) => {
@@ -121,11 +123,13 @@ void test('stream upload reports progress with percent when content length is kn
             onUploadProgress(event) {
                 events.push(event);
                 if (event.percent !== undefined) progress.push(event.percent);
+                if (event.progress !== undefined) ratios.push(event.progress);
             },
         });
 
         assert.equal(response.data.received, payload.length);
         assert.deepEqual(progress, [0, 25, 50, 75, 100]);
+        assert.deepEqual(ratios, [0, 0.25, 0.5, 0.75, 1]);
         assert.equal(events.at(-1)?.bytes, 16 * 1024);
         assert.equal(events.at(-1)?.upload, true);
         assert.equal(typeof events.at(-1)?.rate, 'number');
@@ -416,6 +420,47 @@ void test('node http adapter exposes response request reference and honors maxRa
         assert.ok(Date.now() - started >= 100);
     } finally {
         await close(server);
+    }
+});
+
+void test('socketPath sends HTTP over Unix socket without DNS/SSRF blocking and rejects unsafe paths', { skip: process.platform === 'win32' }, async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const socketPath = path.join(os.tmpdir(), `neutrx-${process.pid}-${Date.now()}.sock`);
+    fs.rmSync(socketPath, { force: true });
+    let lookupCalls = 0;
+    const lookup = ((hostname: string, options: unknown, callback?: unknown): void => {
+        lookupCalls += 1;
+        const done = (typeof options === 'function' ? options : callback) as (error: Error | null, address?: string, family?: number) => void;
+        done(null, hostname === 'docker' ? '127.0.0.1' : '169.254.169.254', 4);
+    }) as LookupFunction;
+    const server = http.createServer((request, response) => {
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ url: request.url, host: request.headers.host }));
+    });
+
+    await new Promise<void>(resolve => {
+        server.listen(socketPath, resolve);
+    });
+
+    try {
+        const api = Neutrx.create({
+            baseURL: 'http://docker',
+            socketPath,
+            proxy: false,
+            lookup,
+            security: { profile: 'strict' },
+        });
+
+        const response = await api.get<{ readonly url: string; readonly host?: string }>('/v1/version');
+        assert.deepEqual(response.data, { url: '/v1/version', host: 'docker' });
+        assert.equal(lookupCalls, 0);
+        await assert.rejects(
+            api.get('/bad', { socketPath: 'relative.sock' }),
+            /socketPath must be an absolute local path/u
+        );
+    } finally {
+        await close(server);
+        fs.rmSync(socketPath, { force: true });
     }
 });
 

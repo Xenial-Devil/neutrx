@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const rootDir = path.resolve(__dirname, "..");
-const output = path.join(rootDir, "dist", "types", "browser.d.ts");
+const output = path.join(rootDir, "dist", "browser.d.ts");
 
 const contents = `
 export type JsonPrimitive = string | number | boolean | null;

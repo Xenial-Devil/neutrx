@@ -17,6 +17,10 @@ export interface NeutrxErrorOptions {
     readonly severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 }
 
+export function axiosTimeoutErrorCode(transitional?: { readonly clarifyTimeoutError?: boolean }): 'ECONNABORTED' | 'ETIMEDOUT' {
+    return transitional?.clarifyTimeoutError ? 'ETIMEDOUT' : 'ECONNABORTED';
+}
+
 export class NeutrxError extends Error {
     readonly __isNeutrxError!: true;
     code: string;
@@ -121,7 +125,7 @@ export class NeutrxConnectTimeoutError extends NeutrxTimeoutError {
     constructor(url: string, timeout: number, options: NeutrxErrorOptions = {}) {
         super(`Connect timeout after ${timeout}ms: ${url}`, {
             ...options,
-            code: 'CONNECT_TIMEOUT',
+            code: options.code ?? 'CONNECT_TIMEOUT',
             timeout,
             phase: 'connect',
         });
@@ -132,7 +136,7 @@ export class NeutrxResponseTimeoutError extends NeutrxTimeoutError {
     constructor(url: string, timeout: number, options: NeutrxErrorOptions = {}) {
         super(`Response timeout after ${timeout}ms: ${url}`, {
             ...options,
-            code: 'RESPONSE_TIMEOUT',
+            code: options.code ?? 'RESPONSE_TIMEOUT',
             timeout,
             phase: 'response',
         });

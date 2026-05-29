@@ -1,14 +1,29 @@
 # Security Policy
 
-Neutrx is a security-first Node.js 22+ HTTP client. This policy explains supported runtime versions, vulnerability reporting, private disclosure expectations, security controls, and supply-chain handling.
+Neutrx is a security-first Node.js 18+ HTTP client for backend services. This policy explains supported package and runtime versions, vulnerability reporting, private disclosure expectations, security controls, and supply-chain handling.
+
+## Supported Versions
+
+Security fixes target the maintained package line and the main development branch.
+
+| Package version | Security support | Notes |
+| --- | --- | --- |
+| `1.x` | Supported | Upgrade to the latest available `1.x` patch release for security fixes. |
+| `<1.0.0` | Unsupported | Pre-1.0 releases do not receive security fixes. |
+| Forks and unreleased snapshots | Unsupported | Verify against an official release before reporting or deploying. |
 
 ## Supported Runtime
 
-Neutrx supports:
+Neutrx supports Node.js `>=18.0.0` for backend runtimes.
 
-- Node.js >=22
+| Runtime | Support status |
+| --- | --- |
+| Node.js 22.x | Supported and tested in CI. |
+| Node.js 20.x | Supported and tested in CI. |
+| Node.js 18.x | Supported and tested in CI. |
+| Node.js <18 | Unsupported. |
 
-Unsupported runtimes do not receive security support. Security fixes target the maintained package line and the main development branch.
+Runtime support means Neutrx maintains compatibility for those Node.js versions. It does not extend Node.js upstream security maintenance for a runtime past its own lifecycle.
 
 ## Reporting A Vulnerability
 
@@ -17,6 +32,8 @@ Do not open a public issue, public discussion, social post, or public proof of c
 Use GitHub private vulnerability reporting:
 
 - https://github.com/Xenial-Devil/neutrx/security/advisories/new
+
+If the advisory form is unavailable, contact the repository owner through GitHub and request a private security channel. Do not include exploit details in a public issue, discussion, pull request, or social post.
 
 Report privately to the project owner or maintainers with:
 
@@ -27,7 +44,7 @@ Report privately to the project owner or maintainers with:
 - Any known workaround.
 - Suggested fix, if known.
 
-Maintainers will acknowledge valid reports as soon as practical, triage severity, prepare a fix, and coordinate disclosure timing based on impact.
+Maintainers aim to acknowledge reports within 5 business days, triage severity, prepare a fix or mitigation, and coordinate disclosure timing based on impact. Security fixes may be released before a full public write-up when users need a patch quickly.
 
 ## Private Disclosure Request
 
@@ -89,5 +106,3 @@ Security dependency updates may be expedited, but still require maintainer revie
 - No public exploit details before a fix or mitigation is available unless maintainers approve.
 - No pressure campaigns around embargoed reports.
 - Do not present an unofficial fork or patch as an official Neutrx security release.
-
-

@@ -5,6 +5,7 @@ import type {
     ClientConfig,
     Headers,
     HttpMethod,
+    InternalHeaders,
     InternalRequestConfig,
     NormalizedClientConfig,
     ParsedResponseData,
@@ -31,14 +32,16 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
     const securityDefaults = securityProfileDefaults(securityProfile);
 
     return {
+        allowAbsoluteUrls: custom.allowAbsoluteUrls ?? true,
         timeout: custom.timeout ?? 30_000,
         connectTimeout: custom.connectTimeout ?? 10_000,
         maxRedirects: custom.maxRedirects ?? 5,
         maxContentLength: custom.maxContentLength ?? 52_428_800,
         maxBodyLength: custom.maxBodyLength ?? (securityProfile === 'legacy' ? Number.POSITIVE_INFINITY : 10_485_760),
+        responseEncoding: custom.responseEncoding ?? 'utf8',
         validateStatus: custom.validateStatus ?? ((status: number): boolean => status >= 200 && status < 300),
         ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
-        ...(custom.headers ? { headers: NeutrxHeaders.from(custom.headers).toJSON() } : {}),
+        ...(custom.headers ? { headers: NeutrxHeaders.from(custom.headers) } : {}),
         ...(custom.auth ? { auth: custom.auth } : {}),
         ...(custom.idempotencyKey !== undefined ? { idempotencyKey: custom.idempotencyKey } : {}),
         ...(custom.idempotencyKeyHeader ? { idempotencyKeyHeader: custom.idempotencyKeyHeader } : {}),
@@ -68,6 +71,10 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         ...(custom.instrumentation ? { instrumentation: custom.instrumentation } : {}),
         decompress: custom.decompress ?? true,
         ...(custom.tls ? { tls: custom.tls } : {}),
+        ...(custom.beforeRedirect ? { beforeRedirect: custom.beforeRedirect } : {}),
+        transitional: {
+            clarifyTimeoutError: custom.transitional?.clarifyTimeoutError ?? false,
+        },
         security: {
             profile: securityProfile,
             enforceHTTPS: custom.security?.enforceHTTPS ?? securityDefaults.enforceHTTPS,
@@ -136,7 +143,7 @@ export function mergeConfig(base: NormalizedClientConfig, override: ClientConfig
         : { ...base.security, ...(override.security ?? {}), ...(overrideProfile ? { profile: overrideProfile } : {}) };
 
     const headers = base.headers || override.headers
-        ? NeutrxHeaders.concat(base.headers, override.headers).toJSON()
+        ? NeutrxHeaders.concat(base.headers, override.headers)
         : undefined;
 
     return {
@@ -145,6 +152,7 @@ export function mergeConfig(base: NormalizedClientConfig, override: ClientConfig
         ...(headers ? { headers } : {}),
         security,
         ...(override.egressPolicy ? { egressPolicy: override.egressPolicy } : {}),
+        transitional: { ...base.transitional, ...(override.transitional ?? {}) },
         resilience: { ...base.resilience, ...(override.resilience ?? {}) },
         performance: { ...base.performance, ...(override.performance ?? {}) },
     };
@@ -156,7 +164,8 @@ export async function resolveServiceEndpoint(
     method: HttpMethod,
     state: ServiceDiscoveryState
 ): Promise<ServiceEndpoint | undefined> {
-    if (/^https?:\/\//i.test(config.url)) return undefined;
+    const allowAbsoluteUrls = config.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls;
+    if (/^https?:\/\//i.test(config.url) && allowAbsoluteUrls !== false) return undefined;
 
     const serviceDiscovery = config.serviceDiscovery ?? defaults.serviceDiscovery;
     if (!serviceDiscovery) return undefined;
@@ -184,10 +193,14 @@ export async function resolveServiceEndpoint(
 
 export function buildURL(config: RequestConfig, defaults: NormalizedClientConfig): string {
     let url = config.url;
-    if (!/^https?:\/\//i.test(url)) {
+    const isAbsoluteURL = /^https?:\/\//i.test(url);
+    const allowAbsoluteUrls = config.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls;
+    if (!isAbsoluteURL || allowAbsoluteUrls === false) {
         const hasSocketPath = Boolean(config.socketPath ?? defaults.socketPath);
         const base = config.baseURL ?? defaults.baseURL ?? (hasSocketPath ? 'http://unix' : '');
-        url = `${base.endsWith('/') ? base.slice(0, -1) : base}${url.startsWith('/') ? url : `/${url}`}`;
+        if (base) {
+            url = `${base.endsWith('/') ? base.slice(0, -1) : base}${url.startsWith('/') ? url : `/${url}`}`;
+        }
     }
 
     if (config.params && Object.keys(config.params).length > 0) {
@@ -285,7 +298,7 @@ export function mergeTransformResponse(
 
 export function applyRequestTransforms(
     data: RequestBody | undefined,
-    headers: Headers,
+    headers: InternalHeaders,
     transforms?: readonly TransformRequest[]
 ): RequestBody | undefined {
     return (transforms ?? []).reduce<RequestBody | undefined>((current, transform) => transform(current, headers), data);

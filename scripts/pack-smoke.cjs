@@ -55,7 +55,7 @@ try {
 
   run(process.execPath, [
     "--eval",
-    "const root = require('neutrx'); const node = require('neutrx/node'); if (typeof root.default !== 'function') throw new Error('missing cjs default'); if (root.VERSION !== node.VERSION) throw new Error('cjs version mismatch');",
+    "const root = require('neutrx'); const node = require('neutrx/node'); if (typeof root !== 'function') throw new Error('missing cjs callable'); if (typeof root.default !== 'function') throw new Error('missing cjs default'); if (root.VERSION !== node.VERSION) throw new Error('cjs version mismatch');",
   ], { cwd: tempDir });
 
   console.log(`Packed package smoke test passed: ${packRecord.filename}`);

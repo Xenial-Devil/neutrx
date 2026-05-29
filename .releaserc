@@ -20,12 +20,7 @@
                     "package.json",
                     "package-lock.json",
                     "CHANGELOG.md",
-                    "src/browser.ts",
-                    "src/index.ts",
-                    "src/core/BrowserClient.ts",
-                    "src/core/BrowserNeutrx.ts",
-                    "src/core/NeutrxClient.ts",
-                    "src/plugins/PluginManager.ts"
+                    "src/version.ts"
                 ],
                 "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
             }

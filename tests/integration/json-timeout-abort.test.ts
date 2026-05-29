@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import type * as PackageEntry from '../../src/index.js';
 
-const builtEntry = '../../../dist/esm/index.js';
+const builtEntry = '../../../dist/index.mjs';
 
 void test('local server JSON, timeout, and AbortSignal behavior', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;

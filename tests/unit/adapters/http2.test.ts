@@ -3,7 +3,7 @@ import http2 from 'node:http2';
 import test from 'node:test';
 import type * as PackageEntry from '../../../src/index.js';
 
-const builtEntry = '../../../../dist/esm/index.js';
+const builtEntry = '../../../../dist/index.mjs';
 
 void test('HTTP/2 adapter handles GET, POST body, headers, and status', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;

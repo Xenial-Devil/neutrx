@@ -1,6 +1,6 @@
 # Security Model
 
-Neutrx is designed for Node.js 22+ backend services making outbound HTTP calls. Its main security goal is to make dangerous outbound targets and credential leaks harder to trigger by accident.
+Neutrx is designed for Node.js 18+ backend services making outbound HTTP calls. Its main security goal is to make dangerous outbound targets and credential leaks harder to trigger by accident.
 
 ## Profiles
 
@@ -21,6 +21,12 @@ Deprecated profile aliases are normalized internally for migration compatibility
 - denied hosts and hosts missing from an allow-list
 
 The Node HTTP adapter validates DNS answers and pins the validated lookup for the request.
+
+## Unix Sockets
+
+`socketPath` is a local transport escape hatch for HTTP-over-Unix-socket services such as Docker Engine. When `socketPath` is set, the adapter connects to the absolute local socket path and treats the URL host as the HTTP `Host` header only. DNS, SSRF, private-IP, HTTPS, and egress-policy network checks are skipped for that synthetic host because there is no outbound TCP connection.
+
+Neutrx still rejects relative socket paths, null bytes, CR/LF characters, proxy use with sockets, HTTPS socket URLs, unsafe headers, and URL credentials outside `legacy`. Treat `socketPath` as privileged configuration and do not accept it from untrusted input.
 
 ## Redirect Safety
 

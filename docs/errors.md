@@ -25,6 +25,8 @@ Common codes:
 - `URL_CREDENTIALS_BLOCKED`
 - `CONNECT_TIMEOUT`
 - `RESPONSE_TIMEOUT`
+- `ECONNABORTED` (request timeout with Axios-compatible default)
+- `ETIMEDOUT` (request timeout when `transitional.clarifyTimeoutError` is `true`)
 - `RESPONSE_TOO_LARGE`
 - `REQUEST_TOO_LARGE`
 - `CIRCUIT_OPEN`

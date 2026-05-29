@@ -6,8 +6,8 @@ import type { FetchCredentials } from '../../src/browser.js';
 import type * as BrowserEntry from '../../src/browser.js';
 import type { InternalRequestConfig } from '../../src/types.js';
 
-const browserEntry = '../../../dist/esm/browser.js';
-const browserAdapterEntry = '../../../dist/esm/adapters/browser.js';
+const browserEntry = '../../../dist/browser.mjs';
+const browserAdapterEntry = '../../../dist/adapters/browser.mjs';
 
 void test('browser entry supports fetch, credentials, and postForm', async () => {
     const originalFetch = globalThis.fetch;
@@ -126,7 +126,7 @@ void test('browser adapter is safe in edge-like runtimes without document or win
     try {
         const raw = await fetchAdapter(adapterConfig({
             data: new URLSearchParams({ q: 'neutrx' }),
-            headers: { 'Content-Length': 100, 'Content-Type': 'application/x-www-form-urlencoded' },
+            headers: { 'Content-Length': 100, 'Content-Type': 'application/x-www-form-urlencoded' } as unknown as InternalRequestConfig['headers'],
             method: 'POST',
             url: 'https://edge.example/search',
         }));
@@ -181,6 +181,8 @@ void test('browser adapter enforces timeout, abort, progress, and maxContentLeng
     const previous = snapshotBrowserGlobal(browserGlobal);
     const downloads: number[] = [];
     const uploads: number[] = [];
+    const downloadProgress: number[] = [];
+    const uploadProgress: number[] = [];
 
     try {
         browserGlobal.fetch = (_input: string | URL | Request, init?: RequestInit): Promise<Response> => new Promise((_resolve, reject) => {
@@ -208,14 +210,22 @@ void test('browser adapter enforces timeout, abort, progress, and maxContentLeng
         const raw = await fetchAdapter(adapterConfig({
             data: 'hello',
             method: 'POST',
-            onDownloadProgress: event => downloads.push(event.loaded),
-            onUploadProgress: event => uploads.push(event.loaded),
+            onDownloadProgress: event => {
+                downloads.push(event.loaded);
+                if (event.progress !== undefined) downloadProgress.push(event.progress);
+            },
+            onUploadProgress: event => {
+                uploads.push(event.loaded);
+                if (event.progress !== undefined) uploadProgress.push(event.progress);
+            },
             responseType: 'text',
         }));
 
         assert.equal(raw.data, 'payload');
-        assert.deepEqual(uploads, [5]);
+        assert.deepEqual(uploads, [0, 5]);
         assert.deepEqual(downloads, [0, 7]);
+        assert.deepEqual(uploadProgress, [0, 1]);
+        assert.deepEqual(downloadProgress, [0, 1]);
     } finally {
         restoreBrowserGlobal(browserGlobal, previous);
     }
@@ -226,7 +236,7 @@ void test('package browser condition resolves browser client in Node condition s
         '--conditions=browser',
         '--input-type=module',
         '--eval',
-        "import { NeutrxClient } from 'neutrx'; const client = new NeutrxClient(); try { client.pinCertificate('api.example.com', 'a'.repeat(64)); throw new Error('node entry selected'); } catch (error) { if (!String(error.message).includes('Node-only')) throw error; }",
+        "globalThis.fetch = (_input, init) => Promise.resolve(new Response(JSON.stringify({ ok: true, method: init?.method ?? 'GET' }), { status: 200, headers: { 'content-type': 'application/json' } })); const { default: neutrx } = await import('neutrx'); const api = neutrx.create({ baseURL: 'https://browser.example', adapter: 'fetch' }); const response = await api.get('/health'); if (response.data.ok !== true || response.data.method !== 'GET') throw new Error('fetch adapter request failed'); try { api.pinCertificate('api.example.com', 'a'.repeat(64)); throw new Error('pinning unexpectedly allowed'); } catch (error) { if (!String(error.message).includes('Node-only')) throw error; }",
     ], {
         cwd: process.cwd(),
         encoding: 'utf8',
@@ -286,7 +296,8 @@ function adapterConfig(overrides: Partial<InternalRequestConfig> = {}): Internal
     return {
         url: 'https://app.example/api',
         method: 'GET',
-        headers: {},
+        headers: {} as InternalRequestConfig['headers'],
+        allowAbsoluteUrls: true,
         timeout: 5000,
         connectTimeout: 5000,
         maxRedirects: 0,
@@ -297,6 +308,7 @@ function adapterConfig(overrides: Partial<InternalRequestConfig> = {}): Internal
         validateStatus: status => status >= 200 && status < 300,
         throwHttpErrors: true,
         decompress: false,
+        transitional: { clarifyTimeoutError: false },
         followRedirects: true,
         requestId: 'browser-test',
         startTime: Date.now(),

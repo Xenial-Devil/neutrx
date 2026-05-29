@@ -3,7 +3,7 @@ import net from 'node:net';
 import test from 'node:test';
 import type * as ProxyModule from '../../../src/core/proxy.js';
 
-const proxyEntry = '../../../../dist/esm/core/proxy.js';
+const proxyEntry = '../../../../dist/core/proxy.mjs';
 
 void test('proxy resolution honors env, explicit config, false, and no_proxy', async () => {
     const { resolveProxy } = await import(proxyEntry) as typeof ProxyModule;

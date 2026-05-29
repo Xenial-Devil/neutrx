@@ -1,13 +1,13 @@
 import { Readable } from 'node:stream';
 
 import { NeutrxSecurityError } from './NeutrxError.js';
-import { getHeader, hasHeader, headerToString, setHeader } from './headers.js';
+import { getHeader, hasHeader, headerToString, setHeader, type NeutrxHeaders } from './headers.js';
 import type { FormSerializerOptions, Headers, RequestBody, StringifyJson } from '../types.js';
 
 export type SerializedBody = string | Buffer | Readable | null;
 type RuntimeBodyConfig = {
     readonly data?: RequestBody;
-    readonly headers: Headers;
+    readonly headers: Headers | NeutrxHeaders;
     readonly formSerializer?: FormSerializerOptions;
     readonly stringifyJson?: StringifyJson;
 };
@@ -123,7 +123,7 @@ function flattenFormEntries(
     result.push([path, scalarToString(value)]);
 }
 
-async function serializeMultipart(data: FormData, headers: Headers): Promise<Buffer> {
+async function serializeMultipart(data: FormData, headers: Headers | NeutrxHeaders): Promise<Buffer> {
     const boundary = multipartBoundary(headers);
     const chunks: Buffer[] = [];
 
@@ -148,13 +148,14 @@ async function serializeMultipart(data: FormData, headers: Headers): Promise<Buf
     return Buffer.concat(chunks);
 }
 
-function multipartBoundary(headers: Headers): string {
-    const contentType = headerToString(getHeader(headers, 'Content-Type'));
+function multipartBoundary(headers: Headers | NeutrxHeaders): string {
+    const currentContentType = getHeader(headers, 'Content-Type');
+    const contentType = headerToString(currentContentType);
     const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
     if (match?.[1] || match?.[2]) return match[1] ?? match[2] ?? '';
 
     const boundary = `----neutrx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    setHeader(headers, 'Content-Type', `multipart/form-data; boundary=${boundary}`);
+    if (currentContentType !== false) setHeader(headers, 'Content-Type', `multipart/form-data; boundary=${boundary}`);
     return boundary;
 }
 

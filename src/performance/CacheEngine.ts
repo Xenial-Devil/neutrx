@@ -220,6 +220,7 @@ export default class CacheEngine {
         return crypto
             .createHash('sha256')
             .update(JSON.stringify({
+                socketPath: config.socketPath ?? '',
                 url: config.url,
                 accept: config.headers.Accept ?? config.headers.accept ?? '',
                 authorization: config.headers.Authorization ?? config.headers.authorization ?? '',

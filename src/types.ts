@@ -2,6 +2,7 @@ import type { Agent as HttpAgent, ClientRequest, IncomingMessage, RequestOptions
 import type { Agent as HttpsAgent } from 'node:https';
 import type { Readable } from 'node:stream';
 import type { SecureContextOptions } from 'node:tls';
+import type { NeutrxHeaders } from './core/headers.js';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -9,7 +10,14 @@ export type JsonArray = readonly JsonValue[];
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
 
 export type HeaderValue = string | number | boolean | readonly string[];
+export type HeaderRecord = Record<string, HeaderValue | null | undefined>;
+export type HeaderTuple = readonly [string, HeaderValue | null | undefined];
+export interface HeaderMapLike {
+    forEach(callback: (value: string, key: string) => void): void;
+}
 export type Headers = Record<string, HeaderValue>;
+export type HeaderSource = HeaderRecord | NeutrxHeaders | HeaderMapLike | Iterable<HeaderTuple>;
+export type InternalHeaders = Headers & NeutrxHeaders;
 export type QueryScalar = string | number | boolean;
 export type QueryObject = { readonly [key: string]: QueryValue };
 export type QueryValue = QueryScalar | readonly (QueryScalar | QueryObject)[] | QueryObject | null | undefined;
@@ -25,6 +33,7 @@ export type ProgressEvent = {
     readonly loaded: number;
     readonly total?: number;
     readonly percent?: number;
+    readonly progress?: number;
     readonly bytes: number;
     readonly rate: number;
     readonly estimated?: number;
@@ -49,12 +58,16 @@ export interface FormSerializerOptions {
     readonly metaTokens?: boolean;
     readonly maxDepth?: number;
 }
-export type TransformRequest = (data: RequestBody | undefined, headers: Headers) => RequestBody | undefined;
+export type TransformRequest = (data: RequestBody | undefined, headers: InternalHeaders) => RequestBody | undefined;
 export type TransformResponse = (data: ParsedResponseData, headers: Headers, status: number) => ParsedResponseData;
 export type ParseJson = (text: string) => ParsedResponseData;
 export type StringifyJson = (value: unknown) => string;
 export type LookupFunction = NonNullable<RequestOptions['lookup']>;
-export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse | Promise<RawHttpResponse>;
+export type NeutrxRequestConfig = InternalRequestConfig;
+export interface NeutrxAdapter {
+    (config: NeutrxRequestConfig): RawHttpResponse | Promise<RawHttpResponse>;
+}
+export type RequestAdapter = NeutrxAdapter;
 export type RequestAdapterName = 'http' | 'fetch' | 'http2';
 export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
 export type MaybePromise<T> = T | Promise<T>;
@@ -115,6 +128,41 @@ export interface RequestValidationConfig {
 
 export type ValidationPluginConfig = RequestValidationConfig;
 
+export type NeutrxLogValue = string | number | boolean | null | undefined | readonly NeutrxLogValue[] | { readonly [key: string]: NeutrxLogValue };
+
+export interface NeutrxLogger {
+    info?(entry: Record<string, NeutrxLogValue>): void;
+    error?(entry: Record<string, NeutrxLogValue>): void;
+    warn?(entry: Record<string, NeutrxLogValue>): void;
+    debug?(entry: Record<string, NeutrxLogValue>): void;
+}
+
+export interface NeutrxWebSocketReconnectOptions {
+    readonly attempts?: number;
+    readonly minDelay?: number;
+    readonly maxDelay?: number;
+    readonly factor?: number;
+}
+
+export type NeutrxWebSocketMessage = string | ArrayBuffer | Uint8Array | Blob;
+
+export interface NeutrxWebSocketOptions {
+    readonly protocols?: string | readonly string[];
+    readonly reconnect?: boolean | NeutrxWebSocketReconnectOptions;
+    readonly webSocket?: typeof WebSocket;
+    readonly onOpen?: (event: Event) => void;
+    readonly onMessage?: (data: unknown, event: MessageEvent) => void;
+    readonly onError?: (event: Event) => void;
+    readonly onClose?: (event: CloseEvent) => void;
+}
+
+export interface NeutrxWSConnection {
+    readonly url: string;
+    readonly readyState: number | undefined;
+    send(data: NeutrxWebSocketMessage): void;
+    close(code?: number, reason?: string): void;
+}
+
 export interface Cancel {
     readonly __CANCEL__: true;
     readonly name: string;
@@ -160,7 +208,7 @@ export interface ProxyConfig {
     readonly host: string;
     readonly port?: number;
     readonly auth?: BasicAuthConfig | string;
-    readonly headers?: Headers;
+    readonly headers?: HeaderSource;
 }
 
 export interface BasicAuthConfig {
@@ -219,6 +267,10 @@ export interface RedirectContext {
     readonly fromURL: string;
     readonly toURL: string;
     readonly headers: Headers;
+}
+
+export interface TransitionalConfig {
+    readonly clarifyTimeoutError?: boolean;
 }
 
 export type SecurityProfile = 'strict' | 'standard' | 'legacy';
@@ -388,12 +440,14 @@ export interface InstrumentationConfig {
 
 export interface ClientConfig {
     readonly baseURL?: string;
+    readonly allowAbsoluteUrls?: boolean;
     readonly timeout?: number;
     readonly connectTimeout?: number;
     readonly maxRedirects?: number;
     readonly maxContentLength?: number;
     readonly maxBodyLength?: number;
-    readonly headers?: Headers;
+    readonly responseEncoding?: BufferEncoding;
+    readonly headers?: HeaderSource;
     readonly auth?: BasicAuthConfig;
     readonly idempotencyKey?: IdempotencyKey;
     readonly idempotencyKeyHeader?: string;
@@ -418,21 +472,23 @@ export interface ClientConfig {
     readonly instrumentation?: InstrumentationConfig;
     readonly proxy?: ProxyConfig | false;
     readonly tls?: TlsConfig;
+    readonly beforeRedirect?: (context: RedirectContext) => void | Promise<void>;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
     readonly socketPath?: string;
     readonly decompress?: boolean;
     readonly maxRate?: MaxRate;
+    readonly transitional?: TransitionalConfig;
     readonly security?: SecurityConfig;
     readonly egressPolicy?: EgressPolicyConfig;
     readonly resilience?: ResilienceConfig;
     readonly performance?: PerformanceConfig;
 }
 
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'auth' | 'idempotencyKey' | 'idempotencyKeyHeader' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'parseJson' | 'stringifyJson' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'serviceDiscovery' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'tls' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'egressPolicy' | 'resilience' | 'performance'>> {
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'auth' | 'idempotencyKey' | 'idempotencyKeyHeader' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'parseJson' | 'stringifyJson' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'serviceDiscovery' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'tls' | 'beforeRedirect' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'egressPolicy' | 'resilience' | 'performance' | 'transitional'>> {
     readonly baseURL?: string;
-    readonly headers?: Headers;
+    readonly headers?: HeaderSource;
     readonly auth?: BasicAuthConfig;
     readonly idempotencyKey?: IdempotencyKey;
     readonly idempotencyKeyHeader?: string;
@@ -455,12 +511,14 @@ export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'bas
     readonly instrumentation?: InstrumentationConfig;
     readonly proxy?: ProxyConfig | false;
     readonly tls?: TlsConfig;
+    readonly beforeRedirect?: (context: RedirectContext) => void | Promise<void>;
     readonly httpAgent?: HttpAgent;
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
     readonly socketPath?: string;
     readonly maxRate?: MaxRate;
     readonly egressPolicy?: EgressPolicyConfig;
+    readonly transitional: Required<TransitionalConfig>;
     readonly security: Required<Omit<SecurityConfig, 'profile' | 'rateLimit' | 'allowedHosts' | 'deniedHosts' | 'allowedProtocols'>> & {
         readonly profile: SecurityProfile;
         readonly allowedHosts?: readonly string[];
@@ -488,11 +546,12 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly method?: HttpMethod | Lowercase<HttpMethod>;
     readonly data?: TBody;
     readonly params?: QueryParams;
-    readonly headers?: Headers;
+    readonly headers?: HeaderSource;
     readonly auth?: BasicAuthConfig;
     readonly idempotencyKey?: IdempotencyKey;
     readonly idempotencyKeyHeader?: string;
     readonly baseURL?: string;
+    readonly allowAbsoluteUrls?: boolean;
     readonly timeout?: number;
     readonly connectTimeout?: number;
     readonly maxRedirects?: number;
@@ -528,6 +587,7 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly socketPath?: string;
     readonly decompress?: boolean;
     readonly maxRate?: MaxRate;
+    readonly transitional?: TransitionalConfig;
     readonly followRedirects?: boolean;
     readonly cache?: boolean;
     readonly signal?: AbortSignal;
@@ -541,7 +601,8 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
 export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> extends RequestConfig<TBody> {
     readonly url: string;
     readonly method: HttpMethod;
-    readonly headers: Headers;
+    readonly headers: InternalHeaders;
+    readonly allowAbsoluteUrls: boolean;
     readonly timeout: number;
     readonly connectTimeout: number;
     readonly maxRedirects: number;
@@ -572,6 +633,7 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly socketPath?: string;
     readonly decompress: boolean;
     readonly maxRate?: MaxRate;
+    readonly transitional: Required<TransitionalConfig>;
     readonly followRedirects: boolean;
     readonly requestId: string;
     readonly startTime: number;

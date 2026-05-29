@@ -1,13 +1,18 @@
 import type NeutrxClient from '../core/NeutrxClient.js';
-import { NeutrxValidationError } from '../core/NeutrxError.js';
+import { NeutrxHeaders } from '../core/headers.js';
+import { NeutrxSecurityError, NeutrxValidationError } from '../core/NeutrxError.js';
 import type {
     GraphQLResult,
+    HeaderSource,
     Headers,
     InternalRequestConfig,
     JsonValue,
     MockController,
     MockResponse,
     NeutrxResponse,
+    NeutrxWebSocketMessage,
+    NeutrxWebSocketOptions,
+    NeutrxWSConnection,
     OAuth2Config,
     ParsedResponseData,
     ValidationIssue,
@@ -19,9 +24,11 @@ import { VERSION } from '../version.js';
 export type HookName = 'beforeRequest' | 'afterRequest' | 'onError';
 export type HookContext = InternalRequestConfig | NeutrxResponse | Error;
 export type HookFunction<TContext extends HookContext> = (context: TContext) => TContext | Promise<TContext>;
-type BeforeRequestHook = (context: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>;
+type BeforeRequestResult = Omit<InternalRequestConfig, 'headers'> & { readonly headers: HeaderSource };
+type BeforeRequestHook = (context: InternalRequestConfig) => BeforeRequestResult | Promise<BeforeRequestResult>;
 type AfterRequestHook = (context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>;
 type ErrorHook = (context: Error) => Error | Promise<Error>;
+type LocationGlobal = typeof globalThis & { readonly location?: { readonly href?: string } };
 
 export interface PluginApi {
     addHook(name: 'beforeRequest', fn: BeforeRequestHook): void;
@@ -94,7 +101,7 @@ export class PluginManager {
     async runHook(name: HookName, context: HookContext): Promise<HookContext> {
         if (name === 'beforeRequest' && isRequestConfig(context)) {
             let current = context;
-            for (const hook of this.#hooks.beforeRequest) current = await hook(current);
+            for (const hook of this.#hooks.beforeRequest) current = normalizeRequestConfig(await hook(current));
             return current;
         }
 
@@ -135,7 +142,7 @@ export const OAuth2Plugin: NeutrxPlugin = {
             oauthConfig = config;
         };
 
-        client.addPluginHook('beforeRequest', async (config): Promise<InternalRequestConfig> => {
+        client.addPluginHook('beforeRequest', async (config): Promise<BeforeRequestResult> => {
             if (!oauthConfig?.tokenURL || config.skipOAuth) return config;
 
             if (!token || Date.now() >= expiry - 30_000) {
@@ -245,7 +252,7 @@ export const MockPlugin: NeutrxPlugin = {
 
         client.mock = controller;
 
-        client.addPluginHook('beforeRequest', async (config): Promise<InternalRequestConfig> => {
+        client.addPluginHook('beforeRequest', async (config): Promise<BeforeRequestResult> => {
             if (!isEnabled) return config;
 
             for (const [pattern, mock] of mocks) {
@@ -286,7 +293,7 @@ export const ValidationPlugin: NeutrxPlugin = {
             defaults = config;
         };
 
-        client.addPluginHook('beforeRequest', async (config): Promise<InternalRequestConfig> => {
+        client.addPluginHook('beforeRequest', async (config): Promise<BeforeRequestResult> => {
             const schema = config.validation?.request ?? defaults.request;
             if (!schema) return config;
 
@@ -307,14 +314,169 @@ export const ValidationPlugin: NeutrxPlugin = {
     },
 };
 
+export const WebSocketPlugin: NeutrxPlugin = {
+    name: 'websocket',
+    version: VERSION,
+
+    install(client) {
+        client.ws = (url: string, options: NeutrxWebSocketOptions = {}): NeutrxWSConnection => {
+            const WebSocketCtor = options.webSocket ?? globalThis.WebSocket;
+            if (typeof WebSocketCtor !== 'function') {
+                throw new NeutrxSecurityError('WebSocket is unavailable in this runtime', { code: 'WEBSOCKET_UNAVAILABLE' });
+            }
+
+            const target = websocketUrl(client.getUri(url));
+            const reconnect = reconnectConfig(options.reconnect);
+            let socket: WebSocket | undefined;
+            let closedByCaller = false;
+            let attempts = 0;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+
+            const connect = (): void => {
+                socket = new WebSocketCtor(target, options.protocols as string | string[] | undefined);
+                socket.onopen = event => {
+                    attempts = 0;
+                    options.onOpen?.(event);
+                };
+                socket.onmessage = event => options.onMessage?.(event.data, event);
+                socket.onerror = event => options.onError?.(event);
+                socket.onclose = event => {
+                    options.onClose?.(event);
+                    if (closedByCaller || !reconnect.enabled || attempts >= reconnect.attempts) return;
+                    const delay = Math.min(reconnect.maxDelay, reconnect.minDelay * reconnect.factor ** attempts);
+                    attempts += 1;
+                    timer = setTimeout(connect, delay);
+                };
+            };
+
+            connect();
+
+            return {
+                url: target,
+                get readyState() {
+                    return socket?.readyState;
+                },
+                send(data: NeutrxWebSocketMessage) {
+                    if (socket?.readyState !== WebSocketCtor.OPEN) {
+                        throw new NeutrxSecurityError('WebSocket is not open', { code: 'WEBSOCKET_NOT_OPEN' });
+                    }
+                    socket.send(data);
+                },
+                close(code?: number, reason?: string) {
+                    closedByCaller = true;
+                    if (timer) clearTimeout(timer);
+                    socket?.close(code, reason);
+                },
+            };
+        };
+    },
+};
+
+export const LogPlugin: NeutrxPlugin = {
+    name: 'log',
+    version: VERSION,
+
+    install(client) {
+        client.addPluginHook('afterRequest', response => {
+            client.logger?.info?.({
+                requestId: response.requestId,
+                method: response.config.method,
+                url: response.config.url,
+                status: response.status,
+                duration: response.timing.duration,
+                attempts: response.attempts?.length ?? 1,
+                cached: response.cached,
+                stale: response.stale,
+                deduplicated: response.deduplicated,
+            });
+            return response;
+        });
+
+        client.addPluginHook('onError', error => {
+            const details = error as Error & {
+                readonly code?: string;
+                readonly requestId?: string;
+                readonly url?: string | null;
+                readonly method?: string | null;
+                readonly duration?: number;
+            };
+            client.logger?.error?.({
+                requestId: details.requestId,
+                code: details.code,
+                name: details.name,
+                message: details.message,
+                url: details.url ?? undefined,
+                method: details.method ?? undefined,
+                duration: details.duration,
+            });
+            return error;
+        });
+    },
+};
+
+export const OtelPlugin: NeutrxPlugin = {
+    name: 'otel',
+    version: VERSION,
+
+    install(client) {
+        client.enableOpenTelemetry();
+    },
+};
+
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => {
         setTimeout(resolve, ms);
     });
 }
 
+function websocketUrl(url: string): string {
+    const location = (globalThis as LocationGlobal).location;
+    const base = typeof location?.href === 'string' ? location.href : undefined;
+    const parsed = new URL(url, base);
+    if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+    else if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
+    else if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+        throw new NeutrxSecurityError(`Unsupported WebSocket protocol: ${parsed.protocol}`, { code: 'WEBSOCKET_PROTOCOL' });
+    }
+    return parsed.href;
+}
+
+function reconnectConfig(value: NeutrxWebSocketOptions['reconnect']): {
+    readonly enabled: boolean;
+    readonly attempts: number;
+    readonly minDelay: number;
+    readonly maxDelay: number;
+    readonly factor: number;
+} {
+    if (value === false) return { enabled: false, attempts: 0, minDelay: 0, maxDelay: 0, factor: 1 };
+    const options = value === true || value === undefined ? {} : value;
+    return {
+        enabled: true,
+        attempts: positiveInteger(options.attempts, Number.POSITIVE_INFINITY),
+        minDelay: positiveInteger(options.minDelay, 1000),
+        maxDelay: positiveInteger(options.maxDelay, 30_000),
+        factor: positiveNumber(options.factor, 2),
+    };
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+    if (value === undefined) return fallback;
+    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+}
+
+function positiveNumber(value: number | undefined, fallback: number): number {
+    return value !== undefined && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 function isRequestConfig(context: HookContext): context is InternalRequestConfig {
     return !(context instanceof Error) && 'method' in context && 'url' in context;
+}
+
+function normalizeRequestConfig(config: BeforeRequestResult): InternalRequestConfig {
+    return {
+        ...config,
+        headers: NeutrxHeaders.from(config.headers) as InternalRequestConfig['headers'],
+    };
 }
 
 function isResponse(context: HookContext): context is NeutrxResponse {

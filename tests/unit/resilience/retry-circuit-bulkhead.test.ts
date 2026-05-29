@@ -5,9 +5,9 @@ import type CircuitBreaker from '../../../src/resilience/CircuitBreaker.js';
 import type Bulkhead from '../../../src/resilience/Bulkhead.js';
 import type { CircuitStateStore, CircuitStatus, RetryBudgetStore } from '../../../src/types.js';
 
-const retryEntry = '../../../../dist/esm/resilience/RetryEngine.js';
-const circuitEntry = '../../../../dist/esm/resilience/CircuitBreaker.js';
-const bulkheadEntry = '../../../../dist/esm/resilience/Bulkhead.js';
+const retryEntry = '../../../../dist/resilience/RetryEngine.mjs';
+const circuitEntry = '../../../../dist/resilience/CircuitBreaker.mjs';
+const bulkheadEntry = '../../../../dist/resilience/Bulkhead.mjs';
 
 void test('RetryEngine retries retryable errors and reports attempts', async () => {
     const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
