@@ -52,6 +52,12 @@ void test('browser root callable merges mutable defaults into shorthands', async
             params: { tag: ['a', 'b'], nested: { id: 7 }, skip: null },
             paramsSerializer: { indexes: false },
         });
+        const relativeApi = new mod.BrowserClient({ performance: { enableCaching: false } });
+        const relativeUri = relativeApi.getUri({
+            url: '/relative?kept=1#details',
+            params: { page: 3 },
+        });
+        relativeApi.destroy();
 
         const first = captured.at(0);
         const second = captured.at(1);
@@ -64,6 +70,7 @@ void test('browser root callable merges mutable defaults into shorthands', async
         assert.equal(second.headers.get('Content-Type'), 'application/x-www-form-urlencoded;charset=utf-8');
         assert.equal(second.body, 'a=1&a=2&nested%5Bok%5D=true');
         assert.equal(uri, 'https://defaults.example/v1/search?tag%5B%5D=a&tag%5B%5D=b&nested%5Bid%5D=7');
+        assert.equal(relativeUri, '/relative?kept=1&page=3#details');
     } finally {
         resetRecord(defaults);
         Object.assign(defaults, previousDefaults);

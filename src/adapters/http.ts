@@ -19,7 +19,7 @@ import {
 } from '../core/NeutrxError.js';
 import { createLookup, validateProxyTarget } from '../core/dns.js';
 import { NeutrxHeaders, getContentLength, hasHeader, normalizeIncomingHeaders, setHeader, toOutgoingHeaders } from '../core/headers.js';
-import { attachStreamDownloadProgress, reportDownloadProgress, reportUploadProgress, toUploadBuffer } from '../core/progress.js';
+import { attachStreamDownloadProgress, reportDownloadProgress, reportUploadProgress } from '../core/progress.js';
 import { createHttpsProxyConnection, directRequestTarget, proxyRequestTarget, resolveProxy } from '../core/proxy.js';
 import type { InternalHeaders, InternalRequestConfig, MaxRate, NormalizedClientConfig, RawHttpResponse, RequestAdapter } from '../types.js';
 
@@ -43,6 +43,7 @@ export interface NodeHttpAdapterOptions {
 }
 
 type RuntimeRequestConfig = InternalRequestConfig & { headers: InternalHeaders };
+const RATE_SLICE_INTERVAL_MS = 100;
 
 export function createNodeHttpAgents(): NodeHttpAdapterAgents {
     const options = { keepAlive: true, keepAliveMsecs: 1000, maxSockets: 50, maxFreeSockets: 10 };
@@ -201,7 +202,7 @@ export async function nodeHttpAdapter(config: InternalRequestConfig, options: No
                     fail(new NeutrxRequestSizeError(total, runtimeConfig.maxBodyLength));
                     return;
                 }
-                writeBufferBody(req, payload, runtimeConfig, total, rate.upload);
+                writeBufferBody(req, payload, runtimeConfig, total, fail, rate.upload);
                 return;
             }
         }
@@ -222,81 +223,73 @@ async function handleNodeHttpResponse(
     const statusText = response.statusMessage ?? '';
 
     if (config.responseType === 'stream') {
-        throttleReadable(response, downloadRate);
+        if (downloadRate) {
+            return { status, statusText, headers: rawHeaders, data: createThrottledDownloadStream(response, config, downloadRate), config, request };
+        }
         attachStreamDownloadProgress(response, config);
-        return { status, statusText, headers: rawHeaders, data: response, config, request };
+        const data = response;
+        return { status, statusText, headers: rawHeaders, data, config, request };
     }
 
     const chunks: Buffer[] = [];
     let received = 0;
     const downloadStartedAt = Date.now();
+    const total = getContentLength(rawHeaders);
+    reportDownloadProgress(config, received, total);
 
-    return new Promise((resolve, reject) => {
-        const total = getContentLength(rawHeaders);
-        reportDownloadProgress(config, received, total);
-
-        response.on('data', chunk => {
-            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-            received += buffer.length;
-            if (received > maxSize) {
-                response.destroy();
-                reject(new NeutrxResponseSizeError(received, maxSize));
-                return;
+    try {
+        for await (const chunk of response) {
+            const buffer = toTransferBuffer(chunk);
+            for (const slice of transferSlices(buffer, downloadRate)) {
+                const nextReceived = received + slice.length;
+                if (nextReceived > maxSize) {
+                    response.destroy();
+                    throw new NeutrxResponseSizeError(nextReceived, maxSize);
+                }
+                await waitForThrottle(nextReceived, downloadRate, downloadStartedAt);
+                chunks.push(slice);
+                received = nextReceived;
+                reportDownloadProgress(config, received, total);
             }
-            chunks.push(buffer);
-            reportDownloadProgress(config, received, total);
-            throttleReadable(response, downloadRate, throttleDelay(received, downloadRate, downloadStartedAt));
-        });
-
-        response.on('end', () => {
-            resolve({ status, statusText, headers: rawHeaders, data: Buffer.concat(chunks), config, request });
-        });
-        response.on('error', error => reject(normalizeError(error)));
-    });
-}
-
-function writeBufferBody(req: ClientRequest, body: Buffer, config: InternalRequestConfig, total: number, uploadRate?: number): void {
-    if (!uploadRate) {
-        reportUploadProgress(config, 0, total);
-        req.write(body, () => {
-            reportUploadProgress(config, total, total);
-            req.end();
-        });
-        return;
+        }
+    } catch (error: unknown) {
+        throw normalizeError(error);
     }
 
+    return { status, statusText, headers: rawHeaders, data: Buffer.concat(chunks), config, request };
+}
+
+function writeBufferBody(
+    req: ClientRequest,
+    body: Buffer,
+    config: InternalRequestConfig,
+    total: number,
+    fail: (error: Error) => void,
+    uploadRate?: number
+): void {
     const startedAt = Date.now();
-    const chunkSize = Math.max(1, Math.floor(uploadRate / 10));
     let offset = 0;
     reportUploadProgress(config, offset, total);
 
-    const writeNext = (): void => {
-        if (offset >= body.length) {
-            req.end();
-            return;
+    void (async () => {
+        for (const chunk of transferSlices(body, uploadRate)) {
+            const nextLoaded = offset + chunk.length;
+            await waitForThrottle(nextLoaded, uploadRate, startedAt);
+            await writeRequestChunk(req, chunk);
+            offset = nextLoaded;
+            reportUploadProgress(config, offset, total);
         }
-        const end = Math.min(body.length, offset + chunkSize);
-        const chunk = body.subarray(offset, end);
-        const nextLoaded = end;
-        const delay = throttleDelay(nextLoaded, uploadRate, startedAt);
-        setTimeout(() => {
-            req.write(chunk, () => {
-                offset = nextLoaded;
-                reportUploadProgress(config, offset, total);
-                writeNext();
-            });
-        }, delay);
-    };
-
-    writeNext();
+        req.end();
+    })().catch(error => {
+        req.destroy();
+        fail(normalizeError(error));
+    });
 }
 
 function writeStreamBody(req: ClientRequest, body: Readable, config: InternalRequestConfig, fail: (error: Error) => void, uploadRate?: number): void {
     const total = getContentLength(config.headers);
     let loaded = 0;
     const startedAt = Date.now();
-    let ended = false;
-    let pendingWrites = 0;
 
     if (total !== undefined && total > config.maxBodyLength) {
         req.destroy();
@@ -306,50 +299,52 @@ function writeStreamBody(req: ClientRequest, body: Readable, config: InternalReq
 
     reportUploadProgress(config, loaded, total);
 
-    body.on('data', (chunk: unknown) => {
-        body.pause();
-        const buffer = toUploadBuffer(chunk);
-        if (loaded + buffer.length > config.maxBodyLength) {
-            req.destroy();
-            fail(new NeutrxRequestSizeError(loaded + buffer.length, config.maxBodyLength));
-            return;
-        }
-        const nextLoaded = loaded + buffer.length;
-        const delay = throttleDelay(nextLoaded, uploadRate, startedAt);
-        const write = (): void => {
-            pendingWrites += 1;
-            req.write(buffer, () => {
-                pendingWrites -= 1;
+    void (async () => {
+        for await (const chunk of body) {
+            const buffer = toTransferBuffer(chunk);
+            for (const slice of transferSlices(buffer, uploadRate)) {
+                const nextLoaded = loaded + slice.length;
+                if (nextLoaded > config.maxBodyLength) {
+                    throw new NeutrxRequestSizeError(nextLoaded, config.maxBodyLength);
+                }
+                await waitForThrottle(nextLoaded, uploadRate, startedAt);
+                await writeRequestChunk(req, slice);
                 loaded = nextLoaded;
                 reportUploadProgress(config, loaded, total);
-                if (ended && pendingWrites === 0) {
-                    req.end();
-                    return;
-                }
-                body.resume();
-            });
-        };
-        if (delay > 0) {
-            setTimeout(write, delay);
-        } else {
-            write();
+            }
         }
-    });
-
-    body.on('end', () => {
-        ended = true;
-        if (pendingWrites === 0) req.end();
-    });
-
-    body.on('error', error => {
+        req.end();
+    })().catch(error => {
         req.destroy();
         fail(normalizeError(error));
     });
 }
 
+function createThrottledDownloadStream(response: IncomingMessage, config: InternalRequestConfig, downloadRate: number): Readable {
+    const total = getContentLength(normalizeIncomingHeaders(response.headers));
+    const startedAt = Date.now();
+    let loaded = 0;
+    reportDownloadProgress(config, loaded, total);
+
+    return Readable.from((async function* throttledDownload(): AsyncGenerator<Buffer> {
+        for await (const chunk of response) {
+            const buffer = toTransferBuffer(chunk);
+            for (const slice of transferSlices(buffer, downloadRate)) {
+                const nextLoaded = loaded + slice.length;
+                await waitForThrottle(nextLoaded, downloadRate, startedAt);
+                loaded = nextLoaded;
+                reportDownloadProgress(config, loaded, total);
+                yield slice;
+            }
+        }
+    })());
+}
+
 function parseMaxRate(maxRate: MaxRate | undefined): { readonly upload?: number; readonly download?: number } {
     if (maxRate === undefined) return {};
-    if (typeof maxRate === 'number') return positiveRate(maxRate) === undefined ? {} : { upload: maxRate, download: maxRate };
+    const sameRate = typeof maxRate === 'number' ? positiveRate(maxRate) : undefined;
+    if (sameRate !== undefined) return { upload: sameRate, download: sameRate };
+    if (typeof maxRate === 'number') return {};
     const [upload, download] = maxRate;
     return {
         ...(positiveRate(upload) !== undefined ? { upload } : {}),
@@ -361,17 +356,47 @@ function positiveRate(value: number | undefined): number | undefined {
     return value !== undefined && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+function transferSlices(buffer: Buffer, rate?: number): readonly Buffer[] {
+    if (!rate || buffer.length === 0) return [buffer];
+    const chunkSize = Math.max(1, Math.floor(rate / (1000 / RATE_SLICE_INTERVAL_MS)));
+    const chunks: Buffer[] = [];
+    for (let offset = 0; offset < buffer.length; offset += chunkSize) {
+        chunks.push(buffer.subarray(offset, Math.min(buffer.length, offset + chunkSize)));
+    }
+    return chunks;
+}
+
+async function waitForThrottle(loaded: number, rate: number | undefined, startedAt: number): Promise<void> {
+    const delayMs = throttleDelay(loaded, rate, startedAt);
+    if (delayMs <= 0) return;
+    await new Promise<void>(resolve => {
+        setTimeout(resolve, delayMs);
+    });
+}
+
+function writeRequestChunk(req: ClientRequest, chunk: Buffer): Promise<void> {
+    return new Promise((resolve, reject) => {
+        req.write(chunk, error => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve();
+        });
+    });
+}
+
 function throttleDelay(loaded: number, rate: number | undefined, startedAt: number): number {
     if (!rate) return 0;
     const expectedElapsed = (loaded / rate) * 1000;
     return Math.max(0, expectedElapsed - (Date.now() - startedAt));
 }
 
-function throttleReadable(stream: Readable, rate: number | undefined, delay?: number): void {
-    const wait = delay ?? 0;
-    if (!rate || wait <= 0) return;
-    stream.pause();
-    setTimeout(() => stream.resume(), wait);
+function toTransferBuffer(chunk: unknown): Buffer {
+    if (Buffer.isBuffer(chunk)) return chunk;
+    if (typeof chunk === 'string') return Buffer.from(chunk);
+    if (chunk instanceof Uint8Array) return Buffer.from(chunk);
+    return Buffer.from(String(chunk));
 }
 
 function normalizeError(error: unknown): Error {

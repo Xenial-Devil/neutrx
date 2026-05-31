@@ -62,17 +62,18 @@ const api = neutrx.create({
 Or enable the same bridge through a plugin:
 
 ```ts
-import neutrx, { OtelPlugin } from 'neutrx';
+import neutrx, { createOtelPlugin } from 'neutrx';
 
 const api = neutrx.create({ baseURL: 'https://api.example.com' });
-api.use(OtelPlugin);
+api.use(createOtelPlugin({ tracerName: 'billing-http' }));
 ```
 
-Span attributes include method, scheme, host, port, path without query string, status code, retry count, and cache hit state.
+Span attributes include method, scheme, host, port, path target without query string, status code, retry count, cache hit or miss, request duration, and circuit breaker state.
 
 Neutrx follows OpenTelemetry HTTP client semantic attribute names where they can be emitted safely:
 
 - `http.request.method`
+- `http.target`
 - `url.scheme`
 - `url.path`
 - `server.address`
@@ -82,7 +83,7 @@ Neutrx follows OpenTelemetry HTTP client semantic attribute names where they can
 - `http.response.status_code`
 - `error.type`
 
-It does not emit `url.full` or raw query strings because tokens and user data often live there. Neutrx-specific attributes use the `neutrx.*` namespace for retry count, cache state, request id, idempotency-key presence, and selected service-discovery endpoint metadata.
+It does not emit `url.full` or raw query strings because tokens and user data often live there. Neutrx-specific attributes use the `neutrx.*` namespace for retry count, cache state, duration, circuit breaker state, request id, idempotency-key presence, and selected service-discovery endpoint metadata.
 
 Body sizes are opt-in:
 

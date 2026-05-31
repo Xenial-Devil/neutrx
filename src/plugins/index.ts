@@ -7,5 +7,7 @@ export {
     PluginManager,
     ValidationPlugin,
     WebSocketPlugin,
+    createOtelPlugin,
     type NeutrxPlugin,
+    type OtelPluginOptions,
 } from './PluginManager.js';

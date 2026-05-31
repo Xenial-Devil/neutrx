@@ -27,6 +27,7 @@ void test('package self-reference imports expose ESM, CJS, and subpath APIs', as
     assert.equal(typeof root.WebSocketPlugin, 'object');
     assert.equal(typeof root.LogPlugin, 'object');
     assert.equal(typeof root.OtelPlugin, 'object');
+    assert.equal(typeof root.createOtelPlugin, 'function');
 });
 
 void test('package self-reference supports default ESM import syntax', () => {

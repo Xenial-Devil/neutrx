@@ -26,7 +26,7 @@ export {
 export { default as BrowserClient, default as NeutrxClient } from './core/BrowserClient.js';
 export { Cancel, CancelToken, isCancel } from './core/cancel.js';
 export { NeutrxHeaders } from './core/headers.js';
-export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
+export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, createOtelPlugin, type NeutrxPlugin, type OtelPluginOptions } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/BrowserNeutrx.js';
 export type {
@@ -52,6 +52,7 @@ export type {
     GraphQLResult,
     Headers,
     HeaderSource,
+    InferValidationSchema,
     InternalHeaders,
     Http2Options,
     Http2SessionStats,
@@ -89,6 +90,8 @@ export type {
     RequestAdapterConfig,
     RequestAdapterName,
     ResilienceConfig,
+    ResponseSchemaOption,
+    ResponseValidationSchema,
     RetryBudgetConfig,
     RetryBudgetScope,
     RetryBudgetSnapshot,
@@ -98,6 +101,7 @@ export type {
     DeprecatedSecurityProfile,
     SecurityProfileInput,
     SecurityProfile,
+    SchemaResponseData,
     ServiceDiscoveryConfig,
     ServiceEndpoint,
     ServiceResolver,

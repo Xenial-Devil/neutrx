@@ -93,6 +93,14 @@ export class NeutrxNetworkError extends NeutrxError {
         this.errno = options.errno ?? null;
         this.syscall = options.syscall ?? null;
     }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            errno: this.errno,
+            syscall: this.syscall,
+        };
+    }
 }
 
 export class NeutrxConnectionRefusedError extends NeutrxNetworkError {
@@ -108,6 +116,13 @@ export class NeutrxDNSError extends NeutrxNetworkError {
         super(`DNS resolution failed: ${hostname}`, { ...options, code: 'ENOTFOUND' });
         this.hostname = hostname;
     }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            hostname: this.hostname,
+        };
+    }
 }
 
 export class NeutrxTimeoutError extends NeutrxError {
@@ -118,6 +133,14 @@ export class NeutrxTimeoutError extends NeutrxError {
         super(message, { ...options, code: options.code ?? 'TIMEOUT', retryable: true });
         this.timeout = options.timeout ?? null;
         this.phase = options.phase ?? 'request';
+    }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            timeout: this.timeout,
+            phase: this.phase,
+        };
     }
 }
 
@@ -150,6 +173,13 @@ export class NeutrxSecurityError extends NeutrxError {
         super(message, { ...options, code: options.code ?? 'SECURITY_VIOLATION', retryable: false });
         this.severity = options.severity ?? 'HIGH';
     }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            severity: this.severity,
+        };
+    }
 }
 
 export class NeutrxSSRFError extends NeutrxSecurityError {
@@ -165,6 +195,14 @@ export class NeutrxSSRFError extends NeutrxSecurityError {
         this.blockedURL = url;
         this.reason = reason;
     }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            blockedURL: redactUrl(this.blockedURL),
+            reason: redactText(this.reason),
+        };
+    }
 }
 
 export class NeutrxCertPinError extends NeutrxSecurityError {
@@ -177,6 +215,13 @@ export class NeutrxCertPinError extends NeutrxSecurityError {
             severity: 'CRITICAL',
         });
         this.hostname = hostname;
+    }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            hostname: this.hostname,
+        };
     }
 }
 
@@ -192,6 +237,14 @@ export class NeutrxInjectionError extends NeutrxSecurityError {
         });
         this.injectionType = type;
         this.location = location;
+    }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            injectionType: this.injectionType,
+            location: this.location,
+        };
     }
 }
 
@@ -217,6 +270,13 @@ export class NeutrxRateLimitError extends NeutrxSecurityError {
         });
         this.domain = domain;
         this.retryable = true;
+    }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            domain: this.domain,
+        };
     }
 }
 
@@ -282,6 +342,13 @@ export class NeutrxCircuitBreakerError extends NeutrxError {
         });
         this.retryAfter = retryAfterMs;
     }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            retryAfter: this.retryAfter,
+        };
+    }
 }
 
 export class NeutrxMaxRetriesError extends NeutrxError {
@@ -297,6 +364,14 @@ export class NeutrxMaxRetriesError extends NeutrxError {
         this.attempts = attempts;
         this.lastError = lastError;
     }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            attempts: this.attempts,
+            lastError: serializeNestedError(this.lastError),
+        };
+    }
 }
 
 export class NeutrxBulkheadError extends NeutrxError {
@@ -309,6 +384,13 @@ export class NeutrxBulkheadError extends NeutrxError {
             retryable: true,
         });
         this.limit = limit;
+    }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            limit: this.limit,
+        };
     }
 }
 
@@ -325,6 +407,14 @@ export class NeutrxResponseSizeError extends NeutrxError {
         this.size = size;
         this.limit = limit;
     }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            size: this.size,
+            limit: this.limit,
+        };
+    }
 }
 
 export class NeutrxRequestSizeError extends NeutrxError {
@@ -339,6 +429,14 @@ export class NeutrxRequestSizeError extends NeutrxError {
         });
         this.size = size;
         this.limit = limit;
+    }
+
+    override toJSON(): Record<string, unknown> {
+        return {
+            ...super.toJSON(),
+            size: this.size,
+            limit: this.limit,
+        };
     }
 }
 
@@ -486,6 +584,16 @@ function redactUrl(value: string): string {
 
 function isSensitiveKey(key: string): boolean {
     return SENSITIVE_KEY_RE.test(key.toLowerCase());
+}
+
+function serializeNestedError(error: Error): Record<string, unknown> {
+    if (isNeutrxError(error)) return error.toJSON();
+    const maybeCode = (error as { readonly code?: unknown }).code;
+    return {
+        name: error.name,
+        message: redactText(error.message),
+        ...(typeof maybeCode === 'string' || typeof maybeCode === 'number' ? { code: maybeCode } : {}),
+    };
 }
 
 function summarizeIssues(issues: readonly ValidationIssue[]): string {

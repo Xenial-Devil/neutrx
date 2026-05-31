@@ -49,6 +49,7 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         ...(custom.formSerializer ? { formSerializer: custom.formSerializer } : {}),
         ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
         ...(custom.transformResponse ? { transformResponse: normalizeArray(custom.transformResponse) } : {}),
+        ...(custom.schema !== undefined ? { schema: custom.schema } : {}),
         ...(custom.parseJson ? { parseJson: custom.parseJson } : {}),
         ...(custom.stringifyJson ? { stringifyJson: custom.stringifyJson } : {}),
         throwHttpErrors: custom.throwHttpErrors ?? true,
@@ -204,11 +205,9 @@ export function buildURL(config: RequestConfig, defaults: NormalizedClientConfig
     }
 
     if (config.params && Object.keys(config.params).length > 0) {
-        const parsed = new URL(url);
         const serializer = config.paramsSerializer ?? defaults.paramsSerializer;
         const serialized = serializeParams(config.params, serializer);
-        if (serialized) parsed.search = serialized.startsWith('?') ? serialized.slice(1) : serialized;
-        url = parsed.toString();
+        url = appendQueryString(url, serialized);
     }
 
     return url;
@@ -326,6 +325,20 @@ function serializeParams(params: QueryParams, serializer?: RequestConfig['params
     const encoded = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) appendSearchParam(encoded, key, value, serializer?.encode, serializer?.indexes);
     return encoded.toString();
+}
+
+function appendQueryString(url: string, serializedParams: string): string {
+    const query = serializedParams.startsWith('?') ? serializedParams.slice(1) : serializedParams;
+    if (!query) return url;
+
+    const hashIndex = url.indexOf('#');
+    const hash = hashIndex >= 0 ? url.slice(hashIndex) : '';
+    const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+    const separator = base.includes('?')
+        ? base.endsWith('?') || base.endsWith('&') ? '' : '&'
+        : '?';
+
+    return `${base}${separator}${query}${hash}`;
 }
 
 function appendSearchParam(

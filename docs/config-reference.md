@@ -111,6 +111,7 @@ await api.get('/users', {
   paramsSerializer: { indexes: false },
   auth: { username: 'request-user', password: 'request-pass' },
   idempotencyKey: 'request-1',
+  schema: userSchema,
   signal: AbortSignal.timeout(2_000),
   validateStatus: status => status < 500,
   throwHttpErrors: false,
@@ -123,6 +124,8 @@ await api.get('/users', {
 `cancelToken` accepts `CancelToken.source().token` as an Axios migration bridge. Prefer `signal` for new code.
 
 Headers merge case-insensitively through `NeutrxHeaders`. Set a request header value to `false` to suppress a default and block automatic overwrites without emitting that header; use `NeutrxHeaders.set(name, null)` to delete it outright.
+
+`schema` validates parsed response data with a dependency-free adapter for Zod-like `safeParse`, `parse`, `validate`, TypeBox-style `Check/Errors`, or function validators. Valid schemas may return transformed data, which replaces `response.data`. Invalid data throws `NeutrxValidationError` with normalized `issues`. Set `schema: false` to disable a client default schema for a single request.
 
 `validation` is used by `ValidationPlugin`:
 
@@ -145,15 +148,17 @@ Node-only request fields:
 
 - `socketPath`: absolute Unix domain socket path for HTTP requests. It cannot be combined with proxy config and only supports HTTP. The URL host is used as the HTTP `Host` header, not as a DNS or TCP target.
 - `decompress`: defaults to `true`; set `false` to keep gzip/deflate/br bytes compressed.
-- `maxRate`: bytes per second for both directions, or `[uploadBytesPerSec, downloadBytesPerSec]`.
+- `maxRate`: Node HTTP bandwidth cap in bytes per second for both directions, or `[uploadBytesPerSecond, downloadBytesPerSecond]`. Use `0` for either tuple entry to leave that direction uncapped.
 - `tls`: CA, client cert/key, SNI, and SHA-256 certificate pins.
 - `httpAgent`, `httpsAgent`, and `lookup`: Node transport customization.
+
+`security.rateLimit` is request rate limiting: it counts requests per window and can be scoped per domain. `maxRate` is bandwidth rate limiting: it paces request and response bytes in the Node HTTP adapter and is reflected in upload/download progress `rate` samples.
 
 ## Axios-Compatible And Neutrx-Specific Options
 
 Axios-compatible options supported by Neutrx include `baseURL`, `allowAbsoluteUrls`, `url`, `method`, `headers`, `auth`, `params`, `paramsSerializer`, `data`, `timeout`, `maxRedirects`, `maxContentLength`, `maxBodyLength`, `responseType`, `responseEncoding`, `validateStatus`, `transformRequest`, `transformResponse`, `adapter`, `beforeRedirect`, `decompress`, `withCredentials`, `xsrfCookieName`, `xsrfHeaderName`, `onUploadProgress`, `onDownloadProgress`, `cancelToken`, and `transitional.clarifyTimeoutError`.
 
-Neutrx-specific options are focused on secure backend service-to-service HTTP: `connectTimeout`, `throwHttpErrors`, `parseJson`, `stringifyJson`, `idempotencyKey`, `idempotencyKeyHeader`, `httpVersion`, `http2Options`, `serviceDiscovery`, `proxy`, `tls`, `httpAgent`, `httpsAgent`, `lookup`, `socketPath`, `maxRate`, `security`, `egressPolicy`, `resilience`, `performance`, `instrumentation`, `validation`, `skipOAuth`, `cache`, and `followRedirects`.
+Neutrx-specific options are focused on secure backend service-to-service HTTP: `connectTimeout`, `throwHttpErrors`, `parseJson`, `stringifyJson`, `schema`, `idempotencyKey`, `idempotencyKeyHeader`, `httpVersion`, `http2Options`, `serviceDiscovery`, `proxy`, `tls`, `httpAgent`, `httpsAgent`, `lookup`, `socketPath`, `maxRate`, `security`, `egressPolicy`, `resilience`, `performance`, `instrumentation`, `validation`, `skipOAuth`, `cache`, and `followRedirects`.
 
 Some compatible options have backend-first semantics. Redirects are followed by Neutrx so SSRF, downgrade, and credential-stripping policy stays in force; custom adapters should return redirect responses rather than following them internally. `decompress`, agents, lookup, sockets, TLS, and `responseEncoding` are Node transport controls and are unavailable or platform-limited in browsers.
 

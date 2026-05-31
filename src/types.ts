@@ -28,7 +28,7 @@ export type ResponseType = 'json' | 'text' | 'buffer' | 'arrayBuffer' | 'blob' |
 export type RequestObjectBody = Record<string, unknown>;
 export type ResponseObjectData = Record<string, unknown>;
 export type RequestBody = JsonValue | RequestObjectBody | string | Buffer | Uint8Array | ArrayBuffer | URLSearchParams | Readable | Blob | FormData;
-export type ParsedResponseData = JsonValue | ResponseObjectData | string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | ReadableStream<Uint8Array> | null;
+export type ParsedResponseData = JsonValue | ResponseObjectData | string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | Readable | ReadableStream<Uint8Array> | null;
 export type ProgressEvent = {
     readonly loaded: number;
     readonly total?: number;
@@ -42,7 +42,7 @@ export type ProgressEvent = {
 };
 export type FetchCredentials = 'include' | 'omit' | 'same-origin';
 export type FetchImplementation = typeof fetch;
-export type MaxRate = number | readonly [number, number];
+export type MaxRate = number | readonly [uploadBytesPerSecond: number, downloadBytesPerSecond: number];
 export type IdempotencyKey = string | (() => string) | true;
 export type TransportRequest = ClientRequest | Request;
 export type ParamsSerializer =
@@ -100,30 +100,59 @@ export type ValidationResult<TData = unknown> =
     | ValidationFailure
     | TData;
 
-export type ValidationFunction<TData = unknown> = ((value: TData) => ValidationResult<TData> | Promise<ValidationResult<TData>>) & {
+export type ValidationFunction<TData = unknown, TInput = unknown> = ((value: TInput) => ValidationResult<TData> | Promise<ValidationResult<TData>>) & {
     readonly errors?: unknown;
 };
 
-export type ValidationSchema<TData = unknown> =
-    | ValidationFunction<TData>
+export type ValidationSchema<TData = unknown, TInput = unknown> =
+    | ValidationFunction<TData, TInput>
     | {
-        readonly parse: (value: TData) => TData | Promise<TData>;
+        readonly parse: (value: TInput) => TData | Promise<TData>;
     }
     | {
-        readonly safeParse: (value: TData) => ValidationSuccess<TData> | ValidationFailure | Promise<ValidationSuccess<TData> | ValidationFailure>;
+        readonly safeParse: (value: TInput) => ValidationSuccess<TData> | ValidationFailure | Promise<ValidationSuccess<TData> | ValidationFailure>;
     }
     | {
-        readonly validate: (value: TData) => ValidationResult<TData> | Promise<ValidationResult<TData>>;
+        readonly validate: (value: TInput) => ValidationResult<TData> | Promise<ValidationResult<TData>>;
         readonly errors?: unknown;
     }
     | {
-        readonly Check: (value: TData) => boolean;
-        readonly Errors?: (value: TData) => Iterable<unknown>;
+        readonly Check: (value: TInput) => boolean;
+        readonly Errors?: (value: TInput) => Iterable<unknown>;
     };
 
+type InferValidationResult<TResult> =
+    TResult extends PromiseLike<infer TAwaited> ? InferValidationResult<TAwaited>
+    : TResult extends ValidationSuccess<infer TData> ? TData
+    : TResult extends ValidationFailure ? never
+    : TResult extends boolean | void | ValidationIssue | readonly ValidationIssue[] ? unknown
+    : TResult;
+
+type IsUnknown<TValue> = unknown extends TValue
+    ? [TValue] extends [unknown] ? true : false
+    : false;
+
+export type InferValidationSchema<TSchema> =
+    TSchema extends { readonly parse: (...args: readonly unknown[]) => infer TResult } ? Awaited<TResult>
+    : TSchema extends { readonly safeParse: (...args: readonly unknown[]) => infer TResult } ? InferValidationResult<TResult>
+    : TSchema extends { readonly validate: (...args: readonly unknown[]) => infer TResult } ? InferValidationResult<TResult>
+    : TSchema extends (...args: readonly unknown[]) => infer TResult ? InferValidationResult<TResult>
+    : TSchema extends { readonly Check: (...args: readonly unknown[]) => boolean } ? unknown
+    : unknown;
+
+export type ResponseValidationSchema<TData = unknown> = ValidationSchema<TData, ParsedResponseData>;
+export type ResponseSchemaOption<TData = unknown> = ResponseValidationSchema<TData> | false;
+export type SchemaResponseData<TFallback extends ParsedResponseData, TSchema> =
+    [TSchema] extends [false | undefined] ? TFallback
+    : InferValidationSchema<Exclude<TSchema, false | undefined>> extends infer TInferred
+        ? IsUnknown<TInferred> extends true
+            ? TFallback
+            : TInferred extends ParsedResponseData ? TInferred : ParsedResponseData
+        : TFallback;
+
 export interface RequestValidationConfig {
-    readonly request?: ValidationSchema;
-    readonly response?: ValidationSchema;
+    readonly request?: ValidationSchema | false;
+    readonly response?: ResponseValidationSchema | false;
 }
 
 export type ValidationPluginConfig = RequestValidationConfig;
@@ -456,6 +485,7 @@ export interface ClientConfig {
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly schema?: ResponseSchemaOption | undefined;
     readonly parseJson?: ParseJson;
     readonly stringifyJson?: StringifyJson;
     readonly throwHttpErrors?: boolean;
@@ -486,7 +516,7 @@ export interface ClientConfig {
     readonly performance?: PerformanceConfig;
 }
 
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'auth' | 'idempotencyKey' | 'idempotencyKeyHeader' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'parseJson' | 'stringifyJson' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'serviceDiscovery' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'tls' | 'beforeRedirect' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'egressPolicy' | 'resilience' | 'performance' | 'transitional'>> {
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'auth' | 'idempotencyKey' | 'idempotencyKeyHeader' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'schema' | 'parseJson' | 'stringifyJson' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'serviceDiscovery' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'tls' | 'beforeRedirect' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'egressPolicy' | 'resilience' | 'performance' | 'transitional'>> {
     readonly baseURL?: string;
     readonly headers?: HeaderSource;
     readonly auth?: BasicAuthConfig;
@@ -496,6 +526,7 @@ export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'bas
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
+    readonly schema?: ResponseSchemaOption | undefined;
     readonly parseJson?: ParseJson;
     readonly stringifyJson?: StringifyJson;
     readonly adapter?: RequestAdapterConfig;
@@ -541,7 +572,10 @@ export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'bas
     };
 }
 
-export interface RequestConfig<TBody extends RequestBody = RequestBody> {
+export interface RequestConfig<
+    TBody extends RequestBody = RequestBody,
+    TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+> {
     readonly url: string;
     readonly method?: HttpMethod | Lowercase<HttpMethod>;
     readonly data?: TBody;
@@ -564,6 +598,7 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly schema?: TSchema;
     readonly parseJson?: ParseJson;
     readonly stringifyJson?: StringifyJson;
     readonly throwHttpErrors?: boolean;
@@ -614,6 +649,7 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
+    readonly schema?: ResponseSchemaOption | undefined;
     readonly parseJson?: ParseJson;
     readonly stringifyJson?: StringifyJson;
     readonly throwHttpErrors: boolean;
@@ -647,7 +683,7 @@ export interface RawHttpResponse {
     readonly status: number;
     readonly statusText: string;
     readonly headers: Headers;
-    readonly data: string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | ReadableStream<Uint8Array> | null;
+    readonly data: string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | Readable | ReadableStream<Uint8Array> | null;
     readonly config: InternalRequestConfig;
     readonly request?: TransportRequest;
     readonly deduplicated?: boolean;

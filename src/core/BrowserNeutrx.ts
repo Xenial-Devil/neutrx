@@ -5,23 +5,37 @@ import type {
     ParsedResponseData,
     RequestBody,
     RequestConfig,
+    ResponseSchemaOption,
+    SchemaResponseData,
 } from '../types.js';
 import BrowserClient from './BrowserClient.js';
 import { Cancel, CancelToken, isCancel } from './cancel.js';
 import { createMutableDefaults, mergeDefaults, type NeutrxDefaults } from './defaults.js';
+import { isNeutrxError } from './NeutrxError.js';
 
 export type { NeutrxDefaults } from './defaults.js';
 
-type CallableRequestConfig<TBody extends RequestBody = RequestBody> = Omit<RequestConfig<TBody>, 'url'>;
+type CallableRequestConfig<
+    TBody extends RequestBody = RequestBody,
+    TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+> = Omit<RequestConfig<TBody, TSchema>, 'url'>;
 
 interface CallableRequest {
-    <TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
-        config: RequestConfig<TBody>
-    ): Promise<NeutrxResponse<TData>>;
-    <TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    <
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
+        config: RequestConfig<TBody, TSchema>
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>>;
+    <
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
-        config?: CallableRequestConfig<TBody>
-    ): Promise<NeutrxResponse<TData>>;
+        config?: CallableRequestConfig<TBody, TSchema>
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>>;
 }
 
 export type NeutrxInstance = Omit<BrowserClient, 'create'> & CallableRequest & {
@@ -32,6 +46,7 @@ export type NeutrxStatic = NeutrxInstance & {
     readonly Cancel: typeof Cancel;
     readonly CancelToken: typeof CancelToken;
     readonly defaults: NeutrxDefaults;
+    readonly isNeutrxError: typeof isNeutrxError;
     readonly isCancel: typeof isCancel;
 };
 
@@ -40,12 +55,16 @@ function createCallableClient(
     defaults?: NeutrxDefaults,
     createInstance?: (config: ClientConfig) => BrowserClient
 ): NeutrxInstance {
-    const callable = (<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
-        input: string | RequestConfig<TBody>,
-        config: CallableRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> => {
+    const callable = (<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
+        input: string | RequestConfig<TBody, TSchema>,
+        config: CallableRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> => {
         const requestConfig = typeof input === 'string' ? mergeRequestDefaults(defaults, { ...config, url: input }) : mergeRequestDefaults(defaults, input);
-        return getClient().request<TData, TBody>(requestConfig);
+        return getClient().request<TData, TBody, TSchema>(requestConfig);
     }) as unknown as NeutrxInstance;
 
     Object.defineProperty(callable, 'create', {
@@ -120,15 +139,19 @@ Object.defineProperty(Neutrx, 'isCancel', {
     value: isCancel,
     enumerable: true,
 });
+Object.defineProperty(Neutrx, 'isNeutrxError', {
+    value: isNeutrxError,
+    enumerable: true,
+});
 
 export default Neutrx;
 
-function mergeRequestDefaults<TBody extends RequestBody>(
+function mergeRequestDefaults<TBody extends RequestBody, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
     defaultsConfig: NeutrxDefaults | undefined,
-    config: RequestConfig<TBody>
-): RequestConfig<TBody> {
+    config: RequestConfig<TBody, TSchema>
+): RequestConfig<TBody, TSchema> {
     if (!defaultsConfig) return config;
-    return mergeClientDefaults(defaultsConfig, config, config.method) as RequestConfig<TBody>;
+    return mergeClientDefaults(defaultsConfig, config, config.method) as RequestConfig<TBody, TSchema>;
 }
 
 function mergeClientDefaults(

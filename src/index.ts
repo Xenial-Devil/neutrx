@@ -37,7 +37,7 @@ export { NeutrxHeaders } from './core/headers.js';
 export { OpenTelemetryInstrumentation } from './monitoring/OpenTelemetryInstrumentation.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
 export type { NeutrxInterceptorManager, NeutrxInterceptors, NeutrxRequestInterceptorManager, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
-export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
+export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, createOtelPlugin, type NeutrxPlugin, type OtelPluginOptions } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export { ALGORITHMS } from './security/RateLimiter.js';
 export type {
@@ -67,6 +67,7 @@ export type {
     GraphQLResult,
     Headers,
     HeaderSource,
+    InferValidationSchema,
     InternalHeaders,
     Http2Options,
     Http2SessionStats,
@@ -107,6 +108,8 @@ export type {
     RequestAdapterName,
     RedirectContext,
     ResilienceConfig,
+    ResponseSchemaOption,
+    ResponseValidationSchema,
     RetryBudgetConfig,
     RetryBudgetScope,
     RetryBudgetSnapshot,
@@ -120,6 +123,7 @@ export type {
     ServiceEndpoint,
     ServiceResolver,
     ServiceResolverContext,
+    SchemaResponseData,
     SseHandle,
     StringifyJson,
     TlsConfig,

@@ -20,9 +20,21 @@ type OpenTelemetryApiLike = {
 };
 
 type AttributeValue = string | number | boolean;
+type SpanFinishDetails = {
+    readonly retries: number;
+    readonly cacheHit: boolean;
+    readonly durationMs?: number;
+    readonly circuitState?: string;
+};
+type SpanFailureDetails = {
+    readonly retries?: number;
+    readonly durationMs?: number;
+    readonly circuitState?: string;
+};
 
 export class OpenTelemetryInstrumentation {
     #api: OpenTelemetryApiLike | null | undefined;
+    #ended = new WeakSet<SpanLike>();
 
     async start(config: InternalRequestConfig): Promise<{ readonly span: SpanLike | null; readonly carrier: Record<string, string> }> {
         if (!config.instrumentation?.openTelemetry) return { span: null, carrier: {} };
@@ -44,7 +56,7 @@ export class OpenTelemetryInstrumentation {
     finish<TData extends ParsedResponseData>(
         span: SpanLike | null,
         response: NeutrxResponse<TData>,
-        details: { readonly retries: number; readonly cacheHit: boolean }
+        details: SpanFinishDetails
     ): void {
         if (!span) return;
         span.setAttribute('http.response.status_code', response.status);
@@ -53,22 +65,28 @@ export class OpenTelemetryInstrumentation {
         }
         span.setAttribute('neutrx.retry.count', details.retries);
         span.setAttribute('neutrx.cache.hit', details.cacheHit);
+        span.setAttribute('neutrx.cache.result', details.cacheHit ? 'hit' : 'miss');
+        span.setAttribute('neutrx.request.duration_ms', details.durationMs ?? response.timing.duration);
+        setOptionalAttribute(span, 'neutrx.circuit_breaker.state', details.circuitState);
         if (response.deduplicated !== undefined) span.setAttribute('neutrx.request.deduplicated', response.deduplicated);
         if (response.cached !== undefined) span.setAttribute('neutrx.cache.cached', response.cached);
         if (response.stale !== undefined) span.setAttribute('neutrx.cache.stale', response.stale);
         if (response.status >= 400) span.setStatus?.({ code: this.#errorStatusCode(), message: response.statusText });
         else span.setStatus?.({ code: this.#okStatusCode() });
-        span.end();
+        this.#end(span);
     }
 
-    fail(span: SpanLike | null, error: Error): void {
+    fail(span: SpanLike | null, error: Error, details: SpanFailureDetails = {}): void {
         if (!span) return;
         span.recordException?.(error);
         span.setAttribute('error.type', error.name);
+        if (details.retries !== undefined) span.setAttribute('neutrx.retry.count', details.retries);
+        if (details.durationMs !== undefined) span.setAttribute('neutrx.request.duration_ms', details.durationMs);
+        setOptionalAttribute(span, 'neutrx.circuit_breaker.state', details.circuitState);
         const code = (error as { readonly code?: unknown }).code;
         if (typeof code === 'string') span.setAttribute('neutrx.error.code', code);
         span.setStatus?.({ code: this.#errorStatusCode(), message: error.message });
-        span.end();
+        this.#end(span);
     }
 
     async #loadApi(): Promise<OpenTelemetryApiLike | null> {
@@ -95,12 +113,19 @@ export class OpenTelemetryInstrumentation {
     #okStatusCode(): number {
         return this.#api?.SpanStatusCode?.OK ?? 1;
     }
+
+    #end(span: SpanLike): void {
+        if (this.#ended.has(span)) return;
+        this.#ended.add(span);
+        span.end();
+    }
 }
 
 function requestAttributes(config: InternalRequestConfig): Record<string, AttributeValue> {
     const url = new URL(config.url);
     const attributes: Record<string, AttributeValue> = {
         'http.request.method': config.method,
+        'http.target': url.pathname,
         'url.scheme': url.protocol.slice(0, -1),
         'url.path': url.pathname,
         'server.address': url.hostname,
@@ -110,6 +135,7 @@ function requestAttributes(config: InternalRequestConfig): Record<string, Attrib
         'neutrx.request.id': config.requestId,
         'neutrx.request.timeout_ms': config.timeout,
         'neutrx.request.redirect.max': config.maxRedirects,
+        'neutrx.retry.count': 0,
         'neutrx.retry.idempotency_key_present': Boolean(config.idempotencyKey),
     };
 
@@ -164,8 +190,12 @@ function parseContentLength(value: HeaderValue | undefined): number | undefined 
 
 function payloadSize(value: unknown): number | undefined {
     if (value === undefined || value === null) return undefined;
-    if (typeof value === 'string') return Buffer.byteLength(value);
-    if (Buffer.isBuffer(value)) return value.byteLength;
+    if (typeof value === 'string') {
+        return typeof Buffer !== 'undefined'
+            ? Buffer.byteLength(value)
+            : new TextEncoder().encode(value).byteLength;
+    }
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return value.byteLength;
     if (value instanceof Uint8Array) return value.byteLength;
     if (value instanceof ArrayBuffer) return value.byteLength;
     if (typeof Blob !== 'undefined' && value instanceof Blob) return value.size;

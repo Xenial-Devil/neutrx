@@ -70,9 +70,10 @@ function defaultParseJson(text: string): ParsedResponseData {
     return JSON.parse(text, safeReviver) as JsonValue;
 }
 
-export function normalizeNodeResponseData(data: RawHttpResponse['data']): Buffer | IncomingMessage | Blob | FormData | ReadableStream<Uint8Array> {
+export function normalizeNodeResponseData(data: RawHttpResponse['data']): Buffer | IncomingMessage | Readable | Blob | FormData | ReadableStream<Uint8Array> {
     if (Buffer.isBuffer(data)) return data;
     if (isIncomingMessageLike(data)) return data;
+    if (data instanceof Readable) return data;
     if (isBlobLike(data)) return data;
     if (isFormDataLike(data)) return data;
     if (isReadableStreamLike(data)) return data;

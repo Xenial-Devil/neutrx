@@ -52,6 +52,7 @@ const SAFE_DEFAULT_KEYS = [
     'formSerializer',
     'transformRequest',
     'transformResponse',
+    'schema',
     'parseJson',
     'stringifyJson',
     'throwHttpErrors',

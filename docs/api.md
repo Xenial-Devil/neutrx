@@ -63,6 +63,19 @@ neutrx.defaults.headers = { 'X-Service': 'billing' };
 - `sse(url, handlers?)`
 - `getUri(config)`
 
+## Utility Methods
+
+`getUri(config)` builds the final request URL without dispatching. It applies `baseURL`, `allowAbsoluteUrls`, `params`, and `paramsSerializer`, and it preserves existing query strings and hash fragments:
+
+```ts
+api.getUri({ url: '/users?active=true#team', params: { page: 2 } });
+// "/users?active=true&page=2#team" or with baseURL, "https://api.example.com/users?active=true&page=2#team"
+```
+
+`isNeutrxError(error)` and `neutrx.isNeutrxError(error)` narrow errors to Neutrx's branded error classes. `isCancel(error)` and `neutrx.isCancel(error)` detect the `CancelToken` migration bridge.
+
+`postForm()`, `putForm()`, and `patchForm()` are multipart form helpers. In Node, plain objects are serialized as multipart bodies by the Node HTTP adapter. In browser and browser-like runtimes, plain objects are converted to `FormData` where the platform provides it.
+
 ## Request Config
 
 Important fields:
@@ -93,6 +106,7 @@ Important fields:
 - `stringifyJson`
 - `transformRequest`
 - `transformResponse`
+- `schema`
 - `adapter`
 - `fetch`
 - `httpVersion`
@@ -135,11 +149,13 @@ await api.get('/exports/monthly.csv', {
 
 `bytes` is the delta since the previous event for that request direction. `rate` is bytes per second from the previous event. `estimated` is only present when Neutrx knows `total` and has a positive rate. Node HTTP can measure buffered bodies, Node streams, buffered responses, and response streams as callers consume them. Fetch-based adapters depend on platform `ReadableStream` support. Browser `FormData`, opaque platform-managed request bodies, missing `Content-Length`, and runtimes without readable response streams may only produce a final event or omit `total`, `percent`, and `estimated`.
 
+`security.rateLimit` limits request count over time. `maxRate` limits Node HTTP upload/download bandwidth over time; pass `[uploadBytesPerSecond, downloadBytesPerSecond]` and use `0` for an uncapped direction.
+
 Adapters can be selected with `adapter: 'http'`, `adapter: 'fetch'`, `adapter: 'http2'`, constants such as `HttpAdapter`, or a custom `NeutrxAdapter` function. Node uses HTTP by default; browser-like runtimes use fetch.
 
 Axios-compatible migration options include `allowAbsoluteUrls`, `beforeRedirect`, `decompress`, `responseEncoding`, and `transitional.clarifyTimeoutError`. `allowAbsoluteUrls: false` forces absolute-looking request URLs through `baseURL`; `beforeRedirect` runs after Neutrx validates and prepares the next redirect hop; `decompress: false` preserves compressed bytes; `responseEncoding` controls buffered text decoding; `transitional.clarifyTimeoutError: true` switches timeout error codes from `ECONNABORTED` to `ETIMEDOUT`.
 
-Neutrx-specific options include backend safety and resilience controls such as `security`, `egressPolicy`, `resilience`, `performance`, `instrumentation`, `serviceDiscovery`, `tls`, `socketPath`, `maxRate`, `validation`, and `idempotencyKey`.
+Neutrx-specific options include backend safety and resilience controls such as `security`, `egressPolicy`, `resilience`, `performance`, `instrumentation`, `serviceDiscovery`, `tls`, `socketPath`, `maxRate`, `schema`, `validation`, and `idempotencyKey`.
 
 Custom adapters receive the fully prepared `NeutrxRequestConfig` and return a `RawHttpResponse`. Interceptors, retries, circuit breaker, cache, metrics, response parsing, and redirect policy stay in the client lifecycle outside the adapter.
 
@@ -148,6 +164,28 @@ Responses include `request` when the adapter can expose a safe transport referen
 Use `createSecureAdapter()` for custom adapters that should reject URL mutation and redirect responses outside Neutrx redirect policy.
 
 `idempotencyKey` sets `Idempotency-Key`. It also allows retrying `POST` and `PATCH` when retry policy says the failure is retryable.
+
+## Response Schema Validation
+
+`schema` validates parsed and transformed response data before a successful response is returned. Validators may be Zod-like `safeParse`, `parse`, `validate`, TypeBox-style `Check/Errors`, or function validators. Successful schemas can return parsed data, which replaces `response.data`; failures throw `NeutrxValidationError` with normalized `issues`.
+
+```ts
+const userSchema = {
+  parse(value: unknown) {
+    if (value && typeof value === 'object' && 'id' in value) {
+      return value as { readonly id: string };
+    }
+    throw Object.assign(new Error('invalid user'), {
+      issues: [{ path: ['id'], message: 'id is required' }],
+    });
+  },
+};
+
+const response = await api.get('/users/1', { schema: userSchema });
+response.data.id;
+
+await api.get('/users/1', { schema: false }); // disables a client default schema
+```
 
 ## Service Discovery
 
@@ -274,7 +312,7 @@ Built-in plugins:
 - `LogPlugin`
 - `OtelPlugin`
 
-`ValidationPlugin` reads `config.validation.request` before dispatch and `config.validation.response` after parsing. Validators may be functions or schema-like objects with `safeParse`, `parse`, `validate`, or TypeBox-style `Check`/`Errors`. Failures throw `NeutrxValidationError`.
+`ValidationPlugin` reads `config.validation.request` before dispatch and `config.validation.response` after parsing. Use the first-class `schema` option for normal response validation; use the plugin when request-body validation or central plugin hooks are needed. Validators may be functions or schema-like objects with `safeParse`, `parse`, `validate`, or TypeBox-style `Check`/`Errors`. Failures throw `NeutrxValidationError`.
 
 `WebSocketPlugin` adds `api.ws(url, options)` with native `WebSocket`, callback hooks, and bounded exponential reconnect controls.
 

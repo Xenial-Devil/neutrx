@@ -473,18 +473,33 @@ void test('isNeutrxError narrows Neutrx errors', async () => {
         assert.fail('request should throw');
     } catch (error: unknown) {
         assert.equal(isNeutrxError(error), true);
+        assert.equal(Neutrx.isNeutrxError(error), true);
         assert.equal(Object.keys(error as object).includes('__isNeutrxError'), false);
     }
 });
 
 void test('getUri builds final URL without dispatching', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    let dispatched = false;
     const api = Neutrx.create({
         baseURL: 'https://api.example.com/v1',
         paramsSerializer: params => `page=${paramToString(params.page)}`,
+        adapter: config => {
+            dispatched = true;
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: {},
+                data: Buffer.from('{}'),
+                config,
+            };
+        },
     });
+    const relative = Neutrx.create();
 
     assert.equal(api.getUri({ url: '/users', params: { page: 2 } }), 'https://api.example.com/v1/users?page=2');
+    assert.equal(relative.getUri({ url: '/users?active=true#team', params: { page: 2 } }), '/users?active=true&page=2#team');
+    assert.equal(dispatched, false);
 });
 
 void test('decompress false keeps compressed response bytes', async () => {
@@ -672,15 +687,19 @@ void test('FormData bodies serialize as multipart with boundary and length', asy
     }
 });
 
-void test('postForm serializes plain objects as multipart form data', async () => {
+void test('form helpers serialize plain objects as multipart form data', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
-    const captured: { contentType: string | undefined; body?: string } = { contentType: undefined };
+    const captured: Array<{ readonly method: string | undefined; readonly contentType: string | undefined; readonly body: string }> = [];
     const server = http.createServer((request, response) => {
-        captured.contentType = headerValue(request.headers['content-type']);
+        const contentType = headerValue(request.headers['content-type']);
         const chunks: Buffer[] = [];
         request.on('data', (chunk: Buffer) => chunks.push(chunk));
         request.on('end', () => {
-            captured.body = Buffer.concat(chunks).toString('utf8');
+            captured.push({
+                method: request.method,
+                contentType,
+                body: Buffer.concat(chunks).toString('utf8'),
+            });
             response.setHeader('content-type', 'application/json');
             response.end(JSON.stringify({ ok: true }));
         });
@@ -696,10 +715,15 @@ void test('postForm serializes plain objects as multipart form data', async () =
         });
 
         await api.postForm('/form', { name: 'Ada', role: 'admin' });
+        await api.putForm('/form', { name: 'Grace' });
+        await api.patchForm('/form', { role: 'operator' });
 
-        assert.match(captured.contentType ?? '', /^multipart\/form-data; boundary=----neutrx-/);
-        assert.match(captured.body ?? '', /name="name"\r\n\r\nAda/);
-        assert.match(captured.body ?? '', /name="role"\r\n\r\nadmin/);
+        assert.deepEqual(captured.map(item => item.method), ['POST', 'PUT', 'PATCH']);
+        assert.ok(captured.every(item => /^multipart\/form-data; boundary=----neutrx-/.test(item.contentType ?? '')));
+        assert.match(captured[0]?.body ?? '', /name="name"\r\n\r\nAda/);
+        assert.match(captured[0]?.body ?? '', /name="role"\r\n\r\nadmin/);
+        assert.match(captured[1]?.body ?? '', /name="name"\r\n\r\nGrace/);
+        assert.match(captured[2]?.body ?? '', /name="role"\r\n\r\noperator/);
     } finally {
         await close(server);
     }

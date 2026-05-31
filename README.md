@@ -114,7 +114,11 @@ await api.options('/health');
 await api.postForm('/form', { name: 'Ada' });
 await api.putForm('/form/1', { name: 'Ada' });
 await api.patchForm('/form/1', { name: 'Grace' });
+
+const uri = api.getUri({ url: '/users?active=true#team', params: { page: 1 } });
 ```
+
+`getUri()` builds the final URL without sending a request. Form helpers create multipart requests in Node and convert plain objects to `FormData` in browser runtimes where the platform supports it.
 
 Useful config:
 
@@ -188,6 +192,11 @@ await api.post('/reports', reportBuffer, {
 ```
 
 Node HTTP progress is available for buffered bodies, Node streams, buffered responses, and stream responses as they are consumed. The fetch adapter uses `ReadableStream` support where the runtime exposes it. Some bodies cannot expose precise progress: browser `FormData` often hides the encoded size, fetch upload progress for opaque platform-managed bodies can only report known sizes, and `total`, `percent`, and `estimated` are omitted when no total or rate can be measured.
+
+`security.rateLimit` and `maxRate` limit different things:
+
+- `security.rateLimit` is request rate limiting. It controls how many requests can be sent in a time window.
+- `maxRate` is Node HTTP bandwidth rate limiting. It caps upload and download bytes per second with `[uploadBytesPerSecond, downloadBytesPerSecond]`; use `0` for a direction you do not want to cap.
 
 Cancellation uses native `AbortController`. A small `CancelToken` bridge exists for Axios migrations, but new code should prefer `signal`:
 
@@ -416,9 +425,34 @@ api.interceptors.request.clear();
 api.interceptors.response.clear();
 ```
 
+## Response Schema Validation
+
+Use `schema` to validate and optionally transform parsed response data before it is returned. Neutrx does not depend on Zod, TypeBox, Ajv, or any validator; pass any compatible `safeParse`, `parse`, `validate`, `Check/Errors`, or function validator. Set `schema: false` on a request to disable a client default schema for that call.
+
+```ts
+import neutrx, { NeutrxValidationError, type ResponseValidationSchema } from 'neutrx';
+
+type User = { readonly id: string; readonly name: string };
+
+const userSchema = {
+  safeParse(value: unknown) {
+    return value && typeof value === 'object' && 'id' in value && 'name' in value
+      ? { success: true as const, data: value as User }
+      : { success: false as const, issues: [{ path: ['id'], message: 'user response is invalid' }] };
+  },
+} satisfies ResponseValidationSchema<User>;
+
+try {
+  const response = await api.get('/users/1', { schema: userSchema });
+  response.data.id; // typed as string
+} catch (error) {
+  if (error instanceof NeutrxValidationError) console.error(error.issues);
+}
+```
+
 ## Validation Plugin
 
-`ValidationPlugin` validates request bodies and parsed responses with user-provided schemas. It has no runtime dependency on Zod, TypeBox, Ajv, or any validator; pass a `safeParse`, `parse`, `validate`, `Check/Errors`, or function validator.
+`ValidationPlugin` validates request bodies and parsed responses with user-provided schemas. Use first-class `schema` for normal response validation; use the plugin when you also want request-body validation or centrally configured validation hooks. It has no runtime dependency on Zod, TypeBox, Ajv, or any validator.
 
 ```ts
 import neutrx, { ValidationPlugin } from 'neutrx';
@@ -444,13 +478,16 @@ Validation failures throw `NeutrxValidationError` and do not retry.
 ## WebSocket, Logging, And OpenTelemetry Plugins
 
 ```ts
-import neutrx, { LogPlugin, OtelPlugin, WebSocketPlugin } from 'neutrx';
+import neutrx, { LogPlugin, WebSocketPlugin, createOtelPlugin } from 'neutrx';
 
 const api = neutrx.create({ baseURL: 'https://api.example.com' });
 api.use(LogPlugin);
 api.setLogger(console);
 
-api.use(OtelPlugin);
+api.use(createOtelPlugin({
+  tracerName: 'billing-http',
+  propagateTraceHeaders: true,
+}));
 
 api.use(WebSocketPlugin);
 const realtime = api.ws('/realtime', {
@@ -460,6 +497,8 @@ const realtime = api.ws('/realtime', {
 
 realtime.send('hello');
 ```
+
+The OpenTelemetry plugin detects `@opentelemetry/api` when your application installs it, but Neutrx does not require it. Spans include safe request and response attributes such as method, path target, host, retry count, status code, cache hit or miss, duration, and circuit breaker state. Errors record exceptions and mark the span as failed.
 
 ## Error Handling
 

@@ -106,6 +106,44 @@ void test('browser entry runs ValidationPlugin without Node APIs', async () => {
     }
 });
 
+void test('browser entry supports first-class response schema validation', async () => {
+    const originalFetch = globalThis.fetch;
+    const globalWithFetch = globalThis as typeof globalThis & { fetch: typeof fetch };
+
+    globalWithFetch.fetch = (input): Promise<Response> => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        return Promise.resolve(new Response(JSON.stringify(url.endsWith('/ok')
+            ? { ok: true, id: 7 }
+            : { ok: false }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+    };
+
+    try {
+        const mod = await import(browserEntry) as typeof BrowserEntry;
+        const schema = {
+            parse(value: unknown) {
+                if (isRecord(value) && value.ok === true && typeof value.id === 'number') {
+                    return { id: String(value.id) };
+                }
+                throw Object.assign(new Error('invalid response'), {
+                    issues: [{ path: ['ok'], message: 'ok must be true' }],
+                });
+            },
+        } satisfies BrowserEntry.ResponseValidationSchema<{ readonly id: string }>;
+        const api = mod.default.create({ baseURL: 'https://browser.example', schema });
+
+        const response = await api.get('/ok', { schema });
+        const typedId: string = response.data.id;
+        assert.equal(typedId, '7');
+        await assert.rejects(api.get('/bad'), error => error instanceof mod.NeutrxValidationError);
+        assert.deepEqual((await api.get('/bad', { schema: false })).data, { ok: false });
+    } finally {
+        globalWithFetch.fetch = originalFetch;
+    }
+});
+
 void test('browser adapter is safe in edge-like runtimes without document or window', async () => {
     const { fetchAdapter } = await import(browserAdapterEntry) as typeof BrowserAdapter;
     const browserGlobal = globalThis as MutableBrowserGlobal;

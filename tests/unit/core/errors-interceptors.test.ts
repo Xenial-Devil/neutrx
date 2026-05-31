@@ -107,6 +107,16 @@ void test('error classes expose metadata and redact JSON output', async () => {
         'CONNECT_TIMEOUT',
         'RESPONSE_TIMEOUT',
     ]);
+    assert.deepEqual(assorted.map(error => error.toJSON()).map(json => json.code), assorted.map(error => error.code));
+    assert.equal((assorted[0]?.toJSON() as { readonly severity?: unknown }).severity, 'CRITICAL');
+    assert.equal((assorted[0]?.toJSON() as { readonly blockedURL?: unknown }).blockedURL, 'http://169.254.169.254/');
+    assert.equal((assorted[2]?.toJSON() as { readonly injectionType?: unknown }).injectionType, 'header');
+    assert.equal((assorted[6]?.toJSON() as { readonly attempts?: unknown }).attempts, 3);
+    assert.equal(((assorted[6]?.toJSON() as { readonly lastError?: { readonly message?: unknown } }).lastError)?.message, 'last');
+    assert.equal((assorted[8]?.toJSON() as { readonly size?: unknown; readonly limit?: unknown }).size, 11);
+    assert.equal((assorted[8]?.toJSON() as { readonly size?: unknown; readonly limit?: unknown }).limit, 10);
+    assert.equal((assorted[10]?.toJSON() as { readonly timeout?: unknown; readonly phase?: unknown }).timeout, 50);
+    assert.equal((assorted[10]?.toJSON() as { readonly timeout?: unknown; readonly phase?: unknown }).phase, 'connect');
 });
 
 void test('error factory maps node errors to typed Neutrx errors', async () => {

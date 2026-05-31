@@ -15,6 +15,7 @@ import { abortError, abortReason, mergeCancellationSignal } from './cancel.js';
 import { resolveServiceEndpoint, type ServiceDiscoveryState } from './config.js';
 import { createMutableDefaults, defaultsToConfig, type NeutrxDefaults } from './defaults.js';
 import { NeutrxHeaders, assertHeadersSafe, getHeader, hasHeader, headerToString } from './headers.js';
+import { validateResponseData } from './validation.js';
 import type {
     AuthConfig,
     BulkheadStats,
@@ -50,8 +51,10 @@ import type {
     RawHttpResponse,
     RequestBody,
     RequestConfig,
+    ResponseSchemaOption,
     RetryContext,
     ResponseType,
+    SchemaResponseData,
     SseHandle,
     TransformRequest,
     TransformResponse,
@@ -63,8 +66,11 @@ const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const MAX_URL_LENGTH = 2048;
 const MAX_OBJECT_DEPTH = 10;
 
-type BodylessRequestConfig = Omit<RequestConfig, 'url' | 'method' | 'data'>;
-type BodyRequestConfig<TBody extends RequestBody> = Omit<RequestConfig<TBody>, 'url' | 'method' | 'data'>;
+type BodylessRequestConfig<TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined> = Omit<RequestConfig<RequestBody, TSchema>, 'url' | 'method' | 'data'>;
+type BodyRequestConfig<
+    TBody extends RequestBody,
+    TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+> = Omit<RequestConfig<TBody, TSchema>, 'url' | 'method' | 'data'>;
 type RuntimeRequestConfig = InternalRequestConfig & { headers: InternalHeaders };
 type BeforeRequestResult = Omit<InternalRequestConfig, 'headers'> & { readonly headers: HeaderSource };
 type BrowserListener = (payload: unknown) => void;
@@ -153,92 +159,116 @@ export default class BrowserClient extends TinyEmitter {
         this.interceptors = this.#interceptors.managers();
     }
 
-    get<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'GET', url });
+    get<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'GET', url });
     }
 
-    post<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    post<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData, TBody>({ ...config, method: 'POST', url, data });
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, TBody, TSchema>({ ...config, method: 'POST', url, data });
     }
 
-    postForm<TData extends ParsedResponseData = ParsedResponseData>(
+    postForm<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
         url: string,
         data: RequestBody,
-        config: BodyRequestConfig<RequestBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'POST', url, data: toFormBody(data) });
+        config: BodyRequestConfig<RequestBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'POST', url, data: toFormBody(data) });
     }
 
-    postUrlEncoded<TData extends ParsedResponseData = ParsedResponseData>(
+    postUrlEncoded<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
         url: string,
         data: RequestBody,
-        config: BodyRequestConfig<RequestBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...withUrlEncodedHeaders(config), method: 'POST', url, data });
+        config: BodyRequestConfig<RequestBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...withUrlEncodedHeaders(config), method: 'POST', url, data });
     }
 
-    put<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    put<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData, TBody>({ ...config, method: 'PUT', url, data });
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, TBody, TSchema>({ ...config, method: 'PUT', url, data });
     }
 
-    putForm<TData extends ParsedResponseData = ParsedResponseData>(
+    putForm<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
         url: string,
         data: RequestBody,
-        config: BodyRequestConfig<RequestBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'PUT', url, data: toFormBody(data) });
+        config: BodyRequestConfig<RequestBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'PUT', url, data: toFormBody(data) });
     }
 
-    putUrlEncoded<TData extends ParsedResponseData = ParsedResponseData>(
+    putUrlEncoded<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
         url: string,
         data: RequestBody,
-        config: BodyRequestConfig<RequestBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...withUrlEncodedHeaders(config), method: 'PUT', url, data });
+        config: BodyRequestConfig<RequestBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...withUrlEncodedHeaders(config), method: 'PUT', url, data });
     }
 
-    patch<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    patch<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData, TBody>({ ...config, method: 'PATCH', url, data });
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, TBody, TSchema>({ ...config, method: 'PATCH', url, data });
     }
 
-    patchForm<TData extends ParsedResponseData = ParsedResponseData>(
+    patchForm<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
         url: string,
         data: RequestBody,
-        config: BodyRequestConfig<RequestBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'PATCH', url, data: toFormBody(data) });
+        config: BodyRequestConfig<RequestBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'PATCH', url, data: toFormBody(data) });
     }
 
-    patchUrlEncoded<TData extends ParsedResponseData = ParsedResponseData>(
+    patchUrlEncoded<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
         url: string,
         data: RequestBody,
-        config: BodyRequestConfig<RequestBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...withUrlEncodedHeaders(config), method: 'PATCH', url, data });
+        config: BodyRequestConfig<RequestBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...withUrlEncodedHeaders(config), method: 'PATCH', url, data });
     }
 
-    delete<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'DELETE', url });
+    delete<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'DELETE', url });
     }
 
-    head<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'HEAD', url });
+    head<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'HEAD', url });
     }
 
-    options<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'OPTIONS', url });
+    options<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'OPTIONS', url });
     }
 
     async concurrent<TData extends ParsedResponseData = ParsedResponseData>(
@@ -349,16 +379,23 @@ export default class BrowserClient extends TinyEmitter {
         }
     }
 
-    upload<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    upload<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData, TBody>({ ...config, method: 'POST', url, data });
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, TBody, TSchema>({ ...config, method: 'POST', url, data });
     }
 
-    download(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<ArrayBuffer>> {
-        return this.request<ArrayBuffer>({ ...config, method: 'GET', url, responseType: 'buffer' });
+    download<TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<ArrayBuffer, TSchema>>> {
+        return this.request<ArrayBuffer, RequestBody, TSchema>({ ...config, method: 'GET', url, responseType: 'buffer' });
     }
 
     sse(url: string, { onMessage, onError, onClose }: {
@@ -386,9 +423,13 @@ export default class BrowserClient extends TinyEmitter {
         return Promise.resolve({ close: () => source.close() });
     }
 
-    async request<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
-        config: RequestConfig<TBody>
-    ): Promise<NeutrxResponse<TData>> {
+    async request<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
+        config: RequestConfig<TBody, TSchema>
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
         const requestId = this.#id();
         const t0 = Date.now();
         let trackedUrl = config.url;
@@ -400,7 +441,7 @@ export default class BrowserClient extends TinyEmitter {
             trackedUrl = rc.url;
 
             rc = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', rc));
-            if (rc.mockResponse) return rc.mockResponse as NeutrxResponse<TData>;
+            if (rc.mockResponse) return rc.mockResponse as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
 
             rc = toInternalRequestConfig(this.#validateRequest(rc));
 
@@ -409,7 +450,7 @@ export default class BrowserClient extends TinyEmitter {
                 if (hit) {
                     this.#metrics.recordCacheHit();
                     this.emit('cache:hit', { requestId, url: rc.url });
-                    return hit as NeutrxResponse<TData>;
+                    return hit as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
                 }
             }
 
@@ -453,7 +494,7 @@ export default class BrowserClient extends TinyEmitter {
                 attempts: attempts.length,
             });
 
-            return next as NeutrxResponse<TData>;
+            return next as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
         } catch (error: unknown) {
             const normalized = normalizeError(error) as Error & { requestId?: string; duration?: number; code?: string };
             normalized.requestId = requestId;
@@ -467,7 +508,7 @@ export default class BrowserClient extends TinyEmitter {
 
             const handled = await this.#interceptors.runError(normalized);
             if (handled instanceof Error) throw handled;
-            return handled as NeutrxResponse<TData>;
+            return handled as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
         } finally {
             this.#metrics.recordEnd();
         }
@@ -693,13 +734,14 @@ export default class BrowserClient extends TinyEmitter {
         }
     }
 
-    #parse<TData extends ParsedResponseData>(raw: RawHttpResponse, config: InternalRequestConfig): NeutrxResponse<TData> {
+    async #parse<TData extends ParsedResponseData>(raw: RawHttpResponse, config: InternalRequestConfig): Promise<NeutrxResponse<TData>> {
         const parsed = parseResponseData(raw.data, config.responseType, raw.headers, config.responseEncoding, config.parseJson) as TData;
+        const transformed = applyResponseTransforms(parsed, raw.headers, raw.status, config.transformResponse) as TData;
         const response: NeutrxResponse<TData> = {
             status: raw.status,
             statusText: raw.statusText,
             headers: raw.headers,
-            data: applyResponseTransforms(parsed, raw.headers, raw.status, config.transformResponse) as TData,
+            data: transformed,
             config,
             ...(raw.request ? { request: raw.request } : {}),
             timing: { duration: Date.now() - config.startTime },
@@ -711,6 +753,7 @@ export default class BrowserClient extends TinyEmitter {
             throw NeutrxErrorFactory.fromHTTPStatus(response);
         }
 
+        response.data = await validateResponseData(response.data, config);
         return response;
     }
 
@@ -758,6 +801,7 @@ export default class BrowserClient extends TinyEmitter {
             formSerializer: config.formSerializer ?? defaults.formSerializer,
             transformRequest: mergeTransformRequest(defaults.transformRequest, config.transformRequest),
             transformResponse: mergeTransformResponse(defaults.transformResponse, config.transformResponse),
+            schema: config.schema === false ? false : config.schema ?? defaults.schema,
             parseJson: config.parseJson ?? defaults.parseJson,
             stringifyJson: config.stringifyJson ?? defaults.stringifyJson,
             throwHttpErrors: config.throwHttpErrors ?? defaults.throwHttpErrors,
@@ -808,11 +852,9 @@ export default class BrowserClient extends TinyEmitter {
         }
 
         if (config.params && Object.keys(config.params).length > 0) {
-            const parsed = new URL(url);
             const serializer = config.paramsSerializer ?? defaults.paramsSerializer;
             const serialized = serializeParams(config.params, serializer);
-            if (serialized) parsed.search = serialized.startsWith('?') ? serialized.slice(1) : serialized;
-            url = parsed.toString();
+            url = appendQueryString(url, serialized);
         }
 
         return url;
@@ -927,6 +969,7 @@ export default class BrowserClient extends TinyEmitter {
             ...(custom.formSerializer ? { formSerializer: custom.formSerializer } : {}),
             ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
             ...(custom.transformResponse ? { transformResponse: normalizeArray(custom.transformResponse) } : {}),
+            ...(custom.schema !== undefined ? { schema: custom.schema } : {}),
             ...(custom.parseJson ? { parseJson: custom.parseJson } : {}),
             ...(custom.stringifyJson ? { stringifyJson: custom.stringifyJson } : {}),
             adapter: custom.adapter ?? 'fetch',
@@ -1311,6 +1354,20 @@ function serializeParams(params: QueryParams, serializer?: RequestConfig['params
     return encoded.toString();
 }
 
+function appendQueryString(url: string, serializedParams: string): string {
+    const query = serializedParams.startsWith('?') ? serializedParams.slice(1) : serializedParams;
+    if (!query) return url;
+
+    const hashIndex = url.indexOf('#');
+    const hash = hashIndex >= 0 ? url.slice(hashIndex) : '';
+    const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+    const separator = base.includes('?')
+        ? base.endsWith('?') || base.endsWith('&') ? '' : '&'
+        : '?';
+
+    return `${base}${separator}${query}${hash}`;
+}
+
 function appendSearchParam(
     params: URLSearchParams,
     key: string,
@@ -1403,7 +1460,9 @@ function credentialsFor(withCredentials: boolean | undefined, credentials: Runti
     return 'same-origin';
 }
 
-function withUrlEncodedHeaders<TBody extends RequestBody>(config: BodyRequestConfig<TBody>): BodyRequestConfig<TBody> {
+function withUrlEncodedHeaders<TBody extends RequestBody, TSchema extends ResponseSchemaOption | undefined>(
+    config: BodyRequestConfig<TBody, TSchema>
+): BodyRequestConfig<TBody, TSchema> {
     return {
         ...config,
         headers: NeutrxHeaders.concat({ 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }, config.headers),

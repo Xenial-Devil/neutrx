@@ -20,7 +20,9 @@ import neutrx, {
   http2Adapter,
   nodeHttpAdapter,
   getHttp2SessionStats,
+  createOtelPlugin,
   isCancel,
+  isNeutrxError,
   LogPlugin,
   OtelPlugin,
   ValidationPlugin,
@@ -33,6 +35,7 @@ import neutrx, {
   type ClientConfig,
   type EgressPolicyConfig,
   type FormSerializerOptions,
+  type InferValidationSchema,
   type InstrumentationConfig,
   type NeutrxLogger,
   type NeutrxAdapter,
@@ -40,10 +43,12 @@ import neutrx, {
   type NeutrxRequestConfig,
   type NeutrxResponse,
   type NeutrxWSConnection,
+  type OtelPluginOptions,
   type ProxyConfig,
   type RawHttpResponse,
   type RequestConfig,
   type RequestInterceptorOptions,
+  type ResponseValidationSchema,
   type RetryBudgetStore,
   type ServiceDiscoveryConfig,
   type ServiceEndpoint,
@@ -70,6 +75,7 @@ for (const [headerName, headerValue] of headers) {
 
 const formSerializer: FormSerializerOptions = { dots: true, indexes: false, metaTokens: true, maxDepth: 4 };
 const instrumentation: InstrumentationConfig = { openTelemetry: true, tracerName: 'types', propagateTraceHeaders: true };
+const otelPluginOptions: OtelPluginOptions = { tracerName: 'created-plugin', propagateTraceHeaders: false };
 const egressPolicy: EgressPolicyConfig = { mode: 'public-api', allowedHosts: ['api.example.com'], allowedPorts: [443] };
 const adaptiveConcurrency: AdaptiveConcurrencyConfig = { enabled: true, initialLimit: 5, minLimit: 1, maxLimit: 20 };
 const pin: CertificatePinConfig = { hostname: 'api.example.com', sha256: 'a'.repeat(64), expiresAt: Date.now() + 60000 };
@@ -105,6 +111,15 @@ const cancelSource: CancelTokenSource = CancelToken.source();
 const userResponseSchema: ValidationSchema = {
   safeParse: value => ({ success: true, data: value }),
 };
+const firstClassUserSchema = {
+  safeParse(value: unknown) {
+    return typeof value === 'object' && value !== null && 'id' in value
+      ? { success: true as const, data: { id: String((value as { id: unknown }).id), active: true } }
+      : { success: false as const, issues: [{ path: ['id'], message: 'id missing' }] };
+  },
+} satisfies ResponseValidationSchema<{ readonly id: string; readonly active: boolean }>;
+type FirstClassUser = InferValidationSchema<typeof firstClassUserSchema>;
+const inferredUser: FirstClassUser = { id: 'typed', active: true };
 const validation: ValidationPluginConfig = {
   request: () => true,
   response: userResponseSchema,
@@ -148,6 +163,7 @@ const config: ClientConfig = {
   responseEncoding: 'latin1',
   transitional: { clarifyTimeoutError: true },
   adapter: 'http2',
+  schema: firstClassUserSchema,
   maxRate: [1024, 2048],
 };
 neutrx.defaults.baseURL = 'https://defaults.example';
@@ -177,6 +193,7 @@ const request: RequestConfig<FormData> = {
   },
   cancelToken: cancelSource.token,
   validation,
+  schema: false,
   serviceDiscovery: { resolver: ['https://uploads.example.com'], strategy: 'sticky-origin' },
 };
 cancelSource.cancel('typed cancel');
@@ -186,6 +203,7 @@ const wasCancel = isCancel(cancelSource.token.reason) && neutrx.isCancel(rootCan
 neutrx.use(ValidationPlugin);
 neutrx.use(LogPlugin);
 neutrx.use(OtelPlugin);
+neutrx.use(createOtelPlugin(otelPluginOptions));
 neutrx.use(WebSocketPlugin);
 neutrx.setLogger(logger);
 neutrx.enableOpenTelemetry({ tracerName: 'types-plugin' });
@@ -211,8 +229,11 @@ typedClient.interceptors.response.clear();
 typedClient.eject(requestInterceptorId);
 const typedPlugin: NeutrxPluginType = LogPlugin;
 const typedError: NeutrxErrorType = validationError;
+const typedIsNeutrxError: boolean = isNeutrxError(validationError) && neutrx.isNeutrxError(validationError);
+const typedUri: string = neutrx.getUri({ url: '/typed', params: { page: 1 } });
 const response: Promise<NeutrxResponse<{ readonly ok: boolean }>> = neutrx.get('/health', {
   ...config,
+  schema: false,
   adapter: createSecureAdapter(inner => ({
     status: 200,
     statusText: 'OK',
@@ -221,7 +242,21 @@ const response: Promise<NeutrxResponse<{ readonly ok: boolean }>> = neutrx.get('
     config: inner,
   })),
 });
+const schemaResponse: Promise<NeutrxResponse<FirstClassUser>> = neutrx.get('/schema', {
+  ...config,
+  schema: firstClassUserSchema,
+  adapter: createSecureAdapter(inner => ({
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'application/json' },
+    data: Buffer.from(JSON.stringify({ id: 'typed' })),
+    config: inner,
+  })),
+});
 const encoded = neutrx.postUrlEncoded('/form', { name: 'Ada' });
+const postForm = neutrx.postForm('/form', new FormData());
+const putForm = typedClient.putForm('/form', { name: 'Grace' });
+const patchForm = typedClient.patchForm('/form', { name: 'Katherine' });
 const adapterResponse = typedAdapter({
   url: 'https://api.example.com/typed-adapter',
   method: 'GET',
@@ -251,8 +286,15 @@ void typedClient;
 void adapterResponse;
 void typedPlugin;
 void typedError;
+void typedIsNeutrxError;
+void typedUri;
 void response;
+void schemaResponse;
+void inferredUser;
 void encoded;
+void postForm;
+void putForm;
+void patchForm;
 void ws;
 void HttpAdapter;
 void createSecureAdapter;
@@ -264,6 +306,7 @@ void OpenTelemetryInstrumentation;
 void ValidationPlugin;
 void LogPlugin;
 void OtelPlugin;
+void createOtelPlugin;
 void WebSocketPlugin;
 `);
 

@@ -209,6 +209,52 @@ void test('node client false header sentinel blocks automatic content-type', asy
     }
 });
 
+void test('node client validates response schema and can disable it per request', async () => {
+    const { default: Neutrx, NeutrxValidationError } = await import(builtEntry) as typeof PackageEntry;
+    let calls = 0;
+    const userSchema = {
+        safeParse(value: unknown) {
+            if (isJsonObject(value) && typeof value.id === 'number' && typeof value.name === 'string') {
+                return { success: true as const, data: { id: String(value.id), name: value.name.trim() } };
+            }
+            return { success: false as const, issues: [{ path: ['id'], message: 'id must be number', code: 'invalid_type' }] };
+        },
+    } satisfies PackageEntry.ResponseValidationSchema<{ readonly id: string; readonly name: string }>;
+    const api = Neutrx.create({
+        baseURL: 'https://schema.example',
+        schema: userSchema,
+        adapter: config => {
+            calls += 1;
+            return jsonRaw(config, config.url.endsWith('/valid')
+                ? { id: 123, name: ' Ada ' }
+                : { id: 'bad', name: 'Ada' });
+        },
+        performance: { enableCaching: false },
+        resilience: { enableRetry: true, enableCircuitBreaker: false, enableBulkhead: false },
+    });
+
+    try {
+        const valid = await api.get('/valid', { schema: userSchema });
+        const typedId: string = valid.data.id;
+        assert.equal(typedId, '123');
+        assert.deepEqual(valid.data, { id: '123', name: 'Ada' });
+
+        await assert.rejects(
+            api.get('/invalid'),
+            error => error instanceof NeutrxValidationError
+                && error.phase === 'response'
+                && error.issues[0]?.path?.[0] === 'id'
+                && error.issues[0]?.code === 'invalid_type'
+        );
+
+        const disabled = await api.get('/invalid', { schema: false });
+        assert.deepEqual(disabled.data, { id: 'bad', name: 'Ada' });
+        assert.equal(calls, 3);
+    } finally {
+        api.destroy();
+    }
+});
+
 void test('node client orchestration helpers, pagination, and SSE work with custom adapter', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const captured: CapturedRequest[] = [];
