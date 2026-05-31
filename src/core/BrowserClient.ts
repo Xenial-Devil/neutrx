@@ -18,6 +18,7 @@ import { resolveServiceEndpoint, type ServiceDiscoveryState } from './config.js'
 import { createMutableDefaults, defaultsToConfig, type NeutrxDefaults } from './defaults.js';
 import { NeutrxHeaders, assertHeadersSafe, getHeader, hasHeader, headerToString } from './headers.js';
 import { validateResponseData } from './validation.js';
+import { createNativeWebSocketConnection, webSocketRequestConfig, webSocketUrl } from './websocket.js';
 import type {
     AuthConfig,
     BulkheadStats,
@@ -37,6 +38,8 @@ import type {
     InternalRequestConfig,
     JsonValue,
     MockController,
+    NeutrxWebSocketData,
+    NeutrxWebSocketMessage,
     NeutrxLogger,
     NeutrxResponse,
     NeutrxWebSocketOptions,
@@ -134,7 +137,6 @@ export default class BrowserClient extends TinyEmitter {
         options?: { readonly operationName?: string; readonly headers?: Headers }
     ) => Promise<GraphQLResult<TData>>;
     mock?: MockController;
-    ws?: (url: string, options?: NeutrxWebSocketOptions) => NeutrxWSConnection;
     logger: NeutrxLogger | undefined = undefined;
     readonly defaults: NeutrxDefaults;
     readonly interceptors: NeutrxInterceptors;
@@ -427,6 +429,17 @@ export default class BrowserClient extends TinyEmitter {
         source.onerror = () => onError?.(new Error('SSE connection error'));
         source.addEventListener('close', () => onClose?.());
         return Promise.resolve({ close: () => source.close() });
+    }
+
+    async ws<
+        TMessage = NeutrxWebSocketData,
+        TSend extends NeutrxWebSocketMessage = NeutrxWebSocketMessage
+    >(
+        url: string,
+        options: NeutrxWebSocketOptions<TMessage, TSend> = {}
+    ): Promise<NeutrxWSConnection<TMessage, TSend>> {
+        const config = await this.#buildWebSocketRC(url, options);
+        return createNativeWebSocketConnection<TMessage, TSend>(config.url, options);
     }
 
     async request<
@@ -962,6 +975,22 @@ export default class BrowserClient extends TinyEmitter {
         }
 
         return requestConfig as InternalRequestConfig<TBody>;
+    }
+
+    async #buildWebSocketRC<TMessage, TSend extends NeutrxWebSocketMessage>(
+        url: string,
+        options: NeutrxWebSocketOptions<TMessage, TSend>
+    ): Promise<InternalRequestConfig> {
+        const defaults = this.#configWithDefaults('GET');
+        let config = await this.#buildRC(webSocketRequestConfig(url, options, defaults.baseURL), this.#id());
+        config = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', config));
+        config = toInternalRequestConfig(this.#validateRequest(config));
+        config = toInternalRequestConfig(await this.#interceptors.runRequest(config));
+        return {
+            ...config,
+            url: webSocketUrl(config.url),
+            headers: toInternalHeaders(config.headers),
+        };
     }
 
     #buildURL(config: RequestConfig, defaults: NormalizedClientConfig = this.#configWithDefaults(config.method)): string {

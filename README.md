@@ -161,7 +161,19 @@ await api.get('/search', {
 });
 ```
 
-Adapter selection defaults to Node HTTP in Node.js and fetch in browser-like runtimes. Use `adapter: 'http'`, `adapter: 'fetch'`, `adapter: 'http2'`, or a custom adapter function when you need explicit control.
+Adapter selection defaults to Node HTTP in Node.js and fetch in browser-like runtimes. Use `adapter: 'http'`, `adapter: 'fetch'`, `adapter: 'http2'`, `httpVersion: 2`, or a custom adapter function when you need explicit control.
+
+```ts
+const h2 = neutrx.create({
+  baseURL: 'https://api.example.com',
+  httpVersion: 2,
+  http2Options: {
+    sessionTimeout: 60_000,
+    maxSessions: 50,
+    maxConcurrentStreams: 100,
+  },
+});
+```
 
 ## Progress Events
 
@@ -191,7 +203,7 @@ await api.post('/reports', reportBuffer, {
 });
 ```
 
-Node HTTP progress is available for buffered bodies, Node streams, buffered responses, and stream responses as they are consumed. The fetch adapter uses `ReadableStream` support where the runtime exposes it. Some bodies cannot expose precise progress: browser `FormData` often hides the encoded size, fetch upload progress for opaque platform-managed bodies can only report known sizes, and `total`, `percent`, and `estimated` are omitted when no total or rate can be measured.
+Node HTTP and HTTP/2 progress is available for buffered bodies, Node streams, buffered responses, and stream responses as they are consumed. The fetch adapter uses `ReadableStream` support where the runtime exposes it. Some bodies cannot expose precise progress: browser `FormData` often hides the encoded size, fetch upload progress for opaque platform-managed bodies can only report known sizes, and `total`, `percent`, and `estimated` are omitted when no total or rate can be measured.
 
 `security.rateLimit` and `maxRate` limit different things:
 
@@ -244,6 +256,8 @@ await docker.get('/v1/version');
 ```
 
 `socketPath` is a trusted local transport option. Neutrx validates that the path is absolute and free of unsafe characters, rejects proxy use with sockets, and only sends HTTP framing over the socket. DNS, SSRF, private-IP, HTTPS, and egress-policy network checks do not run against the synthetic URL host because no TCP connection is made; do not pass `socketPath` from untrusted input.
+
+HTTP/2 can be selected with `httpVersion: 2` or `adapter: 'http2'` in Node.js. The adapter uses `node:http2`, reuses sessions by origin and compatible TLS settings, retires idle sessions with `http2Options.sessionTimeout`, and respects Neutrx redirect, TLS, body-size, response-size, timeout, progress, retry, circuit-breaker, cache, and metrics behavior around the transport. HTTP/2 does not support `proxy`, `socketPath`, custom `httpAgent`/`httpsAgent`, or `maxRate`; use the HTTP/1.1 adapter for those transport controls. Neutrx does not silently fall back to HTTP/1.1 when an HTTP/2 connection fails or a server does not negotiate HTTP/2. Pick `adapter: 'http'` or `httpVersion: 1` for explicit HTTP/1.1 behavior.
 
 ## Security Defaults
 
@@ -482,10 +496,10 @@ const user = await api.get('/users/1', {
 
 Validation failures throw `NeutrxValidationError` and do not retry.
 
-## WebSocket, Logging, Trace Context, And OpenTelemetry Plugins
+## WebSocket, Logging, Trace Context, And OpenTelemetry
 
 ```ts
-import neutrx, { LogPlugin, WebSocketPlugin, createOtelPlugin, createTraceContextPlugin } from 'neutrx';
+import neutrx, { LogPlugin, createOtelPlugin, createTraceContextPlugin } from 'neutrx';
 
 const api = neutrx.create({ baseURL: 'https://api.example.com' });
 api.use(LogPlugin);
@@ -501,14 +515,17 @@ api.use(createOtelPlugin({
   propagateTraceHeaders: true,
 }));
 
-api.use(WebSocketPlugin);
-const realtime = api.ws('/realtime', {
-  reconnect: { attempts: 5, minDelay: 500, maxDelay: 30_000 },
-  onMessage: data => console.log(data),
+const realtime = await api.ws<{ event: string }>('/realtime', {
+  headers: { Authorization: 'Bearer service-token' },
+  reconnect: { attempts: 5, delay: 500, backoff: 'exponential', maxDelay: 30_000 },
+  parseMessage: data => JSON.parse(String(data)) as { event: string },
+  onMessage: message => console.log(message.event),
 });
 
 realtime.send('hello');
 ```
+
+`api.ws()` reuses `baseURL`, default headers, basic auth, params, service discovery, plugin request hooks, and request interceptors before opening the connection. In Node, Neutrx performs the HTTP upgrade directly so prepared headers such as `Authorization` are sent with the handshake. In browsers, Neutrx uses the platform `WebSocket`; the browser API does not allow custom handshake headers, but URL preparation and request interceptors still run before construction.
 
 `TraceContextPlugin` injects W3C `traceparent` by default and can also emit `tracestate`, B3 multi-header, and B3 single-header propagation. Existing user-supplied trace headers are preserved unless you set `overwrite: true`. When the OpenTelemetry bridge injects carrier headers, the trace context plugin reuses that context for any additional requested formats.
 

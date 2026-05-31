@@ -31,7 +31,7 @@ export { default as Neutrx } from './core/Neutrx.js';
 export { Cancel, CancelToken, isCancel } from './core/cancel.js';
 export { fetchAdapter } from './adapters/fetch.js';
 export { createNodeHttpAdapter, createNodeHttpAgents, nodeHttpAdapter, type NodeHttpAdapterAgents, type NodeHttpAdapterOptions } from './adapters/http.js';
-export { http2Adapter, getHttp2SessionStats } from './adapters/http2.js';
+export { createNodeHttp2Adapter, http2Adapter, getHttp2SessionStats, type NodeHttp2AdapterOptions } from './adapters/http2.js';
 export { FetchAdapter, Http2Adapter, HttpAdapter, createSecureAdapter, type SecureAdapterOptions } from './adapters/index.js';
 export { NeutrxHeaders } from './core/headers.js';
 export { OpenTelemetryInstrumentation } from './monitoring/OpenTelemetryInstrumentation.js';
@@ -93,6 +93,11 @@ export type {
     NeutrxAdapter,
     NeutrxRequestConfig,
     NeutrxResponse,
+    NeutrxWebSocketCloseEvent,
+    NeutrxWebSocketData,
+    NeutrxWebSocketErrorEvent,
+    NeutrxWebSocketMessageEvent,
+    NeutrxWebSocketOpenEvent,
     NeutrxWebSocketMessage,
     NeutrxWebSocketOptions,
     NeutrxWebSocketReconnectOptions,

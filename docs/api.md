@@ -61,6 +61,7 @@ neutrx.defaults.headers = { 'X-Service': 'billing' };
 - `upload(url, data, config?)`
 - `download(url, config?)`
 - `sse(url, handlers?)`
+- `ws(url, options?)`
 - `getUri(config)`
 - `clearCache(pattern?)`
 - `invalidateCache(pattern?)`
@@ -292,7 +293,43 @@ Cache strategies are `max-age`, `swr`, and `network-first`. SWR marks stale hits
 
 ## HTTP/2
 
-`http2Options.maxConcurrentStreams` caps active streams per session. `getHttp2SessionStats()` reports active streams, session count, closed/destroyed flags, and remote stream limits. GOAWAY closes the affected session so the next request opens a fresh one.
+Use `httpVersion: 2` or `adapter: 'http2'` to send requests through Node's `node:http2` transport:
+
+```ts
+const api = neutrx.create({
+  baseURL: 'https://api.example.com',
+  httpVersion: 2,
+  http2Options: {
+    sessionTimeout: 60_000,
+    maxSessions: 50,
+    maxConcurrentStreams: 100,
+  },
+});
+```
+
+HTTP/2 sessions are reused by origin and compatible TLS settings. `http2Options.sessionTimeout` closes idle sessions, `maxSessions` bounds the shared session pool, and `maxConcurrentStreams` caps active streams per session alongside the server's remote setting. `getHttp2SessionStats()` reports active streams, session count, closed/destroyed flags, and remote stream limits. GOAWAY closes the affected session so the next request opens a fresh one.
+
+The HTTP/2 adapter preserves Neutrx redirect handling and supports buffered and stream upload/download progress when byte counts are available. It does not support proxies, Unix `socketPath`, custom HTTP agents, or `maxRate`, and it does not silently fall back to HTTP/1.1 when HTTP/2 negotiation fails. Select `adapter: 'http'` or `httpVersion: 1` for HTTP/1.1 behavior.
+
+## WebSocket
+
+```ts
+const socket = await api.ws<{ type: string }>('/realtime', {
+  headers: { Authorization: 'Bearer service-token' },
+  reconnect: { attempts: 3, delay: 500, backoff: 'exponential', maxDelay: 10_000 },
+  parseMessage: data => JSON.parse(String(data)) as { type: string },
+  onMessage: message => console.log(message.type),
+});
+
+socket.send('hello');
+socket.close();
+```
+
+`api.ws()` prepares a `GET` upgrade request through the same client defaults as HTTP calls: `baseURL`, params, default headers, basic auth, service discovery, plugin `beforeRequest` hooks, and request interceptors run before the connection is opened. `http:` and `https:` URLs are converted to `ws:` and `wss:` for the actual WebSocket target.
+
+Node performs the upgrade directly and sends prepared headers, including `Authorization`, during the handshake. Browser builds use native `WebSocket`; browsers do not expose custom handshake headers, so header mutations are available to hooks/interceptors but cannot be sent by the platform constructor.
+
+Reconnect is opt-in. Use `reconnect: true` for bounded exponential reconnect defaults, or pass `{ attempts, delay, backoff, maxDelay }`. `backoff` may be `fixed`, `linear`, `exponential`, or a function that receives the one-based reconnect attempt.
 
 ## Interceptors
 
@@ -326,7 +363,7 @@ Built-in plugins:
 
 `ValidationPlugin` reads `config.validation.request` before dispatch and `config.validation.response` after parsing. Use the first-class `schema` option for normal response validation; use the plugin when request-body validation or central plugin hooks are needed. Validators may be functions or schema-like objects with `safeParse`, `parse`, `validate`, or TypeBox-style `Check`/`Errors`. Failures throw `NeutrxValidationError`.
 
-`WebSocketPlugin` adds `api.ws(url, options)` with native `WebSocket`, callback hooks, and bounded exponential reconnect controls.
+`WebSocketPlugin` is retained as a compatibility plugin; `api.ws(url, options)` is available directly on clients.
 
 `LogPlugin` writes structured request success and error entries to any logger installed with `api.setLogger(logger)`.
 

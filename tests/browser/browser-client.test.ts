@@ -8,6 +8,7 @@ const browserEntry = '../../../dist/browser.mjs';
 type MutableGlobal = typeof globalThis & {
     fetch: typeof fetch;
     EventSource?: typeof EventSource;
+    WebSocket?: typeof WebSocket;
 };
 
 type SeenRequest = {
@@ -369,6 +370,88 @@ void test('browser SSE helper uses EventSource and reports events', async () => 
             browserGlobal.EventSource = originalEventSource;
         } else {
             delete browserGlobal.EventSource;
+        }
+    }
+});
+
+void test('browser ws uses native WebSocket URL preparation and callbacks', async () => {
+    const browserGlobal = globalThis as MutableGlobal;
+    const originalWebSocket = browserGlobal.WebSocket;
+    const messages: Array<{ readonly ok: boolean }> = [];
+
+    class FakeWebSocket {
+        static readonly CONNECTING = 0;
+        static readonly OPEN = 1;
+        static readonly CLOSING = 2;
+        static readonly CLOSED = 3;
+        static instances: FakeWebSocket[] = [];
+        static sent: unknown[] = [];
+
+        readyState = FakeWebSocket.CONNECTING;
+        onopen: ((event: Event) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+
+        constructor(readonly url: string, readonly protocols?: string | readonly string[]) {
+            FakeWebSocket.instances.push(this);
+        }
+
+        open(): void {
+            this.readyState = FakeWebSocket.OPEN;
+            this.onopen?.({ type: 'open' } as Event);
+        }
+
+        message(data: string): void {
+            this.onmessage?.({ data } as MessageEvent);
+        }
+
+        send(data: unknown): void {
+            FakeWebSocket.sent.push(data);
+        }
+
+        close(code = 1000, reason = ''): void {
+            this.readyState = FakeWebSocket.CLOSED;
+            this.onclose?.({ code, reason, wasClean: true } as CloseEvent);
+        }
+    }
+
+    browserGlobal.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+
+    try {
+        const mod = await import(browserEntry) as typeof BrowserEntry;
+        const api = mod.default.create({ baseURL: 'https://browser.example' });
+        api.interceptors.request.use(config => ({
+            ...config,
+            url: `${config.url}&intercepted=yes`,
+            headers: { ...config.headers, Authorization: 'Bearer browser-token' },
+        }));
+
+        const connection = await api.ws<{ readonly ok: boolean }>('/realtime', {
+            params: { room: 'ops' },
+            protocols: 'json.v1',
+            parseMessage: data => JSON.parse(String(data)) as { readonly ok: boolean },
+            onMessage: data => messages.push(data),
+        });
+
+        assert.equal(FakeWebSocket.instances[0]?.url, 'wss://browser.example/realtime?room=ops&intercepted=yes');
+        assert.equal(FakeWebSocket.instances[0]?.protocols, 'json.v1');
+        FakeWebSocket.instances[0]?.open();
+        connection.send('hello');
+        FakeWebSocket.instances[0]?.message('{"ok":true}');
+
+        assert.equal(connection.readyState, FakeWebSocket.OPEN);
+        assert.deepEqual(FakeWebSocket.sent, ['hello']);
+        assert.deepEqual(messages, [{ ok: true }]);
+        connection.close();
+        api.destroy();
+    } finally {
+        FakeWebSocket.instances = [];
+        FakeWebSocket.sent = [];
+        if (originalWebSocket) {
+            browserGlobal.WebSocket = originalWebSocket;
+        } else {
+            delete browserGlobal.WebSocket;
         }
     }
 });

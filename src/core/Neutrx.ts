@@ -177,6 +177,9 @@ function invokeWithDefaults(
         const input = typeof args[0] === 'string' ? { url: args[0] } : args[0];
         return isRequestConfig(input) ? client.getUri(mergeRequestDefaults(defaultsConfig, input)) : method.apply(client, args);
     }
+    if (property === 'ws' && typeof args[0] === 'string') {
+        return method.call(client, args[0], mergeClientDefaults(defaultsConfig, configArg(args[1]), 'GET'));
+    }
     if (isBodylessMethod(property) && typeof args[0] === 'string') {
         return method.call(client, args[0], mergeClientDefaults(defaultsConfig, configArg(args[1]), methodForProperty(property)));
     }

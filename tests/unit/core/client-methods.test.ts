@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { Readable } from 'node:stream';
+import { createHash } from 'node:crypto';
+import http, { type IncomingMessage } from 'node:http';
+import { Readable, type Duplex } from 'node:stream';
 import test from 'node:test';
-import type { IncomingMessage } from 'node:http';
 import type * as PackageEntry from '../../../src/index.js';
 import type { InternalRequestConfig, RawHttpResponse, RequestBody } from '../../../src/types.js';
 
@@ -323,6 +324,110 @@ void test('node client orchestration helpers, pagination, and SSE work with cust
     }
 });
 
+void test('node ws uses baseURL, auth headers, defaults, and request interceptors', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const upgrades: Array<{ readonly url?: string; readonly headers: http.IncomingHttpHeaders }> = [];
+    const opened = deferred<void>();
+    const messageReceived = deferred<string>();
+    const typedMessages: Array<{ readonly ready: boolean }> = [];
+    const server = http.createServer();
+
+    server.on('upgrade', (request, socket) => {
+        upgrades.push({
+            ...(request.url !== undefined ? { url: request.url } : {}),
+            headers: request.headers,
+        });
+        acceptWebSocketUpgrade(request, socket);
+        socket.write(serverTextFrame(JSON.stringify({ ready: true })));
+        let buffer = Buffer.alloc(0);
+        socket.on('data', chunk => {
+            buffer = Buffer.concat([buffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
+            const parsed = readClientTextFrame(buffer);
+            if (!parsed) return;
+            buffer = buffer.subarray(parsed.consumed);
+            messageReceived.resolve(parsed.text);
+        });
+    });
+
+    const port = await listen(server);
+    const api = Neutrx.create({
+        baseURL: `http://127.0.0.1:${port}/api`,
+        auth: { username: 'service', password: 'secret' },
+        headers: { 'X-Default': 'yes' },
+        security: { profile: 'legacy' },
+        resilience: { enableRetry: false, enableCircuitBreaker: false, enableBulkhead: false },
+        performance: { enableCaching: false },
+    });
+
+    try {
+        api.interceptors.request.use(config => ({
+            ...config,
+            headers: { ...config.headers, 'X-Intercepted': 'yes' },
+        }));
+
+        const connection = await api.ws<{ readonly ready: boolean }>('/realtime', {
+            params: { room: 'ops' },
+            parseMessage: data => JSON.parse(String(data)) as { readonly ready: boolean },
+            onOpen: () => opened.resolve(),
+            onMessage: data => typedMessages.push(data),
+        });
+
+        await opened.promise;
+        connection.send('hello from client');
+
+        assert.equal(await messageReceived.promise, 'hello from client');
+        assert.equal(connection.url, `ws://127.0.0.1:${port}/api/realtime?room=ops`);
+        assert.equal(upgrades[0]?.url, '/api/realtime?room=ops');
+        assert.equal(upgrades[0]?.headers.authorization, 'Basic c2VydmljZTpzZWNyZXQ=');
+        assert.equal(upgrades[0]?.headers['x-default'], 'yes');
+        assert.equal(upgrades[0]?.headers['x-intercepted'], 'yes');
+        await waitFor(() => typedMessages.length === 1);
+        assert.deepEqual(typedMessages, [{ ready: true }]);
+        connection.close();
+    } finally {
+        api.destroy();
+        await closeServer(server);
+    }
+});
+
+void test('node ws reconnects with configured attempts, delay, and backoff', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const secondOpen = deferred<void>();
+    const server = http.createServer();
+    let upgrades = 0;
+
+    server.on('upgrade', (request, socket) => {
+        upgrades += 1;
+        acceptWebSocketUpgrade(request, socket);
+        if (upgrades === 1) {
+            socket.destroy();
+            return;
+        }
+        secondOpen.resolve();
+    });
+
+    const port = await listen(server);
+    const api = Neutrx.create({
+        baseURL: `http://127.0.0.1:${port}`,
+        security: { profile: 'legacy' },
+        resilience: { enableRetry: false, enableCircuitBreaker: false, enableBulkhead: false },
+        performance: { enableCaching: false },
+    });
+
+    try {
+        const connection = await api.ws('/reconnect', {
+            reconnect: { attempts: 1, delay: 1, backoff: 'fixed' },
+        });
+
+        await secondOpen.promise;
+        assert.equal(upgrades, 2);
+        connection.close();
+    } finally {
+        api.destroy();
+        await closeServer(server);
+    }
+});
+
 function makeAdapter(
     captured: CapturedRequest[],
     options: { readonly slowMs?: number } = {}
@@ -420,6 +525,105 @@ function sleep(ms: number): Promise<void> {
     return new Promise(resolve => {
         setTimeout(resolve, ms);
     });
+}
+
+function deferred<T = void>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void; readonly reject: (error: Error) => void } {
+    let resolveValue!: (value: T) => void;
+    let rejectValue!: (error: Error) => void;
+    const timeout = setTimeout(() => rejectValue(new Error('Timed out waiting for WebSocket test event')), 1000);
+    const promise = new Promise<T>((resolve, reject) => {
+        resolveValue = value => {
+            clearTimeout(timeout);
+            resolve(value);
+        };
+        rejectValue = error => {
+            clearTimeout(timeout);
+            reject(error);
+        };
+    });
+    return { promise, resolve: resolveValue, reject: rejectValue };
+}
+
+async function listen(server: http.Server): Promise<number> {
+    await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', () => {
+            server.off('error', reject);
+            resolve();
+        });
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    return address.port;
+}
+
+async function closeServer(server: http.Server): Promise<void> {
+    if (!server.listening) return;
+    await new Promise<void>((resolve, reject) => {
+        server.close(error => {
+            if (error) reject(error);
+            else resolve();
+        });
+    });
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+    const deadline = Date.now() + 1000;
+    while (!predicate()) {
+        if (Date.now() > deadline) throw new Error('Timed out waiting for condition');
+        await sleep(5);
+    }
+}
+
+function acceptWebSocketUpgrade(request: http.IncomingMessage, socket: Duplex): void {
+    const key = String(request.headers['sec-websocket-key'] ?? '');
+    const accept = createHash('sha1')
+        .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+        .digest('base64');
+    socket.write([
+        'HTTP/1.1 101 Switching Protocols',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Sec-WebSocket-Accept: ${accept}`,
+        '',
+        '',
+    ].join('\r\n'));
+}
+
+function serverTextFrame(text: string): Buffer {
+    const payload = Buffer.from(text);
+    if (payload.length < 126) return Buffer.concat([Buffer.from([0x81, payload.length]), payload]);
+    const header = Buffer.alloc(4);
+    header[0] = 0x81;
+    header[1] = 126;
+    header.writeUInt16BE(payload.length, 2);
+    return Buffer.concat([header, payload]);
+}
+
+function readClientTextFrame(buffer: Buffer): { readonly text: string; readonly consumed: number } | null {
+    if (buffer.length < 6) return null;
+    const opcode = (buffer[0] ?? 0) & 0x0f;
+    const masked = ((buffer[1] ?? 0) & 0x80) !== 0;
+    let length = (buffer[1] ?? 0) & 0x7f;
+    let offset = 2;
+    if (length === 126) {
+        if (buffer.length < offset + 2) return null;
+        length = buffer.readUInt16BE(offset);
+        offset += 2;
+    }
+    if (length === 127) throw new Error('Test frame too large');
+    if (!masked) throw new Error('Client WebSocket frames must be masked');
+    const maskOffset = offset;
+    offset += 4;
+    if (buffer.length < offset + length) return null;
+    const payload = Buffer.from(buffer.subarray(offset, offset + length));
+    const mask = buffer.subarray(maskOffset, maskOffset + 4);
+    for (let index = 0; index < payload.length; index += 1) {
+        payload[index] = (payload[index] ?? 0) ^ (mask[index % 4] ?? 0);
+    }
+    if (opcode === 0x8) return { text: '', consumed: offset + length };
+    assert.equal(opcode, 0x1);
+    return { text: payload.toString('utf8'), consumed: offset + length };
 }
 
 function fallbackConfig(): InternalRequestConfig {

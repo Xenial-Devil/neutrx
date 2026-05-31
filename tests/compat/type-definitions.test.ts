@@ -46,6 +46,7 @@ import neutrx, {
   type NeutrxInstance,
   type NeutrxRequestConfig,
   type NeutrxResponse,
+  type NeutrxWebSocketMessageEvent,
   type NeutrxWSConnection,
   type OtelPluginOptions,
   type ProxyConfig,
@@ -227,7 +228,14 @@ neutrx.use(WebSocketPlugin);
 neutrx.setLogger(logger);
 neutrx.enableOpenTelemetry({ tracerName: 'types-plugin' });
 neutrx.configureValidation?.(validation);
-const ws: NeutrxWSConnection | undefined = neutrx.ws?.('wss://api.example.com/realtime', { reconnect: false });
+const ws: Promise<NeutrxWSConnection<{ readonly ok: boolean }>> = neutrx.ws<{ readonly ok: boolean }>('wss://api.example.com/realtime', {
+  reconnect: { attempts: 2, delay: 100, backoff: 'exponential' },
+  parseMessage: data => ({ ok: String(data) === 'ok' }),
+  onMessage: (message, event: NeutrxWebSocketMessageEvent<{ readonly ok: boolean }>) => {
+    const ok: boolean = message.ok && event.data.ok;
+    void ok;
+  },
+});
 const validationError = new NeutrxValidationError('response', [{ path: ['id'], message: 'id missing' }]);
 const typedClient: NeutrxInstance = neutrx.create(config);
 typedClient.defaults.baseURL = 'https://typed-instance.example';

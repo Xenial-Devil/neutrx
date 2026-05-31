@@ -18,6 +18,8 @@ import { http2Adapter, closeHttp2Sessions } from '../adapters/http2.js';
 import { createNodeHttpAgents, nodeHttpAdapter, type NodeHttpAdapterAgents } from '../adapters/http.js';
 import { OpenTelemetryInstrumentation } from '../monitoring/OpenTelemetryInstrumentation.js';
 import { VERSION } from '../version.js';
+import { createNodeWebSocketConnection } from './nodeWebSocket.js';
+import { createNativeWebSocketConnection, webSocketRequestConfig, webSocketUrl } from './websocket.js';
 
 import {
     NeutrxErrorFactory,
@@ -64,6 +66,8 @@ import type {
     InternalRequestConfig,
     JsonValue,
     MockController,
+    NeutrxWebSocketData,
+    NeutrxWebSocketMessage,
     NeutrxLogger,
     NeutrxResponse,
     NeutrxWebSocketOptions,
@@ -101,7 +105,6 @@ export default class NeutrxClient extends EventEmitter {
         options?: { readonly operationName?: string; readonly headers?: Headers }
     ) => Promise<GraphQLResult<TData>>;
     mock?: MockController;
-    ws?: (url: string, options?: NeutrxWebSocketOptions) => NeutrxWSConnection;
     logger: NeutrxLogger | undefined = undefined;
     readonly defaults: NeutrxDefaults;
     readonly interceptors: NeutrxInterceptors;
@@ -435,6 +438,21 @@ export default class NeutrxClient extends EventEmitter {
         response.data.on('error', error => onError?.(normalizeError(error)));
         response.data.on('close', () => onClose?.());
         return { close: () => response.data.destroy() };
+    }
+
+    async ws<
+        TMessage = NeutrxWebSocketData,
+        TSend extends NeutrxWebSocketMessage = NeutrxWebSocketMessage
+    >(
+        url: string,
+        options: NeutrxWebSocketOptions<TMessage, TSend> = {}
+    ): Promise<NeutrxWSConnection<TMessage, TSend>> {
+        const config = await this.#buildWebSocketRC(url, options);
+        if (options.webSocket) return createNativeWebSocketConnection<TMessage, TSend>(config.url, options);
+        if (config.proxy) {
+            throw new NeutrxSecurityError('WebSocket proxy support is not available without a custom WebSocket implementation', { code: 'WEBSOCKET_PROXY_UNSUPPORTED' });
+        }
+        return createNodeWebSocketConnection(config, options);
     }
 
     async request<
@@ -777,7 +795,10 @@ export default class NeutrxClient extends EventEmitter {
         } else if (adapter === 'fetch') {
             dispatch = fetchAdapter;
         } else if (adapter === 'http2') {
-            dispatch = http2Adapter;
+            dispatch = requestConfig => http2Adapter(requestConfig, {
+                security: this.#security,
+                defaults: this.#configWithDefaults(requestConfig.method),
+            });
         } else if (adapter === 'http') {
             dispatch = requestConfig => nodeHttpAdapter(requestConfig, {
                 security: this.#security,
@@ -1041,6 +1062,23 @@ export default class NeutrxClient extends EventEmitter {
         validateSocketPath(requestConfig.socketPath);
 
         return requestConfig as InternalRequestConfig<TBody>;
+    }
+
+    async #buildWebSocketRC<TMessage, TSend extends NeutrxWebSocketMessage>(
+        url: string,
+        options: NeutrxWebSocketOptions<TMessage, TSend>
+    ): Promise<InternalRequestConfig> {
+        const defaults = this.#configWithDefaults('GET');
+        let config = await this.#buildRC(webSocketRequestConfig(url, options, defaults.baseURL), this.#id());
+        config = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', config));
+        config = toInternalRequestConfig(this.#security.validateRequest(config));
+        this.#rateLimiter.checkLimit(config.url);
+        config = toInternalRequestConfig(await this.#interceptors.runRequest(config));
+        return {
+            ...config,
+            url: webSocketUrl(config.url),
+            headers: toInternalHeaders(config.headers),
+        };
     }
 
     #buildHeaders<TBody extends RequestBody>(

@@ -1,6 +1,5 @@
 import type NeutrxClient from '../core/NeutrxClient.js';
 import { NeutrxHeaders } from '../core/headers.js';
-import { NeutrxSecurityError } from '../core/NeutrxError.js';
 import { validateValue } from '../core/validation.js';
 import type {
     GraphQLResult,
@@ -11,9 +10,6 @@ import type {
     MockController,
     MockResponse,
     NeutrxResponse,
-    NeutrxWebSocketMessage,
-    NeutrxWebSocketOptions,
-    NeutrxWSConnection,
     OAuth2Config,
     ParsedResponseData,
     ValidationPluginConfig,
@@ -27,7 +23,6 @@ type BeforeRequestResult = Omit<InternalRequestConfig, 'headers'> & { readonly h
 type BeforeRequestHook = (context: InternalRequestConfig) => BeforeRequestResult | Promise<BeforeRequestResult>;
 type AfterRequestHook = (context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>;
 type ErrorHook = (context: Error) => Error | Promise<Error>;
-type LocationGlobal = typeof globalThis & { readonly location?: { readonly href?: string } };
 
 export interface PluginApi {
     addHook(name: 'beforeRequest', fn: BeforeRequestHook): void;
@@ -316,59 +311,6 @@ export const ValidationPlugin: NeutrxPlugin = {
 export const WebSocketPlugin: NeutrxPlugin = {
     name: 'websocket',
     version: VERSION,
-
-    install(client) {
-        client.ws = (url: string, options: NeutrxWebSocketOptions = {}): NeutrxWSConnection => {
-            const WebSocketCtor = options.webSocket ?? globalThis.WebSocket;
-            if (typeof WebSocketCtor !== 'function') {
-                throw new NeutrxSecurityError('WebSocket is unavailable in this runtime', { code: 'WEBSOCKET_UNAVAILABLE' });
-            }
-
-            const target = websocketUrl(client.getUri(url));
-            const reconnect = reconnectConfig(options.reconnect);
-            let socket: WebSocket | undefined;
-            let closedByCaller = false;
-            let attempts = 0;
-            let timer: ReturnType<typeof setTimeout> | undefined;
-
-            const connect = (): void => {
-                socket = new WebSocketCtor(target, options.protocols as string | string[] | undefined);
-                socket.onopen = event => {
-                    attempts = 0;
-                    options.onOpen?.(event);
-                };
-                socket.onmessage = event => options.onMessage?.(event.data, event);
-                socket.onerror = event => options.onError?.(event);
-                socket.onclose = event => {
-                    options.onClose?.(event);
-                    if (closedByCaller || !reconnect.enabled || attempts >= reconnect.attempts) return;
-                    const delay = Math.min(reconnect.maxDelay, reconnect.minDelay * reconnect.factor ** attempts);
-                    attempts += 1;
-                    timer = setTimeout(connect, delay);
-                };
-            };
-
-            connect();
-
-            return {
-                url: target,
-                get readyState() {
-                    return socket?.readyState;
-                },
-                send(data: NeutrxWebSocketMessage) {
-                    if (socket?.readyState !== WebSocketCtor.OPEN) {
-                        throw new NeutrxSecurityError('WebSocket is not open', { code: 'WEBSOCKET_NOT_OPEN' });
-                    }
-                    socket.send(data);
-                },
-                close(code?: number, reason?: string) {
-                    closedByCaller = true;
-                    if (timer) clearTimeout(timer);
-                    socket?.close(code, reason);
-                },
-            };
-        };
-    },
 };
 
 export const LogPlugin: NeutrxPlugin = {
@@ -425,45 +367,6 @@ function sleep(ms: number): Promise<void> {
     return new Promise(resolve => {
         setTimeout(resolve, ms);
     });
-}
-
-function websocketUrl(url: string): string {
-    const location = (globalThis as LocationGlobal).location;
-    const base = typeof location?.href === 'string' ? location.href : undefined;
-    const parsed = new URL(url, base);
-    if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
-    else if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
-    else if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
-        throw new NeutrxSecurityError(`Unsupported WebSocket protocol: ${parsed.protocol}`, { code: 'WEBSOCKET_PROTOCOL' });
-    }
-    return parsed.href;
-}
-
-function reconnectConfig(value: NeutrxWebSocketOptions['reconnect']): {
-    readonly enabled: boolean;
-    readonly attempts: number;
-    readonly minDelay: number;
-    readonly maxDelay: number;
-    readonly factor: number;
-} {
-    if (value === false) return { enabled: false, attempts: 0, minDelay: 0, maxDelay: 0, factor: 1 };
-    const options = value === true || value === undefined ? {} : value;
-    return {
-        enabled: true,
-        attempts: positiveInteger(options.attempts, Number.POSITIVE_INFINITY),
-        minDelay: positiveInteger(options.minDelay, 1000),
-        maxDelay: positiveInteger(options.maxDelay, 30_000),
-        factor: positiveNumber(options.factor, 2),
-    };
-}
-
-function positiveInteger(value: number | undefined, fallback: number): number {
-    if (value === undefined) return fallback;
-    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
-}
-
-function positiveNumber(value: number | undefined, fallback: number): number {
-    return value !== undefined && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function isRequestConfig(context: HookContext): context is InternalRequestConfig {

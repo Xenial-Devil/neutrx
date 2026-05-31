@@ -431,14 +431,13 @@ void test('WebSocketPlugin resolves URLs, sends messages, and reconnects', async
 
     const messages: unknown[] = [];
     const closes: number[] = [];
-    const connection = api.ws?.('/realtime', {
+    const connection = await api.ws('/realtime', {
         webSocket: FakeWebSocket as unknown as typeof WebSocket,
-        reconnect: { attempts: 1, minDelay: 1, maxDelay: 1 },
+        reconnect: { attempts: 1, delay: 1, backoff: 'fixed', maxDelay: 1 },
         onMessage: data => messages.push(data),
         onClose: event => closes.push(event.code),
     });
 
-    assert.ok(connection);
     assert.equal(connection.url, 'wss://api.example.com/realtime');
     assert.equal(FakeWebSocket.instances.length, 1);
     assert.throws(() => connection.send('early'), /WebSocket is not open/u);
@@ -467,26 +466,26 @@ void test('WebSocketPlugin covers unavailable runtime, protocol guard, and disab
     const originalWebSocket = webSocketGlobal.WebSocket;
     webSocketGlobal.WebSocket = undefined;
     try {
-        assert.throws(() => api.ws?.('/missing'), /WebSocket is unavailable/u);
+        await assert.rejects(api.ws('/missing'), /WebSocket is unavailable/u);
     } finally {
         webSocketGlobal.WebSocket = originalWebSocket;
     }
     const ftpApi = Neutrx.create({ baseURL: 'ftp://api.example.com' });
     ftpApi.use(WebSocketPlugin);
-    assert.throws(
-        () => ftpApi.ws?.('/realtime', { webSocket: FakeWebSocket as unknown as typeof WebSocket }),
-        /Unsupported WebSocket protocol/u
+    await assert.rejects(
+        ftpApi.ws('/realtime', { webSocket: FakeWebSocket as unknown as typeof WebSocket }),
+        /Unsupported protocol/u
     );
 
-    const connection = api.ws?.('ws://api.example.com/realtime', {
+    const connection = await Neutrx.create({ security: { profile: 'legacy' } }).ws('ws://api.example.com/realtime', {
         webSocket: FakeWebSocket as unknown as typeof WebSocket,
         reconnect: false,
     });
     FakeWebSocket.instances[0]?.serverClose(1000);
     await sleep(5);
     assert.equal(FakeWebSocket.instances.length, 1);
-    assert.equal(connection?.readyState, FakeWebSocket.CLOSED);
-    connection?.close();
+    assert.equal(connection.readyState, FakeWebSocket.CLOSED);
+    connection.close();
 });
 
 void test('LogPlugin writes structured success and error entries', async () => {

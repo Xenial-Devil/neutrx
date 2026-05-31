@@ -154,6 +154,22 @@ Node-only request fields:
 
 `security.rateLimit` is request rate limiting: it counts requests per window and can be scoped per domain. `maxRate` is bandwidth rate limiting: it paces request and response bytes in the Node HTTP adapter and is reflected in upload/download progress `rate` samples.
 
+## WebSocket
+
+```ts
+const socket = await api.ws('/events', {
+  headers: { Authorization: `Bearer ${token}` },
+  params: { tenant: 'acme' },
+  reconnect: { attempts: 5, delay: 500, backoff: 'exponential', maxDelay: 30_000 },
+});
+```
+
+WebSocket options reuse request-like fields: `headers`, `auth`, `params`, `paramsSerializer`, `baseURL`, `allowAbsoluteUrls`, `timeout`, `connectTimeout`, `signal`, and `serviceDiscovery`. Neutrx also runs plugin `beforeRequest` hooks and request interceptors before opening the connection.
+
+Reconnect is disabled by default. `reconnect: true` uses bounded exponential defaults; an object can set `attempts`, `delay`, `backoff`, and `maxDelay`. `minDelay` and `factor` are accepted compatibility aliases, but docs and examples use `delay` and `backoff`.
+
+Node sends prepared headers in the HTTP upgrade request. Browser runtimes use native `WebSocket`, which does not permit custom handshake headers.
+
 ## Axios-Compatible And Neutrx-Specific Options
 
 Axios-compatible options supported by Neutrx include `baseURL`, `allowAbsoluteUrls`, `url`, `method`, `headers`, `auth`, `params`, `paramsSerializer`, `data`, `timeout`, `maxRedirects`, `maxContentLength`, `maxBodyLength`, `responseType`, `responseEncoding`, `validateStatus`, `transformRequest`, `transformResponse`, `adapter`, `beforeRedirect`, `decompress`, `withCredentials`, `xsrfCookieName`, `xsrfHeaderName`, `onUploadProgress`, `onDownloadProgress`, `cancelToken`, and `transitional.clarifyTimeoutError`.
@@ -206,12 +222,17 @@ Adapters are transport functions only. Neutrx runs request/response interceptors
 HTTP/2 options:
 
 ```ts
+httpVersion: 2,
 http2Options: {
   sessionTimeout: 60_000,
   maxSessions: 50,
   maxConcurrentStreams: 100,
 }
 ```
+
+`httpVersion: 2` selects the Node `node:http2` adapter. `adapter: 'http2'` is equivalent when you want explicit adapter selection. Sessions are reused by origin and compatible TLS settings until they are closed, receive GOAWAY, exceed `maxSessions`, or sit idle longer than `sessionTimeout`. `maxConcurrentStreams` applies a local cap on active streams per session in addition to the server's advertised remote setting.
+
+HTTP/2 limitations are intentionally explicit: the adapter does not support `proxy`, `socketPath`, `httpAgent`, `httpsAgent`, or `maxRate`. It does not silently fall back to HTTP/1.1 if the server rejects HTTP/2 or TLS ALPN does not negotiate it; use `adapter: 'http'` or `httpVersion: 1` for HTTP/1.1. Plaintext h2c (`http://`) is supported only when your security profile and egress policy allow HTTP.
 
 ## Resilience
 

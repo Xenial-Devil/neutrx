@@ -1,4 +1,5 @@
 import type { Agent as HttpAgent, ClientRequest, IncomingMessage, RequestOptions } from 'node:http';
+import type { ClientHttp2Stream } from 'node:http2';
 import type { Agent as HttpsAgent } from 'node:https';
 import type { Readable } from 'node:stream';
 import type { SecureContextOptions } from 'node:tls';
@@ -44,7 +45,7 @@ export type FetchCredentials = 'include' | 'omit' | 'same-origin';
 export type FetchImplementation = typeof fetch;
 export type MaxRate = number | readonly [uploadBytesPerSecond: number, downloadBytesPerSecond: number];
 export type IdempotencyKey = string | (() => string) | true;
-export type TransportRequest = ClientRequest | Request;
+export type TransportRequest = ClientRequest | ClientHttp2Stream | Request;
 export type ParamsSerializer =
     | ((params: QueryParams) => string)
     | {
@@ -168,27 +169,80 @@ export interface NeutrxLogger {
 
 export interface NeutrxWebSocketReconnectOptions {
     readonly attempts?: number;
+    readonly delay?: number;
+    readonly backoff?: 'fixed' | 'linear' | 'exponential' | ((attempt: number) => number);
+    /** @deprecated Use delay instead. */
     readonly minDelay?: number;
-    readonly maxDelay?: number;
+    /** @deprecated Use backoff instead. */
     readonly factor?: number;
+    readonly maxDelay?: number;
 }
 
-export type NeutrxWebSocketMessage = string | ArrayBuffer | Uint8Array | Blob;
+export type NeutrxWebSocketData = string | ArrayBuffer | Uint8Array | Blob;
+export type NeutrxWebSocketMessage = NeutrxWebSocketData;
 
-export interface NeutrxWebSocketOptions {
+export interface NeutrxWebSocketOpenEvent {
+    readonly type: 'open';
+    readonly url: string;
+    readonly nativeEvent?: unknown;
+}
+
+export interface NeutrxWebSocketMessageEvent<TMessage = NeutrxWebSocketData> {
+    readonly type: 'message';
+    readonly data: TMessage;
+    readonly raw: NeutrxWebSocketData;
+    readonly nativeEvent?: unknown;
+}
+
+export interface NeutrxWebSocketErrorEvent {
+    readonly type: 'error';
+    readonly error?: Error;
+    readonly nativeEvent?: unknown;
+}
+
+export interface NeutrxWebSocketCloseEvent {
+    readonly type: 'close';
+    readonly code: number;
+    readonly reason: string;
+    readonly wasClean: boolean;
+    readonly nativeEvent?: unknown;
+}
+
+export interface NeutrxWebSocketOptions<
+    TMessage = NeutrxWebSocketData,
+    TSend extends NeutrxWebSocketMessage = NeutrxWebSocketMessage
+> {
     readonly protocols?: string | readonly string[];
     readonly reconnect?: boolean | NeutrxWebSocketReconnectOptions;
     readonly webSocket?: typeof WebSocket;
-    readonly onOpen?: (event: Event) => void;
-    readonly onMessage?: (data: unknown, event: MessageEvent) => void;
-    readonly onError?: (event: Event) => void;
-    readonly onClose?: (event: CloseEvent) => void;
+    readonly headers?: HeaderSource;
+    readonly auth?: BasicAuthConfig;
+    readonly params?: QueryParams;
+    readonly paramsSerializer?: ParamsSerializer;
+    readonly baseURL?: string;
+    readonly allowAbsoluteUrls?: boolean;
+    readonly timeout?: number;
+    readonly connectTimeout?: number;
+    readonly signal?: AbortSignal;
+    readonly serviceDiscovery?: ServiceDiscoveryConfig;
+    readonly parseMessage?: (data: NeutrxWebSocketData) => TMessage;
+    readonly serializeMessage?: (data: TSend) => NeutrxWebSocketMessage;
+    readonly onOpen?: (event: NeutrxWebSocketOpenEvent) => void;
+    readonly onMessage?: (data: TMessage, event: NeutrxWebSocketMessageEvent<TMessage>) => void;
+    readonly onError?: (event: NeutrxWebSocketErrorEvent) => void;
+    readonly onClose?: (event: NeutrxWebSocketCloseEvent) => void;
 }
 
-export interface NeutrxWSConnection {
+declare const neutrxWebSocketMessageType: unique symbol;
+
+export interface NeutrxWSConnection<
+    TMessage = NeutrxWebSocketData,
+    TSend extends NeutrxWebSocketMessage = NeutrxWebSocketMessage
+> {
     readonly url: string;
     readonly readyState: number | undefined;
-    send(data: NeutrxWebSocketMessage): void;
+    readonly [neutrxWebSocketMessageType]?: TMessage;
+    send(data: TSend): void;
     close(code?: number, reason?: string): void;
 }
 
@@ -477,6 +531,7 @@ export interface Http2SessionStats {
         readonly activeStreams: number;
         readonly closed: boolean;
         readonly destroyed: boolean;
+        readonly sessionCount?: number;
         readonly remoteMaxConcurrentStreams?: number;
     }>;
 }
