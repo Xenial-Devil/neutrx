@@ -1,6 +1,7 @@
 import { NeutrxSecurityError } from './NeutrxError.js';
 import { NeutrxHeaders } from './headers.js';
 import { normalizeSecurityProfile } from '../security/profiles.js';
+import { normalizeCacheStrategy } from '../performance/cacheStrategy.js';
 import type {
     ClientConfig,
     Headers,
@@ -30,6 +31,7 @@ export interface ServiceDiscoveryState {
 export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
     const securityProfile = normalizeSecurityProfile(custom.security?.profile);
     const securityDefaults = securityProfileDefaults(securityProfile);
+    const cacheTTL = custom.performance?.cacheTTL ?? 300_000;
 
     return {
         allowAbsoluteUrls: custom.allowAbsoluteUrls ?? true,
@@ -124,13 +126,18 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         performance: {
             enableCaching: custom.performance?.enableCaching ?? true,
             cacheMaxSize: custom.performance?.cacheMaxSize ?? 500,
-            cacheTTL: custom.performance?.cacheTTL ?? 300_000,
+            cacheTTL,
             cacheMaxEntrySize: custom.performance?.cacheMaxEntrySize ?? 1_048_576,
             respectCacheHeaders: custom.performance?.respectCacheHeaders ?? true,
             deduplicateRequests: custom.performance?.deduplicateRequests ?? false,
-            cacheStrategy: custom.performance?.cacheStrategy ?? 'ttl',
-            cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(custom.performance?.cacheTTL ?? 300_000, 1_500_000),
+            ...(custom.performance?.deduplicateRequestKey ? { deduplicateRequestKey: custom.performance.deduplicateRequestKey } : {}),
+            deduplicateMethods: normalizeMethodList(custom.performance?.deduplicateMethods ?? ['GET', 'HEAD']),
+            deduplicateHeaders: normalizeHeaderNameList(custom.performance?.deduplicateHeaders ?? ['accept', 'authorization', 'range']),
+            cacheStrategy: normalizeCacheStrategy(custom.performance?.cacheStrategy),
+            ...(custom.performance?.revalidateAfter !== undefined ? { revalidateAfter: custom.performance.revalidateAfter } : {}),
+            cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(cacheTTL, 1_500_000),
             ...(custom.performance?.cacheAdapter ? { cacheAdapter: custom.performance.cacheAdapter } : {}),
+            ...(custom.performance?.onRevalidate ? { onRevalidate: custom.performance.onRevalidate } : {}),
         },
     };
 }
@@ -273,6 +280,14 @@ export function normalizeMethod(method: string): HttpMethod {
     const normalized = method.toUpperCase();
     if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(normalized)) return normalized as HttpMethod;
     throw new NeutrxSecurityError(`Invalid HTTP method: ${method}`, { code: 'INVALID_METHOD' });
+}
+
+function normalizeMethodList(methods: readonly string[]): readonly HttpMethod[] {
+    return [...new Set(methods.map(method => normalizeMethod(method)))];
+}
+
+function normalizeHeaderNameList(names: readonly string[]): readonly string[] {
+    return [...new Set(names.map(name => name.toLowerCase()))].sort();
 }
 
 export function normalizeArray<TValue>(value: TValue | readonly TValue[]): readonly TValue[] {

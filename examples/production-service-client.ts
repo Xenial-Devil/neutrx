@@ -34,7 +34,8 @@ export const billingApi = neutrx.create({
     performance: {
         enableCaching: true,
         deduplicateRequests: true,
-        cacheStrategy: 'stale-while-revalidate',
+        cacheStrategy: 'swr',
+        revalidateAfter: 60_000,
         respectCacheHeaders: true,
     },
     instrumentation: {

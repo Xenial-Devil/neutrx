@@ -58,6 +58,9 @@ import neutrx, {
   type ServiceEndpoint,
   type ServiceResolver,
   type TlsConfig,
+  type TraceContext,
+  type TraceContextPluginOptions,
+  type TracePropagationFormat,
   type TransitionalConfig,
   type ValidationPluginConfig,
   type ValidationSchema,
@@ -144,6 +147,12 @@ const logger: NeutrxLogger = {
   info: entry => void entry.requestId,
   error: entry => void entry.code,
 };
+const onRevalidate = (event: CacheRevalidateEvent): void => {
+  const updated: boolean = event.updated;
+  const status: number | undefined = event.status;
+  void updated;
+  void status;
+};
 const config: ClientConfig = {
   baseURL: 'https://api.example.com',
   allowAbsoluteUrls: false,
@@ -164,7 +173,7 @@ const config: ClientConfig = {
     retryBudget: { maxRetries: 10, windowMs: 60_000, scope: 'origin', namespace: 'types', store: retryBudgetStore },
     circuitBreakerStorage: { store: circuitStateStore, namespace: 'types' },
   },
-  performance: { cacheAdapter },
+  performance: { cacheAdapter, cacheStrategy, revalidateAfter: 1000, onRevalidate },
   beforeRedirect: context => {
     context.headers['X-Redirect-Hook'] = 'yes';
   },
@@ -212,6 +221,8 @@ neutrx.use(ValidationPlugin);
 neutrx.use(LogPlugin);
 neutrx.use(OtelPlugin);
 neutrx.use(createOtelPlugin(otelPluginOptions));
+neutrx.use(TraceContextPlugin);
+neutrx.use(createTraceContextPlugin(traceContextPluginOptions));
 neutrx.use(WebSocketPlugin);
 neutrx.setLogger(logger);
 neutrx.enableOpenTelemetry({ tracerName: 'types-plugin' });
@@ -317,6 +328,8 @@ void ValidationPlugin;
 void LogPlugin;
 void OtelPlugin;
 void createOtelPlugin;
+void TraceContextPlugin;
+void createTraceContextPlugin;
 void WebSocketPlugin;
 `);
 

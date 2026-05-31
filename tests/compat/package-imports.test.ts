@@ -11,6 +11,7 @@ void test('package self-reference imports expose ESM, CJS, and subpath APIs', as
     const headersEntry = moduleRecord(await import('neutrx/headers'));
     const instrumentationEntry = moduleRecord(await import('neutrx/instrumentation'));
     const adaptersEntry = moduleRecord(await import('neutrx/adapters'));
+    const pluginsEntry = moduleRecord(await import('neutrx/plugins'));
     const cjs = moduleRecord(require('neutrx') as unknown);
 
     assert.equal(typeof propertyRecord(root, 'default').create, 'function');

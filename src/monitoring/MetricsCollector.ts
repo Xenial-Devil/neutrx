@@ -8,6 +8,7 @@ export interface MetricsSnapshot {
         readonly errors: number;
         readonly cached: number;
         readonly retried: number;
+        readonly deduplicated: number;
     };
     readonly performance: {
         readonly min: number;
@@ -30,13 +31,14 @@ export interface MetricsSnapshot {
         readonly successRate: string;
         readonly errorRate: string;
         readonly cacheRate: string;
+        readonly deduplicationRate: string;
         readonly avgDuration: string;
         readonly p99: string;
     };
 }
 
 interface MutableMetrics {
-    requests: { total: number; active: number; success: number; errors: number; cached: number; retried: number };
+    requests: { total: number; active: number; success: number; errors: number; cached: number; retried: number; deduplicated: number };
     performance: { min: number; max: number; avg: number; total: number; p50: number; p90: number; p95: number; p99: number };
     byStatus: Record<string, number>;
     byEndpoint: Record<string, EndpointMetrics>;
@@ -101,8 +103,13 @@ export default class MetricsCollector extends EventEmitter {
         this.emit('retry:recorded', { url, attempt });
     }
 
+    recordDeduplicationHit(url: string): void {
+        this.#metrics.requests.deduplicated += 1;
+        this.emit('deduplication:hit', { url });
+    }
+
     getAll(): MetricsSnapshot {
-        const { total, success, errors, cached } = this.#metrics.requests;
+        const { total, success, errors, cached, deduplicated } = this.#metrics.requests;
         return {
             ...this.#metrics,
             summary: {
@@ -110,6 +117,7 @@ export default class MetricsCollector extends EventEmitter {
                 successRate: total > 0 ? `${((success / total) * 100).toFixed(2)}%` : '0%',
                 errorRate: total > 0 ? `${((errors / total) * 100).toFixed(2)}%` : '0%',
                 cacheRate: total > 0 ? `${((cached / total) * 100).toFixed(2)}%` : '0%',
+                deduplicationRate: total > 0 ? `${((deduplicated / total) * 100).toFixed(2)}%` : '0%',
                 avgDuration: `${this.#metrics.performance.avg}ms`,
                 p99: `${this.#metrics.performance.p99}ms`,
             },
@@ -124,6 +132,7 @@ export default class MetricsCollector extends EventEmitter {
             `neutrx_requests_total{status="error"} ${metrics.requests.errors}`,
             `neutrx_requests_total{status="cached"} ${metrics.requests.cached}`,
             `neutrx_requests_total{status="retried"} ${metrics.requests.retried}`,
+            `neutrx_requests_total{status="deduplicated"} ${metrics.requests.deduplicated}`,
             '',
             '# TYPE neutrx_active_requests gauge',
             `neutrx_active_requests ${metrics.requests.active}`,
@@ -133,6 +142,9 @@ export default class MetricsCollector extends EventEmitter {
             `neutrx_duration_ms{quantile="0.9"} ${metrics.performance.p90}`,
             `neutrx_duration_ms{quantile="0.95"} ${metrics.performance.p95}`,
             `neutrx_duration_ms{quantile="0.99"} ${metrics.performance.p99}`,
+            '',
+            '# TYPE neutrx_deduplication_hits_total counter',
+            `neutrx_deduplication_hits_total ${metrics.requests.deduplicated}`,
         ].join('\n');
     }
 
@@ -147,7 +159,7 @@ export default class MetricsCollector extends EventEmitter {
 
     #fresh(): MutableMetrics {
         return {
-            requests: { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0 },
+            requests: { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0, deduplicated: 0 },
             performance: { min: 0, max: 0, avg: 0, total: 0, p50: 0, p90: 0, p95: 0, p99: 0 },
             byStatus: {},
             byEndpoint: {},

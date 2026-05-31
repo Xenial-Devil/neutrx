@@ -15,7 +15,7 @@ console.log(snapshot.byStatus);
 
 Tracked signals:
 
-- total, active, success, error, cached, and retried request counts
+- total, active, success, error, cached, retried, and deduplicated request counts
 - duration min, max, average, and percentiles
 - status code counts
 - error type and code counts
@@ -31,6 +31,7 @@ A starter Grafana dashboard is available at [grafana-dashboard.json](grafana-das
 api.on('request:success', event => console.log(event.status, event.duration));
 api.on('request:error', event => console.error(event.error.code));
 api.on('cache:hit', event => console.log(event.url));
+api.on('request:deduplicated', event => console.log(event.url));
 ```
 
 ## Structured Logging
@@ -45,6 +46,29 @@ api.setLogger(console);
 
 `LogPlugin` emits redaction-friendly fields such as request id, method, URL, status, duration, attempt count, cache state, error code, and error name. It accepts console-like, pino-like, or winston-like loggers with `info` and `error` methods.
 
+## Trace Context Propagation
+
+Use `TraceContextPlugin` when you want dependency-free distributed tracing headers without requiring OpenTelemetry:
+
+```ts
+import neutrx, { createTraceContextPlugin } from 'neutrx';
+
+const api = neutrx.create({ baseURL: 'https://api.example.com' });
+api.use(createTraceContextPlugin({
+  formats: ['w3c', 'b3-multi', 'b3-single'],
+  context: {
+    traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+    spanId: '00f067aa0ba902b7',
+    sampled: true,
+    tracestate: 'vendor=value',
+  },
+}));
+```
+
+The default `TraceContextPlugin` emits W3C `traceparent`. Configured formats can include `w3c`, `b3-multi`, and `b3-single`; `b3` is accepted as an alias for the single-header form. The plugin preserves user-supplied `traceparent`, `tracestate`, `X-B3-TraceId`, `X-B3-SpanId`, `X-B3-Sampled`, and `b3` headers unless `overwrite: true` is set.
+
+If OpenTelemetry propagation is also enabled, Neutrx injects the OTel carrier first. `TraceContextPlugin` then reuses that carrier context when generating any additional requested B3 or W3C headers, so formats stay aligned.
+
 ## OpenTelemetry Bridge
 
 OpenTelemetry is optional. If `@opentelemetry/api` is installed by the application, Neutrx can use it. Tests can also inject `globalThis.__NEUTRX_OTEL_API__`.
@@ -55,6 +79,7 @@ const api = neutrx.create({
     openTelemetry: true,
     tracerName: 'billing-http',
     propagateTraceHeaders: true,
+    overwriteTraceHeaders: false,
   },
 });
 ```
@@ -98,3 +123,5 @@ const api = neutrx.create({
 ```
 
 Only known sizes are recorded from `Content-Length` or already-buffered/string bodies. Streams are not consumed for telemetry.
+
+OpenTelemetry carrier injection preserves existing trace headers by default. Set `overwriteTraceHeaders: true` only when your service should replace caller-provided propagation headers with the active OTel context.

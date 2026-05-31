@@ -208,6 +208,54 @@ void test('OpenTelemetry instrumentation is a no-op when the OTel API is not ins
     assert.deepEqual((await api.get('https://api.example.com/no-otel')).data, { ok: true });
 });
 
+void test('OpenTelemetry propagation respects user trace headers unless overwrite is enabled', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const otelTraceparent = '00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01';
+    const userTraceparent = '00-11111111111111111111111111111111-2222222222222222-00';
+
+    (globalThis as OTelGlobal).__NEUTRX_OTEL_API__ = {
+        trace: {
+            getTracer: () => ({
+                startSpan: () => ({
+                    setAttribute: () => undefined,
+                    setStatus: () => undefined,
+                    end: () => undefined,
+                }),
+            }),
+        },
+        propagation: {
+            inject: (_context: unknown, carrier: Record<string, string>) => {
+                carrier.traceparent = otelTraceparent;
+            },
+        },
+        context: { active: () => ({}) },
+        SpanStatusCode: { ERROR: 2, OK: 1 },
+    };
+
+    try {
+        const preserving = Neutrx.create({
+            instrumentation: { openTelemetry: true, propagateTraceHeaders: true },
+            adapter: traceparentAdapter,
+        });
+        const preserved = await preserving.get('https://api.example.com/otel', {
+            headers: { traceparent: userTraceparent },
+        });
+
+        const overwriting = Neutrx.create({
+            instrumentation: { openTelemetry: true, propagateTraceHeaders: true, overwriteTraceHeaders: true },
+            adapter: traceparentAdapter,
+        });
+        const overwritten = await overwriting.get('https://api.example.com/otel', {
+            headers: { traceparent: userTraceparent },
+        });
+
+        assert.deepEqual(preserved.data, { traceparent: userTraceparent });
+        assert.deepEqual(overwritten.data, { traceparent: otelTraceparent });
+    } finally {
+        delete (globalThis as OTelGlobal).__NEUTRX_OTEL_API__;
+    }
+});
+
 void test('OpenTelemetry instrumentation ends mock response spans exactly once', async () => {
     const { default: Neutrx, MockPlugin } = await import(builtEntry) as typeof PackageEntry;
     let endCount = 0;
@@ -243,3 +291,14 @@ void test('OpenTelemetry instrumentation ends mock response spans exactly once',
         delete (globalThis as OTelGlobal).__NEUTRX_OTEL_API__;
     }
 });
+
+function traceparentAdapter(config: PackageEntry.NeutrxRequestConfig): PackageEntry.RawHttpResponse {
+    const value = config.headers.get('traceparent');
+    return {
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'application/json' },
+        data: Buffer.from(JSON.stringify({ traceparent: value === undefined || value === false ? null : String(value) })),
+        config,
+    };
+}

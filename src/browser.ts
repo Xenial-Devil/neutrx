@@ -116,6 +116,7 @@ export type {
     TransitionalConfig,
     TransformRequest,
     TransformResponse,
+    TraceContext,
     ValidationFailure,
     ValidationFunction,
     ValidationIssue,

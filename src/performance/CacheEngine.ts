@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
-import type { CacheRecord, CacheStats, CacheStore, Headers, InternalRequestConfig, NeutrxResponse, PerformanceConfig } from '../types.js';
+import { normalizeCacheStrategy } from './cacheStrategy.js';
+import type { CacheRecord, CacheStats, CacheStore, CacheStrategy, Headers, InternalRequestConfig, NeutrxResponse, PerformanceConfig } from '../types.js';
 
 interface NormalizedCacheConfig {
     readonly enabled: boolean;
@@ -8,7 +9,8 @@ interface NormalizedCacheConfig {
     readonly defaultTTL: number;
     readonly maxEntrySize: number;
     readonly respectCacheHeaders: boolean;
-    readonly strategy: 'ttl' | 'stale-while-revalidate';
+    readonly strategy: CacheStrategy;
+    readonly revalidateAfter?: number;
     readonly staleMaxAge: number;
 }
 
@@ -38,7 +40,8 @@ export default class CacheEngine {
             defaultTTL: config.cacheTTL ?? 300_000,
             maxEntrySize: config.cacheMaxEntrySize ?? 1_048_576,
             respectCacheHeaders: config.respectCacheHeaders ?? true,
-            strategy: config.cacheStrategy ?? 'ttl',
+            strategy: normalizeCacheStrategy(config.cacheStrategy),
+            ...(config.revalidateAfter !== undefined ? { revalidateAfter: config.revalidateAfter } : {}),
             staleMaxAge: config.cacheStaleMax ?? Math.max(config.cacheTTL ?? 300_000, 1_500_000),
         };
 
@@ -64,7 +67,7 @@ export default class CacheEngine {
             return null;
         }
 
-        if (now > entry.expiresAt && (this.#config.strategy !== 'stale-while-revalidate' || now > entry.staleUntil)) {
+        if (now > entry.expiresAt && (this.#config.strategy !== 'swr' || now > entry.staleUntil)) {
             if (now > entry.staleIfErrorUntil) this.#store.delete(key);
             this.#stats.misses += 1;
             return null;
@@ -99,13 +102,14 @@ export default class CacheEngine {
         if ([...this.#store.keys()].length >= this.#config.maxSize) this.#evict();
 
         const ttl = this.#ttl(response) ?? this.#config.defaultTTL;
+        const freshTTL = this.#freshTTL(ttl);
         const staleIfError = this.#staleIfError(response);
         const now = Date.now();
         this.#store.set(this.#key(config), {
             response: { ...response },
             createdAt: now,
-            expiresAt: now + ttl,
-            staleUntil: now + Math.max(ttl, this.#config.staleMaxAge),
+            expiresAt: now + freshTTL,
+            staleUntil: now + this.#staleTTL(ttl, freshTTL),
             staleIfErrorUntil: now + ttl + staleIfError,
             lastAccessed: now,
             size,
@@ -114,16 +118,39 @@ export default class CacheEngine {
         this.#stats.sets += 1;
     }
 
-    clear(pattern?: string): void {
+    clear(pattern?: string | RegExp): void {
+        this.invalidate(pattern);
+    }
+
+    invalidate(pattern?: string | RegExp): number {
         if (!pattern) {
+            const count = [...this.#store.keys()].length;
             this.#store.clear();
-            return;
+            return count;
         }
 
-        const expression = new RegExp(pattern);
+        const expression = typeof pattern === 'string' ? new RegExp(pattern) : pattern;
+        let count = 0;
         for (const key of this.#store.keys()) {
-            if (expression.test(key)) this.#store.delete(key);
+            const entry = this.#store.get(key);
+            const url = entry?.response.config.url ?? '';
+            if (expression.test(key) || expression.test(url)) {
+                this.#store.delete(key);
+                count += 1;
+            }
         }
+        return count;
+    }
+
+    deleteByUrl(url: string): boolean {
+        for (const key of this.#store.keys()) {
+            const entry = this.#store.get(key);
+            if (entry?.response.config.url === url) {
+                this.#store.delete(key);
+                return true;
+            }
+        }
+        return false;
     }
 
     reset(): void {
@@ -172,6 +199,29 @@ export default class CacheEngine {
         };
     }
 
+    getNetworkFallback(config: InternalRequestConfig): NeutrxResponse | null {
+        if (!this.#config.enabled || this.#config.strategy !== 'network-first') return null;
+        const key = this.#key(config);
+        const entry = this.#store.get(key);
+        const now = Date.now();
+        if (!entry || now > entry.staleUntil) return null;
+
+        const touched = this.#touch(key, entry, now);
+        const stale = now > touched.expiresAt;
+        this.#stats.hits += 1;
+        return {
+            ...touched.response,
+            cached: true,
+            stale,
+            cacheAge: now - touched.createdAt,
+            headers: {
+                ...touched.response.headers,
+                'x-cache': stale ? 'STALE' : 'HIT',
+                'x-cache-age': String(Math.floor((now - touched.createdAt) / 1000)),
+            },
+        };
+    }
+
     revalidationHeaders(config: InternalRequestConfig): Headers {
         const entry = this.#store.get(this.#key(config));
         if (!entry) return {};
@@ -188,17 +238,26 @@ export default class CacheEngine {
 
         const response = { ...entry.response, headers: { ...entry.response.headers, ...headers } };
         const ttl = this.#ttl(response) ?? this.#config.defaultTTL;
+        const freshTTL = this.#freshTTL(ttl);
         const staleIfError = this.#staleIfError(response);
         const now = Date.now();
         this.#store.set(key, {
             ...entry,
             response,
             createdAt: now,
-            expiresAt: now + ttl,
-            staleUntil: now + Math.max(ttl, this.#config.staleMaxAge),
+            expiresAt: now + freshTTL,
+            staleUntil: now + this.#staleTTL(ttl, freshTTL),
             staleIfErrorUntil: now + ttl + staleIfError,
             lastAccessed: now,
         });
+    }
+
+    strategy(): CacheStrategy {
+        return this.#config.strategy;
+    }
+
+    usesNetworkFirst(): boolean {
+        return this.#config.strategy === 'network-first';
     }
 
     destroy(): void {
@@ -282,11 +341,22 @@ export default class CacheEngine {
             const value = this.#store.get(key);
             if (!value) continue;
             const expiresAt = Math.max(
-                this.#config.strategy === 'stale-while-revalidate' ? value.staleUntil : value.expiresAt,
+                this.#config.strategy === 'swr' || this.#config.strategy === 'network-first' ? value.staleUntil : value.expiresAt,
                 value.staleIfErrorUntil
             );
             if (now > expiresAt) this.#store.delete(key);
         }
+    }
+
+    #freshTTL(ttl: number): number {
+        if (this.#config.strategy === 'max-age' || this.#config.revalidateAfter === undefined) return ttl;
+        return Math.min(ttl, Math.max(0, this.#config.revalidateAfter));
+    }
+
+    #staleTTL(ttl: number, freshTTL: number): number {
+        if (this.#config.strategy === 'swr') return Math.max(ttl, freshTTL, this.#config.staleMaxAge);
+        if (this.#config.strategy === 'network-first') return Math.max(ttl, freshTTL);
+        return freshTTL;
     }
 
     #touch(key: string, entry: CacheRecord, lastAccessed: number): CacheRecord {

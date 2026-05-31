@@ -3,6 +3,8 @@ import { PluginManager, type NeutrxPlugin } from '../plugins/PluginManager.js';
 import CircuitBreaker from '../resilience/CircuitBreaker.js';
 import { RetryEngine } from '../resilience/RetryEngine.js';
 import Bulkhead from '../resilience/Bulkhead.js';
+import Deduplicator from '../performance/Deduplicator.js';
+import { normalizeCacheStrategy } from '../performance/cacheStrategy.js';
 import { normalizeSecurityProfile } from '../security/profiles.js';
 import {
     NeutrxErrorFactory,
@@ -78,7 +80,7 @@ type BeforeRequestResult = Omit<InternalRequestConfig, 'headers'> & { readonly h
 type BrowserListener = (payload: unknown) => void;
 type FetchInit = RequestInit & { duplex?: 'half' };
 type FetchBody = NonNullable<RequestInit['body']>;
-type BrowserRequestMetrics = { total: number; active: number; success: number; errors: number; cached: number; retried: number };
+type BrowserRequestMetrics = { total: number; active: number; success: number; errors: number; cached: number; retried: number; deduplicated: number };
 type BrowserErrorMetrics = { byType: Record<string, number>; byCode: Record<string, number> };
 type BrowserMetricsSnapshot = {
     readonly requests: BrowserRequestMetrics;
@@ -86,7 +88,7 @@ type BrowserMetricsSnapshot = {
     readonly byStatus: Record<string, number>;
     readonly byEndpoint: Record<string, never>;
     readonly errors: BrowserErrorMetrics;
-    readonly summary: { readonly total: number; readonly successRate: string; readonly errorRate: string; readonly cacheRate: string; readonly avgDuration: string; readonly p99: string };
+    readonly summary: { readonly total: number; readonly successRate: string; readonly errorRate: string; readonly cacheRate: string; readonly deduplicationRate: string; readonly avgDuration: string; readonly p99: string };
 };
 type BrowserGlobal = typeof globalThis & {
     readonly location?: { readonly href: string; readonly origin: string };
@@ -143,6 +145,7 @@ export default class BrowserClient extends TinyEmitter {
     #retryEngine: RetryEngine;
     #bulkhead: Bulkhead;
     #cache: BrowserCache;
+    #deduplicator: Deduplicator;
     #metrics = new BrowserMetrics();
     #plugins: PluginManager;
     #defaultHeaders: InternalHeaders;
@@ -437,6 +440,7 @@ export default class BrowserClient extends TinyEmitter {
         const t0 = Date.now();
         let trackedUrl = config.url;
         let circuitChecked = false;
+        let cacheConfig: InternalRequestConfig | null = null;
         this.#metrics.recordStart();
 
         try {
@@ -449,11 +453,15 @@ export default class BrowserClient extends TinyEmitter {
             rc = toInternalRequestConfig(this.#validateRequest(rc));
 
             if (rc.method === 'GET' && rc.cache !== false) {
-                const hit = this.#cache.get(rc);
-                if (hit) {
-                    this.#metrics.recordCacheHit();
-                    this.emit('cache:hit', { requestId, url: rc.url });
-                    return hit as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
+                cacheConfig = rc;
+                if (!this.#cache.usesNetworkFirst()) {
+                    const hit = this.#cache.getWithState(rc);
+                    if (hit) {
+                        this.#metrics.recordCacheHit();
+                        this.emit('cache:hit', { requestId, url: rc.url, state: hit.state });
+                        if (hit.state === 'stale') this.#revalidateCache(rc, 'stale');
+                        return hit.response as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
+                    }
                 }
             }
 
@@ -472,7 +480,7 @@ export default class BrowserClient extends TinyEmitter {
             const { result: response, attempts } = await this.#retryEngine.execute(
                 async (attempt): Promise<NeutrxResponse<TData>> => {
                     if (attempt > 0) this.#metrics.recordRetry();
-                    const raw = await this.#bulkhead.execute(domain, () => this.#dispatch(rc));
+                    const raw = await this.#bulkhead.execute(domain, () => this.#dispatchDeduped(rc));
                     return this.#parse<TData>(raw, rc);
                 },
                 retryContext
@@ -502,6 +510,15 @@ export default class BrowserClient extends TinyEmitter {
             const normalized = normalizeError(error) as Error & { requestId?: string; duration?: number; code?: string };
             normalized.requestId = requestId;
             normalized.duration = Date.now() - t0;
+
+            if (cacheConfig) {
+                const fallback = this.#cache.getNetworkFallback(cacheConfig);
+                if (fallback) {
+                    this.#metrics.recordCacheHit();
+                    this.emit('cache:fallback', { requestId, url: cacheConfig.url, error: normalized });
+                    return fallback as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
+                }
+            }
 
             this.#metrics.recordError(trackedUrl, normalized);
             if (circuitChecked) await this.#circuitBreaker.recordFailure(trackedUrl);
@@ -535,8 +552,19 @@ export default class BrowserClient extends TinyEmitter {
         return this;
     }
 
-    clearCache(pattern?: string): this {
+    clearCache(pattern?: string | RegExp): this {
         this.#cache.clear(pattern);
+        return this;
+    }
+
+    invalidateCache(pattern?: string | RegExp): this {
+        this.#cache.invalidate(pattern);
+        return this;
+    }
+
+    deleteCacheEntry(config: string | RequestConfig): this {
+        const url = this.getUri(typeof config === 'string' ? { url: config } : config);
+        this.#cache.deleteByUrl(url);
         return this;
     }
 
@@ -669,6 +697,7 @@ export default class BrowserClient extends TinyEmitter {
     }
 
     destroy(): void {
+        this.#deduplicator.clear();
         this.#cache.destroy();
         this.#metrics.destroy();
         this.removeAllListeners();
@@ -681,6 +710,98 @@ export default class BrowserClient extends TinyEmitter {
             throw new NeutrxSecurityError('Browser runtimes support the fetch adapter only', { code: 'ADAPTER_UNAVAILABLE' });
         }
         return this.#fetch(config);
+    }
+
+    async #dispatchDeduped(config: InternalRequestConfig): Promise<RawHttpResponse> {
+        const adapter = config.adapter ?? this.#config.adapter ?? 'fetch';
+        return this.#deduplicator.dispatch(config, () => this.#dispatch(config), {
+            adapterKey: typeof adapter === 'function' ? 'custom' : adapter,
+            canUseDefaultKey: typeof adapter !== 'function',
+            onHit: hit => {
+                this.#metrics.recordDeduplicationHit();
+                this.emit('request:deduplicated', {
+                    requestId: hit.requestId,
+                    url: hit.url,
+                    method: hit.method,
+                });
+            },
+        });
+    }
+
+    #revalidateCache(config: InternalRequestConfig, reason: CacheRevalidateReason): void {
+        const strategy = this.#cache.strategy();
+        if (!this.#cache.markRevalidating(config)) {
+            this.#notifyRevalidate({
+                requestId: config.requestId,
+                url: config.url,
+                strategy,
+                reason,
+                updated: false,
+                skipped: true,
+            });
+            return;
+        }
+
+        const revalidationConfig = withoutSignal({
+            ...config,
+            requestId: this.#id(),
+            startTime: Date.now(),
+            cache: false,
+        });
+
+        void (async (): Promise<void> => {
+            try {
+                const raw = await this.#dispatchDeduped(revalidationConfig);
+                const parsed = await this.#parse(raw, revalidationConfig);
+                let next: NeutrxResponse = this.#sanitizeResponse(parsed);
+                next = await this.#interceptors.runResponse(next);
+                next = await this.#plugins.runHook('afterRequest', next);
+                this.#cache.set(config, next);
+                this.emit('cache:revalidated', { requestId: revalidationConfig.requestId, url: config.url, status: next.status });
+                this.#notifyRevalidate({
+                    requestId: revalidationConfig.requestId,
+                    url: config.url,
+                    strategy,
+                    reason,
+                    status: next.status,
+                    updated: true,
+                });
+            } catch (error: unknown) {
+                const normalized = normalizeError(error);
+                this.emit('cache:revalidate:error', { requestId: revalidationConfig.requestId, url: config.url, error: normalized });
+                this.#notifyRevalidate({
+                    requestId: revalidationConfig.requestId,
+                    url: config.url,
+                    strategy,
+                    reason,
+                    updated: false,
+                    error: normalized,
+                });
+            } finally {
+                this.#cache.finishRevalidating(config);
+            }
+        })();
+    }
+
+    #notifyRevalidate(event: {
+        readonly requestId: string;
+        readonly url: string;
+        readonly strategy: CacheStrategy;
+        readonly reason: CacheRevalidateReason;
+        readonly updated: boolean;
+        readonly status?: number;
+        readonly error?: Error;
+        readonly skipped?: boolean;
+    }): void {
+        const callback = this.#config.performance.onRevalidate;
+        if (!callback) return;
+        void Promise.resolve(callback(event)).catch(error => {
+            this.emit('cache:revalidate:error', {
+                requestId: event.requestId,
+                url: event.url,
+                error: normalizeError(error),
+            });
+        });
     }
 
     async #fetch(config: InternalRequestConfig): Promise<RawHttpResponse> {
@@ -951,6 +1072,7 @@ export default class BrowserClient extends TinyEmitter {
 
     #buildConfig(custom: ClientConfig): NormalizedClientConfig {
         const securityProfile = normalizeSecurityProfile(custom.security?.profile);
+        const cacheTTL = custom.performance?.cacheTTL ?? 300_000;
         return {
             allowAbsoluteUrls: custom.allowAbsoluteUrls ?? true,
             timeout: custom.timeout ?? 30_000,
@@ -1037,13 +1159,18 @@ export default class BrowserClient extends TinyEmitter {
             performance: {
                 enableCaching: custom.performance?.enableCaching ?? true,
                 cacheMaxSize: custom.performance?.cacheMaxSize ?? 500,
-                cacheTTL: custom.performance?.cacheTTL ?? 300_000,
+                cacheTTL,
                 cacheMaxEntrySize: custom.performance?.cacheMaxEntrySize ?? 1_048_576,
                 respectCacheHeaders: custom.performance?.respectCacheHeaders ?? true,
                 deduplicateRequests: custom.performance?.deduplicateRequests ?? false,
-                cacheStrategy: custom.performance?.cacheStrategy ?? 'ttl',
-                cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(custom.performance?.cacheTTL ?? 300_000, 1_500_000),
+                ...(custom.performance?.deduplicateRequestKey ? { deduplicateRequestKey: custom.performance.deduplicateRequestKey } : {}),
+                deduplicateMethods: normalizeMethodList(custom.performance?.deduplicateMethods ?? ['GET', 'HEAD']),
+                deduplicateHeaders: normalizeHeaderNameList(custom.performance?.deduplicateHeaders ?? ['accept', 'authorization', 'range']),
+                cacheStrategy: normalizeCacheStrategy(custom.performance?.cacheStrategy),
+                ...(custom.performance?.revalidateAfter !== undefined ? { revalidateAfter: custom.performance.revalidateAfter } : {}),
+                cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(cacheTTL, 1_500_000),
                 ...(custom.performance?.cacheAdapter ? { cacheAdapter: custom.performance.cacheAdapter } : {}),
+                ...(custom.performance?.onRevalidate ? { onRevalidate: custom.performance.onRevalidate } : {}),
             },
         };
     }
@@ -1061,23 +1188,45 @@ export default class BrowserClient extends TinyEmitter {
     }
 }
 
+type BrowserCacheEntry = {
+    readonly response: NeutrxResponse;
+    readonly createdAt: number;
+    readonly expiresAt: number;
+    readonly staleUntil: number;
+    lastAccessed: number;
+    revalidatingAt?: number;
+    readonly size: number;
+};
+
+type BrowserCacheLookup = {
+    readonly response: NeutrxResponse;
+    readonly state: 'fresh' | 'stale';
+};
+
 class BrowserCache {
-    #store = new Map<string, { readonly response: NeutrxResponse; readonly createdAt: number; readonly expiresAt: number; lastAccessed: number; readonly size: number }>();
+    #store = new Map<string, BrowserCacheEntry>();
+    #locks = new Set<string>();
     #blocked = new Set<string>();
     #stats = { hits: 0, misses: 0, evictions: 0, sets: 0 };
     #sweepTimer: ReturnType<typeof setInterval> | null = null;
     #enabled: boolean;
     #maxSize: number;
     #ttl: number;
+    #revalidateAfter: number | undefined;
+    #staleMaxAge: number;
     #maxEntrySize: number;
     #respectHeaders: boolean;
+    #strategy: CacheStrategy;
 
     constructor(config: NormalizedClientConfig['performance']) {
         this.#enabled = config.enableCaching;
         this.#maxSize = config.cacheMaxSize;
         this.#ttl = config.cacheTTL;
+        this.#revalidateAfter = config.revalidateAfter;
+        this.#staleMaxAge = config.cacheStaleMax;
         this.#maxEntrySize = config.cacheMaxEntrySize;
         this.#respectHeaders = config.respectCacheHeaders;
+        this.#strategy = config.cacheStrategy;
         if (this.#enabled) {
             this.#sweepTimer = setInterval(() => this.#sweep(), 60_000);
             const maybeNodeTimer = this.#sweepTimer as { readonly unref?: () => void };
@@ -1086,24 +1235,58 @@ class BrowserCache {
     }
 
     get(config: InternalRequestConfig): NeutrxResponse | null {
+        return this.getWithState(config)?.response ?? null;
+    }
+
+    getWithState(config: InternalRequestConfig): BrowserCacheLookup | null {
         if (!this.#enabled) return null;
         const key = this.#key(config);
         const entry = this.#store.get(key);
-        if (!entry || Date.now() > entry.expiresAt) {
-            if (entry) this.#store.delete(key);
+        const now = Date.now();
+        if (!entry || (now > entry.expiresAt && (this.#strategy !== 'swr' || now > entry.staleUntil))) {
+            if (entry && now > entry.staleUntil) this.#store.delete(key);
             this.#stats.misses += 1;
             return null;
         }
-        entry.lastAccessed = Date.now();
+
+        entry.lastAccessed = now;
         this.#stats.hits += 1;
+        const state = now > entry.expiresAt ? 'stale' : 'fresh';
+        return {
+            state,
+            response: {
+                ...entry.response,
+                cached: true,
+                stale: state === 'stale',
+                cacheAge: now - entry.createdAt,
+                headers: {
+                    ...entry.response.headers,
+                    'x-cache': state === 'stale' ? 'STALE' : 'HIT',
+                    'x-cache-age': String(Math.floor((now - entry.createdAt) / 1000)),
+                },
+            },
+        };
+    }
+
+    getNetworkFallback(config: InternalRequestConfig): NeutrxResponse | null {
+        if (!this.#enabled || this.#strategy !== 'network-first') return null;
+        const key = this.#key(config);
+        const entry = this.#store.get(key);
+        const now = Date.now();
+        if (!entry || now > entry.staleUntil) return null;
+
+        entry.lastAccessed = now;
+        this.#stats.hits += 1;
+        const stale = now > entry.expiresAt;
         return {
             ...entry.response,
             cached: true,
-            cacheAge: Date.now() - entry.createdAt,
+            stale,
+            cacheAge: now - entry.createdAt,
             headers: {
                 ...entry.response.headers,
-                'x-cache': 'HIT',
-                'x-cache-age': String(Math.floor((Date.now() - entry.createdAt) / 1000)),
+                'x-cache': stale ? 'STALE' : 'HIT',
+                'x-cache-age': String(Math.floor((now - entry.createdAt) / 1000)),
             },
         };
     }
@@ -1116,25 +1299,83 @@ class BrowserCache {
         if (size > this.#maxEntrySize) return;
         if (this.#store.size >= this.#maxSize) this.#evict();
         const ttl = this.#responseTTL(response) ?? this.#ttl;
+        const freshTTL = this.#freshTTL(ttl);
+        const now = Date.now();
         this.#store.set(this.#key(config), {
             response: { ...response },
-            createdAt: Date.now(),
-            expiresAt: Date.now() + ttl,
-            lastAccessed: Date.now(),
+            createdAt: now,
+            expiresAt: now + freshTTL,
+            staleUntil: now + this.#staleTTL(ttl, freshTTL),
+            lastAccessed: now,
             size,
         });
         this.#stats.sets += 1;
     }
 
-    clear(pattern?: string): void {
+    clear(pattern?: string | RegExp): void {
+        this.invalidate(pattern);
+    }
+
+    invalidate(pattern?: string | RegExp): number {
         if (!pattern) {
+            const count = this.#store.size;
             this.#store.clear();
-            return;
+            this.#locks.clear();
+            return count;
         }
-        const expression = new RegExp(pattern);
+
+        const expression = typeof pattern === 'string' ? new RegExp(pattern) : pattern;
+        let count = 0;
         for (const key of this.#store.keys()) {
-            if (expression.test(key)) this.#store.delete(key);
+            const entry = this.#store.get(key);
+            const url = entry?.response.config.url ?? '';
+            if (expression.test(key) || expression.test(url)) {
+                this.#store.delete(key);
+                this.#locks.delete(key);
+                count += 1;
+            }
         }
+        return count;
+    }
+
+    deleteByUrl(url: string): boolean {
+        for (const key of this.#store.keys()) {
+            const entry = this.#store.get(key);
+            if (entry?.response.config.url === url) {
+                this.#store.delete(key);
+                this.#locks.delete(key);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    markRevalidating(config: InternalRequestConfig): boolean {
+        const key = this.#key(config);
+        const entry = this.#store.get(key);
+        if (!entry || entry.revalidatingAt !== undefined || this.#locks.has(key)) return false;
+        this.#locks.add(key);
+        this.#store.set(key, { ...entry, revalidatingAt: Date.now() });
+        return true;
+    }
+
+    finishRevalidating(config: InternalRequestConfig): void {
+        const key = this.#key(config);
+        const entry = this.#store.get(key);
+        if (entry) {
+            const next = { ...entry };
+            delete next.revalidatingAt;
+            this.#store.set(key, next);
+        }
+        this.#locks.delete(key);
+    }
+
+    strategy(): CacheStrategy {
+        return this.#strategy;
+    }
+
+    usesNetworkFirst(): boolean {
+        return this.#strategy === 'network-first';
     }
 
     block(domain: string): void {
@@ -1196,13 +1437,28 @@ class BrowserCache {
     #sweep(): void {
         const now = Date.now();
         for (const [key, value] of this.#store) {
-            if (now > value.expiresAt) this.#store.delete(key);
+            const expiresAt = this.#strategy === 'swr' || this.#strategy === 'network-first' ? value.staleUntil : value.expiresAt;
+            if (now > expiresAt) {
+                this.#store.delete(key);
+                this.#locks.delete(key);
+            }
         }
+    }
+
+    #freshTTL(ttl: number): number {
+        if (this.#strategy === 'max-age' || this.#revalidateAfter === undefined) return ttl;
+        return Math.min(ttl, Math.max(0, this.#revalidateAfter));
+    }
+
+    #staleTTL(ttl: number, freshTTL: number): number {
+        if (this.#strategy === 'swr') return Math.max(ttl, freshTTL, this.#staleMaxAge);
+        if (this.#strategy === 'network-first') return Math.max(ttl, freshTTL);
+        return freshTTL;
     }
 }
 
 class BrowserMetrics {
-    #requests: BrowserRequestMetrics = { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0 };
+    #requests: BrowserRequestMetrics = { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0, deduplicated: 0 };
     #durations: number[] = [];
     #byStatus: Record<string, number> = {};
     #errors: BrowserErrorMetrics = { byType: {}, byCode: {} };
@@ -1238,6 +1494,10 @@ class BrowserMetrics {
         this.#requests.retried += 1;
     }
 
+    recordDeduplicationHit(): void {
+        this.#requests.deduplicated += 1;
+    }
+
     getAll(): BrowserMetricsSnapshot {
         const totalDuration = this.#durations.reduce((sum, duration) => sum + duration, 0);
         const performance = {
@@ -1250,7 +1510,7 @@ class BrowserMetrics {
             p95: quantile(this.#durations, 0.95),
             p99: quantile(this.#durations, 0.99),
         };
-        const { total, success, errors, cached } = this.#requests;
+        const { total, success, errors, cached, deduplicated } = this.#requests;
         return {
             requests: this.#requests,
             performance,
@@ -1262,6 +1522,7 @@ class BrowserMetrics {
                 successRate: total > 0 ? `${((success / total) * 100).toFixed(2)}%` : '0%',
                 errorRate: total > 0 ? `${((errors / total) * 100).toFixed(2)}%` : '0%',
                 cacheRate: total > 0 ? `${((cached / total) * 100).toFixed(2)}%` : '0%',
+                deduplicationRate: total > 0 ? `${((deduplicated / total) * 100).toFixed(2)}%` : '0%',
                 avgDuration: `${performance.avg}ms`,
                 p99: `${performance.p99}ms`,
             },
@@ -1275,14 +1536,18 @@ class BrowserMetrics {
             `neutrx_requests_total{status="error"} ${this.#requests.errors}`,
             `neutrx_requests_total{status="cached"} ${this.#requests.cached}`,
             `neutrx_requests_total{status="retried"} ${this.#requests.retried}`,
+            `neutrx_requests_total{status="deduplicated"} ${this.#requests.deduplicated}`,
             '',
             '# TYPE neutrx_active_requests gauge',
             `neutrx_active_requests ${this.#requests.active}`,
+            '',
+            '# TYPE neutrx_deduplication_hits_total counter',
+            `neutrx_deduplication_hits_total ${this.#requests.deduplicated}`,
         ].join('\n');
     }
 
     reset(): void {
-        this.#requests = { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0 };
+        this.#requests = { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0, deduplicated: 0 };
         this.#durations = [];
         this.#byStatus = {};
         this.#errors = { byType: {}, byCode: {} };
@@ -1303,6 +1568,14 @@ function normalizeMethod(method: string): HttpMethod {
         return normalized as HttpMethod;
     }
     throw new NeutrxSecurityError(`Invalid HTTP method: ${method}`, { code: 'INVALID_METHOD' });
+}
+
+function normalizeMethodList(methods: readonly string[]): readonly HttpMethod[] {
+    return [...new Set(methods.map(method => normalizeMethod(method)))];
+}
+
+function normalizeHeaderNameList(names: readonly string[]): readonly string[] {
+    return [...new Set(names.map(name => name.toLowerCase()))].sort();
 }
 
 function normalizeArray<TValue>(value: TValue | readonly TValue[]): readonly TValue[] {
@@ -1928,6 +2201,13 @@ function toInternalRequestConfig<TBody extends RequestBody>(config: InternalRequ
         ...config,
         headers: toInternalHeaders(config.headers),
     };
+}
+
+function withoutSignal(config: InternalRequestConfig): InternalRequestConfig {
+    const copy = { ...config } as { cancelToken?: unknown; signal?: AbortSignal };
+    delete copy.signal;
+    delete copy.cancelToken;
+    return copy as InternalRequestConfig;
 }
 
 function sleep(ms: number): Promise<void> {

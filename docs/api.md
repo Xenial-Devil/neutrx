@@ -77,6 +77,8 @@ api.getUri({ url: '/users?active=true#team', params: { page: 2 } });
 
 `isNeutrxError(error)` and `neutrx.isNeutrxError(error)` narrow errors to Neutrx's branded error classes. `isCancel(error)` and `neutrx.isCancel(error)` detect the `CancelToken` migration bridge.
 
+`clearCache()` removes all cached responses, `invalidateCache(pattern)` removes cached entries whose internal key or final URL matches a string or regular expression, and `deleteCacheEntry(configOrUrl)` removes the entry for a specific final URL.
+
 `postForm()`, `putForm()`, and `patchForm()` are multipart form helpers. In Node, plain objects are serialized as multipart bodies by the Node HTTP adapter. In browser and browser-like runtimes, plain objects are converted to `FormData` where the platform provides it.
 
 ## Request Config
@@ -272,14 +274,21 @@ Shared stores are interfaces only. Core stays zero-dependency; Redis or database
 performance: {
   enableCaching: true,
   deduplicateRequests: true,
-  cacheStrategy: 'stale-while-revalidate',
+  deduplicateRequestKey: config => `${config.method}:${config.url}:${config.headers.get('X-Tenant-ID') ?? ''}`,
+  deduplicateMethods: ['GET', 'HEAD'],
+  deduplicateHeaders: ['accept', 'authorization', 'range'],
+  cacheStrategy: 'swr',
   cacheTTL: 300_000,
+  revalidateAfter: 60_000,
   cacheStaleMax: 1_500_000,
   cacheMaxSize: 500,
   respectCacheHeaders: true,
+  onRevalidate: event => console.log(event.url, event.updated),
   cacheAdapter,
 }
 ```
+
+Cache strategies are `max-age`, `swr`, and `network-first`. SWR marks stale hits with `response.cached = true` and `response.stale = true`, returns them immediately, and refreshes the entry in the background. `ttl` and `stale-while-revalidate` remain compatibility aliases.
 
 ## HTTP/2
 

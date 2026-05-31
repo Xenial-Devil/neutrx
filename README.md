@@ -391,19 +391,26 @@ const api = neutrx.create({
   performance: {
     enableCaching: true,
     deduplicateRequests: true,
-    cacheStrategy: 'stale-while-revalidate',
+    deduplicateRequestKey: config => `${config.method}:${config.url}:${config.headers.get('X-Tenant-ID') ?? ''}`,
+    cacheStrategy: 'swr',
     cacheTTL: 300_000,
+    revalidateAfter: 60_000,
     cacheStaleMax: 1_500_000,
     respectCacheHeaders: true,
+    onRevalidate(event) {
+      console.log(event.url, event.updated, event.status);
+    },
   },
 });
 
 await api.get('/users');
 console.log(api.getCacheStats());
 api.clearCache();
+api.invalidateCache(/\/users/u);
+api.deleteCacheEntry('/users');
 ```
 
-With `deduplicateRequests`, identical inflight `GET`/`HEAD` requests share one dispatch and joined responses set `response.deduplicated = true`. With `cacheStrategy: 'stale-while-revalidate'`, expired-but-allowed cache entries return immediately with `response.stale = true` while Neutrx refreshes them in the background. Cached responses with `ETag`, `Last-Modified`, and `stale-if-error` headers participate in conditional revalidation and stale fallback. `performance.cacheAdapter` can provide a process-local compatible store and refresh lock; Redis remains an optional package direction outside core.
+With `deduplicateRequests`, identical inflight `GET`/`HEAD` requests share one dispatch and joined responses set `response.deduplicated = true`. The default key uses method, final URL including serialized params, response type, adapter, socket path, and selected headers (`Accept`, `Authorization`, and `Range`). Use `deduplicateRequestKey` for service-specific keys, and set `deduplicateMethods` only when you explicitly want to coalesce other methods. Dedup hits are exposed in `api.getMetrics().requests.deduplicated` and Prometheus output. With `cacheStrategy: 'swr'`, entries are fresh until `revalidateAfter` or normal max-age expiry, then stale hits return immediately with `response.cached = true` and `response.stale = true` while Neutrx refreshes them in the background. Only one background refresh runs per cache key; duplicate stale hits keep returning the stale response. Cached responses with `ETag`, `Last-Modified`, and `stale-if-error` headers participate in conditional revalidation and stale fallback. `performance.cacheAdapter` can provide a process-local compatible store and refresh lock; Redis remains an optional package direction outside core.
 
 ## Interceptors
 
@@ -475,14 +482,19 @@ const user = await api.get('/users/1', {
 
 Validation failures throw `NeutrxValidationError` and do not retry.
 
-## WebSocket, Logging, And OpenTelemetry Plugins
+## WebSocket, Logging, Trace Context, And OpenTelemetry Plugins
 
 ```ts
-import neutrx, { LogPlugin, WebSocketPlugin, createOtelPlugin } from 'neutrx';
+import neutrx, { LogPlugin, WebSocketPlugin, createOtelPlugin, createTraceContextPlugin } from 'neutrx';
 
 const api = neutrx.create({ baseURL: 'https://api.example.com' });
 api.use(LogPlugin);
 api.setLogger(console);
+
+api.use(createTraceContextPlugin({
+  formats: ['w3c', 'b3-multi', 'b3-single'],
+  sampled: true,
+}));
 
 api.use(createOtelPlugin({
   tracerName: 'billing-http',
@@ -497,6 +509,8 @@ const realtime = api.ws('/realtime', {
 
 realtime.send('hello');
 ```
+
+`TraceContextPlugin` injects W3C `traceparent` by default and can also emit `tracestate`, B3 multi-header, and B3 single-header propagation. Existing user-supplied trace headers are preserved unless you set `overwrite: true`. When the OpenTelemetry bridge injects carrier headers, the trace context plugin reuses that context for any additional requested formats.
 
 The OpenTelemetry plugin detects `@opentelemetry/api` when your application installs it, but Neutrx does not require it. Spans include safe request and response attributes such as method, path target, host, retry count, status code, cache hit or miss, duration, and circuit breaker state. Errors record exceptions and mark the span as failed.
 

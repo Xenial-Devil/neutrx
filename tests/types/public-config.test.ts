@@ -44,6 +44,17 @@ void test('public config types expose backend security and retry options', () =>
         beforeRedirect(context) {
             assert.equal(typeof context.toURL, 'string');
         },
+        performance: {
+            deduplicateRequests: true,
+            deduplicateMethods: ['GET', 'HEAD'],
+            deduplicateHeaders: ['accept', 'authorization'],
+            deduplicateRequestKey: request => `${request.method}:${request.url}`,
+            cacheStrategy: 'swr',
+            revalidateAfter: 1000,
+            onRevalidate: event => {
+                assert.equal(typeof event.updated, 'boolean');
+            },
+        },
         transitional: { clarifyTimeoutError: true },
         maxRate: [1024, 2048],
         socketPath: '/var/run/docker.sock',
@@ -62,6 +73,9 @@ void test('public config types expose backend security and retry options', () =>
     assert.equal(config.resilience?.retryBudget?.scope, 'origin');
     assert.equal(config.resilience?.circuitBreakerStorage?.namespace, 'types');
     assert.equal(config.resilience?.adaptiveConcurrency?.enabled, true);
+    assert.equal(config.performance?.deduplicateRequests, true);
+    assert.equal(config.performance?.cacheStrategy, 'swr');
+    assert.equal(config.performance?.revalidateAfter, 1000);
     assert.equal(config.transitional?.clarifyTimeoutError, true);
     assert.deepEqual(config.maxRate, [1024, 2048]);
     assert.equal(config.socketPath, '/var/run/docker.sock');

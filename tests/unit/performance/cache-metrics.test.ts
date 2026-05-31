@@ -24,7 +24,7 @@ void test('CacheEngine stores cacheable responses and returns HIT metadata', asy
 
 void test('CacheEngine can return stale entries for stale-while-revalidate', async () => {
     const { default: Cache } = await import(cacheEntry) as { readonly default: typeof CacheEngine };
-    const cache = new Cache({ cacheTTL: 10, cacheStrategy: 'stale-while-revalidate', cacheStaleMax: 1000 });
+    const cache = new Cache({ cacheTTL: 1000, cacheStrategy: 'swr', revalidateAfter: 10, cacheStaleMax: 1000 });
     const config = requestConfig('https://api.example.com/stale');
     const response = responseFor(config, { stale: true });
 
@@ -40,6 +40,26 @@ void test('CacheEngine can return stale entries for stale-while-revalidate', asy
     cache.finishRevalidating(config);
     assert.equal(cache.markRevalidating(config), true);
     cache.destroy();
+});
+
+void test('CacheEngine supports max-age and network-first strategies', async () => {
+    const { default: Cache } = await import(cacheEntry) as { readonly default: typeof CacheEngine };
+    const maxAge = new Cache({ cacheTTL: 10, cacheStrategy: 'max-age' });
+    const maxAgeConfig = requestConfig('https://api.example.com/max-age');
+    maxAge.set(maxAgeConfig, responseFor(maxAgeConfig, { ok: true }));
+    await sleep(20);
+    assert.equal(maxAge.getWithState(maxAgeConfig), null);
+    maxAge.destroy();
+
+    const networkFirst = new Cache({ cacheTTL: 1000, cacheStrategy: 'network-first', revalidateAfter: 10 });
+    const networkFirstConfig = requestConfig('https://api.example.com/network-first');
+    networkFirst.set(networkFirstConfig, responseFor(networkFirstConfig, { fallback: true }));
+    await sleep(20);
+    const fallback = networkFirst.getNetworkFallback(networkFirstConfig);
+    assert.equal(fallback?.cached, true);
+    assert.equal(fallback?.stale, true);
+    assert.equal(fallback?.headers['x-cache'], 'STALE');
+    networkFirst.destroy();
 });
 
 void test('CacheEngine supports conditional revalidation and stale-if-error windows', async () => {
@@ -130,6 +150,11 @@ void test('CacheEngine covers bypasses, eviction, clear, reset, and header edge 
     filtered.clear(alphaKey);
     assert.equal(filtered.get(alpha), null);
     assert.equal(filtered.get(beta)?.cached, true);
+    assert.equal(filtered.invalidate(/beta/u), 1);
+    assert.equal(filtered.get(beta), null);
+    filtered.set(beta, responseFor(beta, { beta: true }));
+    assert.equal(filtered.deleteByUrl(beta.url), true);
+    assert.equal(filtered.get(beta), null);
     filtered.reset();
     assert.equal(filtered.getStats().hits, 0);
     filtered.clear();
@@ -174,12 +199,16 @@ void test('MetricsCollector records success, errors, cache hits, retries, and pr
     metrics.recordError('https://api.example.com/users', Object.assign(new Error('boom'), { code: 'EBOOM' }));
     metrics.recordCacheHit('https://api.example.com/users');
     metrics.recordRetry('https://api.example.com/users', 1);
+    metrics.recordDeduplicationHit('https://api.example.com/users');
 
     const snapshot = metrics.getAll();
     assert.equal(snapshot.requests.total, 3);
     assert.equal(snapshot.requests.active, 0);
     assert.equal(snapshot.requests.retried, 1);
+    assert.equal(snapshot.requests.deduplicated, 1);
+    assert.equal(snapshot.summary.deduplicationRate, '33.33%');
     assert.match(metrics.toPrometheus(), /neutrx_requests_total\{status="success"\} 1/u);
+    assert.match(metrics.toPrometheus(), /neutrx_deduplication_hits_total 1/u);
     assert.match(metrics.toPrometheus(), /neutrx_active_requests 0/u);
     metrics.destroy();
 });

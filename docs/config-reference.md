@@ -254,16 +254,25 @@ resilience: {
 performance: {
   enableCaching: true,
   deduplicateRequests: true,
-  cacheStrategy: 'stale-while-revalidate',
+  deduplicateRequestKey: config => `${config.method}:${config.url}:${config.headers.get('X-Tenant-ID') ?? ''}`,
+  deduplicateMethods: ['GET', 'HEAD'],
+  deduplicateHeaders: ['accept', 'authorization', 'range'],
+  cacheStrategy: 'swr',
   cacheTTL: 300_000,
+  revalidateAfter: 60_000,
   cacheStaleMax: 1_500_000,
   cacheMaxSize: 500,
   respectCacheHeaders: true,
+  onRevalidate: event => console.log(event.url, event.updated),
   cacheAdapter: myProcessLocalCacheStore,
 }
 ```
 
-`deduplicateRequests` shares identical inflight `GET`/`HEAD` dispatches. `stale-while-revalidate` returns stale cache hits until `cacheStaleMax` while one background refresh updates the entry.
+`deduplicateRequests` shares identical inflight `GET`/`HEAD` dispatches. The default key uses the method, final URL with serialized params, response type, adapter, socket path, and selected headers (`deduplicateHeaders`). Use `deduplicateRequestKey` for service-specific keys. Set `deduplicateMethods` only when you explicitly want to coalesce other methods and include an application-safe discriminator such as an idempotency key in the custom key. Dedup hits are counted at `api.getMetrics().requests.deduplicated` and `neutrx_deduplication_hits_total`.
+
+`cacheStrategy` supports `max-age`, `swr`, and `network-first`. `swr` returns stale cache hits until `cacheStaleMax` while one background refresh updates the entry. Stale hits are marked with `response.cached = true`, `response.stale = true`, and `x-cache: STALE`.
+
+`revalidateAfter` lets SWR mark an entry stale before its max-age window ends. When it is omitted, `cacheTTL` or upstream `Cache-Control: max-age` controls freshness. `onRevalidate` runs after a background refresh succeeds, fails, or is skipped because another refresh already owns the same cache key.
 
 When upstream cache headers include `ETag`, `Last-Modified`, or `stale-if-error`, Neutrx sends conditional revalidation headers and can return stale cached data during an upstream error.
 
@@ -276,9 +285,14 @@ instrumentation: {
   openTelemetry: true,
   tracerName: 'neutrx',
   propagateTraceHeaders: true,
+  overwriteTraceHeaders: false,
   recordRequestBodySize: false,
   recordResponseBodySize: false,
 }
 ```
 
 OpenTelemetry attributes use HTTP client semantic names where safe and avoid raw query strings. Body size attributes are opt-in and only use known sizes from `Content-Length` or already-buffered/string payloads.
+
+`propagateTraceHeaders` lets the optional OpenTelemetry bridge inject carrier headers. Existing trace headers are respected by default; set `overwriteTraceHeaders: true` to replace them with the active OpenTelemetry context.
+
+For dependency-free generated propagation headers, use `TraceContextPlugin` or `createTraceContextPlugin({ formats: ['w3c', 'b3-multi', 'b3-single'] })`.

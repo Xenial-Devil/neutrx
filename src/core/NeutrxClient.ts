@@ -9,6 +9,7 @@ import CircuitBreaker from '../resilience/CircuitBreaker.js';
 import { RetryEngine } from '../resilience/RetryEngine.js';
 import Bulkhead from '../resilience/Bulkhead.js';
 import CacheEngine from '../performance/CacheEngine.js';
+import Deduplicator from '../performance/Deduplicator.js';
 import MetricsCollector from '../monitoring/MetricsCollector.js';
 import type { MetricsSnapshot } from '../monitoring/MetricsCollector.js';
 import { PluginManager, type NeutrxPlugin } from '../plugins/PluginManager.js';
@@ -112,13 +113,13 @@ export default class NeutrxClient extends EventEmitter {
     #retryEngine: RetryEngine;
     #bulkhead: Bulkhead;
     #cache: CacheEngine;
+    #deduplicator: Deduplicator;
     #metrics: MetricsCollector;
     #rateLimiter: RateLimiter;
     #plugins: PluginManager;
     #otel: OpenTelemetryInstrumentation;
     #defaultHeaders: InternalHeaders;
     #agents: NodeHttpAdapterAgents;
-    #inflight = new Map<string, Promise<RawHttpResponse>>();
     #serviceDiscovery: ServiceDiscoveryState = { counters: new Map<string, number>() };
 
     constructor(config: ClientConfig = {}) {
@@ -458,7 +459,7 @@ export default class NeutrxClient extends EventEmitter {
             const telemetry = await this.#otel.start(rc);
             span = telemetry.span;
             if (Object.keys(telemetry.carrier).length > 0) {
-                rc = { ...rc, headers: toInternalHeaders(NeutrxHeaders.from(rc.headers).concat(telemetry.carrier)) };
+                rc = { ...rc, headers: mergeCarrierHeaders(rc, telemetry.carrier) };
             }
 
             rc = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', rc));
@@ -483,18 +484,20 @@ export default class NeutrxClient extends EventEmitter {
 
             if (this.#isCacheEligible(rc)) {
                 cacheConfig = rc;
-                const hit = this.#cache.getWithState(rc);
-                if (hit) {
-                    this.#metrics.recordCacheHit(rc.url);
-                    this.emit('cache:hit', { requestId, url: rc.url, state: hit.state });
-                    if (hit.state === 'stale') this.#revalidateCache(rc);
-                    this.#otel.finish(span, hit.response as NeutrxResponse<TData>, {
-                        retries: 0,
-                        cacheHit: true,
-                        durationMs: Date.now() - t0,
-                        circuitState: this.#circuitState(rc.url),
-                    });
-                    return hit.response as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
+                if (!this.#cache.usesNetworkFirst()) {
+                    const hit = this.#cache.getWithState(rc);
+                    if (hit) {
+                        this.#metrics.recordCacheHit(rc.url);
+                        this.emit('cache:hit', { requestId, url: rc.url, state: hit.state });
+                        if (hit.state === 'stale') this.#revalidateCache(rc, 'stale');
+                        this.#otel.finish(span, hit.response as NeutrxResponse<TData>, {
+                            retries: 0,
+                            cacheHit: true,
+                            durationMs: Date.now() - t0,
+                            circuitState: this.#circuitState(rc.url),
+                        });
+                        return hit.response as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
+                    }
                 }
             }
 
@@ -552,10 +555,12 @@ export default class NeutrxClient extends EventEmitter {
             normalized.requestId = requestId;
             normalized.duration = Date.now() - t0;
             if (cacheConfig) {
-                const stale = this.#cache.getStaleIfError(cacheConfig);
+                const stale = this.#cache.usesNetworkFirst()
+                    ? this.#cache.getNetworkFallback(cacheConfig)
+                    : this.#cache.getStaleIfError(cacheConfig);
                 if (stale) {
                     this.#metrics.recordCacheHit(cacheConfig.url);
-                    this.emit('cache:stale-if-error', { requestId, url: cacheConfig.url, error: normalized });
+                    this.emit(this.#cache.usesNetworkFirst() ? 'cache:fallback' : 'cache:stale-if-error', { requestId, url: cacheConfig.url, error: normalized });
                     this.#otel.finish(span, stale as NeutrxResponse<TData>, {
                         retries: retryCount,
                         cacheHit: true,
@@ -603,8 +608,19 @@ export default class NeutrxClient extends EventEmitter {
         return this;
     }
 
-    clearCache(pattern?: string): this {
+    clearCache(pattern?: string | RegExp): this {
         this.#cache.clear(pattern);
+        return this;
+    }
+
+    invalidateCache(pattern?: string | RegExp): this {
+        this.#cache.invalidate(pattern);
+        return this;
+    }
+
+    deleteCacheEntry(config: string | RequestConfig): this {
+        const url = this.getUri(typeof config === 'string' ? { url: config } : config);
+        this.#cache.deleteByUrl(url);
         return this;
     }
 
@@ -746,6 +762,7 @@ export default class NeutrxClient extends EventEmitter {
         this.#agents.http.destroy();
         this.#agents.https.destroy();
         closeHttp2Sessions();
+        this.#deduplicator.clear();
         this.#cache.destroy();
         this.#metrics.destroy();
         this.removeAllListeners();
@@ -803,28 +820,34 @@ export default class NeutrxClient extends EventEmitter {
     }
 
     async #dispatchDeduped(config: InternalRequestConfig): Promise<RawHttpResponse> {
-        if (!this.#isDeduplicationEligible(config)) return this.#dispatch(config);
-
-        const key = this.#dedupeKey(config);
-        const existing = this.#inflight.get(key);
-        if (existing) {
-            this.emit('request:deduplicated', { requestId: config.requestId, url: config.url, method: config.method });
-            const raw = await existing;
-            return { ...raw, config, data: cloneRawData(raw.data), deduplicated: true };
-        }
-
-        const pending = this.#dispatch(config);
-        this.#inflight.set(key, pending);
-        try {
-            const raw = await pending;
-            return { ...raw, data: cloneRawData(raw.data) };
-        } finally {
-            this.#inflight.delete(key);
-        }
+        const adapter = config.adapter ?? this.#config.adapter ?? detectAdapter(config);
+        return this.#deduplicator.dispatch(config, () => this.#dispatch(config), {
+            adapterKey: typeof adapter === 'function' ? 'custom' : adapter,
+            canUseDefaultKey: typeof adapter !== 'function',
+            onHit: hit => {
+                this.#metrics.recordDeduplicationHit(hit.url);
+                this.emit('request:deduplicated', {
+                    requestId: hit.requestId,
+                    url: hit.url,
+                    method: hit.method,
+                });
+            },
+        });
     }
 
-    #revalidateCache(config: InternalRequestConfig): void {
-        if (!this.#cache.markRevalidating(config)) return;
+    #revalidateCache(config: InternalRequestConfig, reason: CacheRevalidateReason): void {
+        const strategy = this.#cache.strategy();
+        if (!this.#cache.markRevalidating(config)) {
+            this.#notifyRevalidate({
+                requestId: config.requestId,
+                url: config.url,
+                strategy,
+                reason,
+                updated: false,
+                skipped: true,
+            });
+            return;
+        }
         const conditionalHeaders = this.#cache.revalidationHeaders(config);
         const revalidationConfig = withoutSignal({
             ...config,
@@ -840,6 +863,14 @@ export default class NeutrxClient extends EventEmitter {
                 if (raw.status === 304) {
                     this.#cache.refresh(config, raw.headers);
                     this.emit('cache:revalidated', { requestId: revalidationConfig.requestId, url: config.url, status: 304 });
+                    this.#notifyRevalidate({
+                        requestId: revalidationConfig.requestId,
+                        url: config.url,
+                        strategy,
+                        reason,
+                        status: 304,
+                        updated: true,
+                    });
                     return;
                 }
                 const parsed = await this.#parse(raw, revalidationConfig);
@@ -848,12 +879,50 @@ export default class NeutrxClient extends EventEmitter {
                 next = await this.#plugins.runHook('afterRequest', next);
                 this.#cache.set(config, next);
                 this.emit('cache:revalidated', { requestId: revalidationConfig.requestId, url: config.url });
+                this.#notifyRevalidate({
+                    requestId: revalidationConfig.requestId,
+                    url: config.url,
+                    strategy,
+                    reason,
+                    status: next.status,
+                    updated: true,
+                });
             } catch (error: unknown) {
-                this.emit('cache:revalidate:error', { requestId: revalidationConfig.requestId, url: config.url, error: normalizeError(error) });
+                const normalized = normalizeError(error);
+                this.emit('cache:revalidate:error', { requestId: revalidationConfig.requestId, url: config.url, error: normalized });
+                this.#notifyRevalidate({
+                    requestId: revalidationConfig.requestId,
+                    url: config.url,
+                    strategy,
+                    reason,
+                    updated: false,
+                    error: normalized,
+                });
             } finally {
                 this.#cache.finishRevalidating(config);
             }
         })();
+    }
+
+    #notifyRevalidate(event: {
+        readonly requestId: string;
+        readonly url: string;
+        readonly strategy: CacheStrategy;
+        readonly reason: CacheRevalidateReason;
+        readonly updated: boolean;
+        readonly status?: number;
+        readonly error?: Error;
+        readonly skipped?: boolean;
+    }): void {
+        const callback = this.#config.performance.onRevalidate;
+        if (!callback) return;
+        void Promise.resolve(callback(event)).catch(error => {
+            this.emit('cache:revalidate:error', {
+                requestId: event.requestId,
+                url: event.url,
+                error: normalizeError(error),
+            });
+        });
     }
 
     async #parse<TData extends ParsedResponseData>(raw: RawHttpResponse, config: InternalRequestConfig): Promise<NeutrxResponse<TData>> {
@@ -1022,24 +1091,6 @@ export default class NeutrxClient extends EventEmitter {
         return (config.method === 'GET' || config.method === 'HEAD') && config.cache !== false && config.responseType !== 'stream';
     }
 
-    #isDeduplicationEligible(config: InternalRequestConfig): boolean {
-        return this.#config.performance.deduplicateRequests
-            && this.#isCacheEligible(config)
-            && typeof (config.adapter ?? this.#config.adapter) !== 'function';
-    }
-
-    #dedupeKey(config: InternalRequestConfig): string {
-        return JSON.stringify({
-            method: config.method,
-            socketPath: config.socketPath ?? '',
-            url: config.url,
-            responseType: config.responseType,
-            accept: config.headers.Accept ?? config.headers.accept ?? '',
-            authorization: config.headers.Authorization ?? config.headers.authorization ?? '',
-            adapter: config.adapter ?? this.#config.adapter ?? detectAdapter(config),
-        });
-    }
-
     #id(): string {
         return `ntrx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     }
@@ -1062,13 +1113,6 @@ function isIncomingMessageLike(data: unknown): data is IncomingMessage {
     return data !== null
         && typeof data === 'object'
         && 'pipe' in data;
-}
-
-function cloneRawData(data: RawHttpResponse['data']): RawHttpResponse['data'] {
-    if (Buffer.isBuffer(data)) return Buffer.from(data);
-    if (data instanceof ArrayBuffer) return data.slice(0);
-    if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-    return data;
 }
 
 function withoutSignal(config: InternalRequestConfig): InternalRequestConfig {
@@ -1113,6 +1157,15 @@ function withUrlEncodedHeaders<TBody extends RequestBody, TSchema extends Respon
 
 function toInternalHeaders(headers: Headers | NeutrxHeaders): InternalHeaders {
     return NeutrxHeaders.from(headers) as unknown as InternalHeaders;
+}
+
+function mergeCarrierHeaders(config: InternalRequestConfig, carrier: Record<string, string>): InternalHeaders {
+    const headers = NeutrxHeaders.from(config.headers);
+    for (const [name, value] of Object.entries(carrier)) {
+        if (config.instrumentation?.overwriteTraceHeaders === true) headers.set(name, value);
+        else headers.setIfUnset(name, value);
+    }
+    return toInternalHeaders(headers);
 }
 
 function toInternalRequestConfig<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {

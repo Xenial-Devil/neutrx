@@ -282,6 +282,100 @@ void test('client cache stores GET responses but not unsafe methods', async () =
     assert.equal(secondPost.data && typeof secondPost.data === 'object' && 'calls' in secondPost.data ? secondPost.data.calls : 0, 3);
 });
 
+void test('client stale-while-revalidate returns stale data and refreshes in the background', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    let calls = 0;
+    let releaseRevalidation: (() => void) | undefined;
+    const revalidationStarted = deferred<void>();
+    const revalidated = deferred<void>();
+    const revalidationEvents: Array<{ readonly updated: boolean; readonly skipped?: boolean; readonly status?: number }> = [];
+    const api = Neutrx.create({
+        baseURL: 'https://api.example.com',
+        performance: {
+            enableCaching: true,
+            cacheStrategy: 'swr',
+            cacheTTL: 1000,
+            revalidateAfter: 20,
+            onRevalidate: event => {
+                revalidationEvents.push({
+                    updated: event.updated,
+                    ...(event.skipped ? { skipped: event.skipped } : {}),
+                    ...(event.status !== undefined ? { status: event.status } : {}),
+                });
+                if (event.updated) revalidated.resolve();
+            },
+        },
+        adapter: async config => {
+            calls += 1;
+            if (calls === 2) {
+                revalidationStarted.resolve();
+                await new Promise<void>(resolve => {
+                    releaseRevalidation = resolve;
+                });
+            }
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: { 'content-type': 'application/json' },
+                data: Buffer.from(JSON.stringify({ calls })),
+                config,
+            };
+        },
+    });
+
+    const first = await api.get('/swr');
+    await sleep(30);
+    const stale = await api.get('/swr');
+    await revalidationStarted.promise;
+    const duplicate = await api.get('/swr');
+
+    assert.deepEqual(first.data, { calls: 1 });
+    assert.equal(stale.cached, true);
+    assert.equal(stale.stale, true);
+    assert.deepEqual(stale.data, { calls: 1 });
+    assert.equal(duplicate.stale, true);
+    assert.equal(calls, 2);
+
+    releaseRevalidation?.();
+    await revalidated.promise;
+    const refreshed = await api.get('/swr');
+
+    assert.equal(refreshed.cached, true);
+    assert.equal(refreshed.stale, false);
+    assert.deepEqual(refreshed.data, { calls: 2 });
+    assert.ok(revalidationEvents.some(event => event.updated && event.status === 200));
+    assert.ok(revalidationEvents.some(event => event.skipped));
+});
+
+void test('client cache invalidation methods remove cached responses', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    let calls = 0;
+    const api = Neutrx.create({
+        baseURL: 'https://api.example.com',
+        performance: { enableCaching: true, cacheTTL: 1000 },
+        adapter: config => {
+            calls += 1;
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: { 'content-type': 'application/json' },
+                data: Buffer.from(JSON.stringify({ calls })),
+                config,
+            };
+        },
+    });
+
+    await api.get('/cache/users');
+    assert.equal((await api.get('/cache/users')).cached, true);
+    api.deleteCacheEntry('/cache/users');
+    assert.equal((await api.get('/cache/users')).cached, undefined);
+
+    await api.get('/cache/orders');
+    assert.equal((await api.get('/cache/orders')).cached, true);
+    api.invalidateCache(/cache\/orders/u);
+    assert.equal((await api.get('/cache/orders')).cached, undefined);
+});
+
 void test('idempotency key header enables retry for unsafe methods', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     let calls = 0;
@@ -318,4 +412,21 @@ void test('idempotency key header enables retry for unsafe methods', async () =>
 function paramToString(value: unknown): string {
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
     return '';
+}
+
+function deferred<TValue>(): {
+    readonly promise: Promise<TValue>;
+    readonly resolve: (value?: TValue | PromiseLike<TValue>) => void;
+} {
+    let resolve: (value?: TValue | PromiseLike<TValue>) => void = () => undefined;
+    const promise = new Promise<TValue>(innerResolve => {
+        resolve = innerResolve as (value?: TValue | PromiseLike<TValue>) => void;
+    });
+    return { promise, resolve };
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => {
+        setTimeout(resolve, ms);
+    });
 }

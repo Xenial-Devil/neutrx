@@ -430,6 +430,23 @@ export interface CacheStore {
     destroy?(): void;
 }
 
+export type DeduplicateRequestKey = (config: InternalRequestConfig) => string | null | undefined;
+export type CacheStrategy = 'max-age' | 'swr' | 'network-first';
+export type DeprecatedCacheStrategy = 'ttl' | 'stale-while-revalidate';
+export type CacheStrategyInput = CacheStrategy | DeprecatedCacheStrategy;
+export type CacheRevalidateReason = 'stale' | 'network-first';
+
+export interface CacheRevalidateEvent {
+    readonly requestId: string;
+    readonly url: string;
+    readonly strategy: CacheStrategy;
+    readonly reason: CacheRevalidateReason;
+    readonly updated: boolean;
+    readonly status?: number;
+    readonly error?: Error;
+    readonly skipped?: boolean;
+}
+
 export interface PerformanceConfig {
     readonly enableCaching?: boolean;
     readonly cacheMaxSize?: number;
@@ -437,9 +454,14 @@ export interface PerformanceConfig {
     readonly cacheMaxEntrySize?: number;
     readonly respectCacheHeaders?: boolean;
     readonly deduplicateRequests?: boolean;
-    readonly cacheStrategy?: 'ttl' | 'stale-while-revalidate';
+    readonly deduplicateRequestKey?: DeduplicateRequestKey;
+    readonly deduplicateMethods?: readonly HttpMethod[];
+    readonly deduplicateHeaders?: readonly string[];
+    readonly cacheStrategy?: CacheStrategyInput;
+    readonly revalidateAfter?: number;
     readonly cacheStaleMax?: number;
     readonly cacheAdapter?: CacheStore;
+    readonly onRevalidate?: (event: CacheRevalidateEvent) => void | Promise<void>;
 }
 
 export interface Http2Options {
@@ -463,8 +485,27 @@ export interface InstrumentationConfig {
     readonly openTelemetry?: boolean;
     readonly tracerName?: string;
     readonly propagateTraceHeaders?: boolean;
+    readonly overwriteTraceHeaders?: boolean;
     readonly recordRequestBodySize?: boolean;
     readonly recordResponseBodySize?: boolean;
+}
+
+export type TracePropagationFormat = 'w3c' | 'b3' | 'b3multi' | 'b3single' | 'b3-multi' | 'b3-single';
+
+export interface TraceContext {
+    readonly traceId?: string;
+    readonly spanId?: string;
+    readonly parentSpanId?: string;
+    readonly sampled?: boolean;
+    readonly tracestate?: string;
+}
+
+export interface TraceContextPluginOptions {
+    readonly formats?: TracePropagationFormat | readonly TracePropagationFormat[];
+    readonly context?: TraceContext | ((config: InternalRequestConfig) => TraceContext | undefined);
+    readonly sampled?: boolean;
+    readonly tracestate?: string | ((config: InternalRequestConfig) => string | undefined);
+    readonly overwrite?: boolean;
 }
 
 export interface ClientConfig {
@@ -567,8 +608,12 @@ export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'bas
         readonly shouldRetry?: (error: Error) => boolean;
         readonly onRetry?: (event: RetryEvent) => void | Promise<void>;
     };
-    readonly performance: Required<Omit<PerformanceConfig, 'cacheAdapter'>> & {
+    readonly performance: Required<Omit<PerformanceConfig, 'cacheAdapter' | 'deduplicateRequestKey' | 'cacheStrategy' | 'revalidateAfter' | 'onRevalidate'>> & {
+        readonly cacheStrategy: CacheStrategy;
+        readonly revalidateAfter?: number;
         readonly cacheAdapter?: CacheStore;
+        readonly deduplicateRequestKey?: DeduplicateRequestKey;
+        readonly onRevalidate?: (event: CacheRevalidateEvent) => void | Promise<void>;
     };
 }
 
