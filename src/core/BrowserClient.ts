@@ -59,6 +59,8 @@ import type {
     TransformRequest,
     TransformResponse,
     ValidationPluginConfig,
+    CacheRevalidateReason,
+    CacheStrategy,
 } from '../types.js';
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
@@ -154,6 +156,7 @@ export default class BrowserClient extends TinyEmitter {
         this.#retryEngine = new RetryEngine(this.#config.resilience);
         this.#bulkhead = new Bulkhead(this.#config.resilience);
         this.#cache = new BrowserCache(this.#config.performance);
+        this.#deduplicator = new Deduplicator(this.#config.performance);
         this.#plugins = new PluginManager(this as never);
         this.#defaultHeaders = this.#buildDefaultHeaders();
         this.interceptors = this.#interceptors.managers();

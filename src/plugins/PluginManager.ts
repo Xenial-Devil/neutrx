@@ -414,6 +414,12 @@ export const LogPlugin: NeutrxPlugin = {
 };
 
 export { OtelPlugin, createOtelPlugin, type OtelPluginOptions } from './OTelPlugin.js';
+export {
+    TraceContextPlugin,
+    createTraceContextPlugin,
+    type TraceContextPluginOptions,
+    type TracePropagationFormat,
+} from './TraceContextPlugin.js';
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => {

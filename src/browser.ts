@@ -26,16 +26,21 @@ export {
 export { default as BrowserClient, default as NeutrxClient } from './core/BrowserClient.js';
 export { Cancel, CancelToken, isCancel } from './core/cancel.js';
 export { NeutrxHeaders } from './core/headers.js';
-export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, createOtelPlugin, type NeutrxPlugin, type OtelPluginOptions } from './plugins/PluginManager.js';
+export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, TraceContextPlugin, createOtelPlugin, createTraceContextPlugin, type NeutrxPlugin, type OtelPluginOptions, type TraceContextPluginOptions, type TracePropagationFormat } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/BrowserNeutrx.js';
 export type {
     AdaptiveConcurrencyConfig,
     AuthConfig,
     BulkheadStats,
+    CacheRevalidateEvent,
+    CacheRevalidateReason,
     Canceler,
     CacheRecord,
+    CacheStrategy,
+    CacheStrategyInput,
     CacheStore,
+    DeprecatedCacheStrategy,
     CacheStats,
     CancelTokenSource,
     CertificatePinConfig,

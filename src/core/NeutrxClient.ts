@@ -45,6 +45,8 @@ import { validateResponseData } from './validation.js';
 import type {
     AuthConfig,
     BulkheadStats,
+    CacheRevalidateReason,
+    CacheStrategy,
     CacheStats,
     CertificatePinConfig,
     CircuitStatus,
@@ -130,6 +132,7 @@ export default class NeutrxClient extends EventEmitter {
         this.#retryEngine = new RetryEngine(this.#config.resilience);
         this.#bulkhead = new Bulkhead(this.#config.resilience);
         this.#cache = new CacheEngine(this.#config.performance);
+        this.#deduplicator = new Deduplicator(this.#config.performance);
         this.#metrics = new MetricsCollector();
         this.#rateLimiter = new RateLimiter(this.#config.security.rateLimit ?? {});
         this.#plugins = new PluginManager(this);

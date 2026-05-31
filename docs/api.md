@@ -62,6 +62,9 @@ neutrx.defaults.headers = { 'X-Service': 'billing' };
 - `download(url, config?)`
 - `sse(url, handlers?)`
 - `getUri(config)`
+- `clearCache(pattern?)`
+- `invalidateCache(pattern?)`
+- `deleteCacheEntry(configOrUrl)`
 
 ## Utility Methods
 

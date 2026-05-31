@@ -21,13 +21,17 @@ import neutrx, {
   nodeHttpAdapter,
   getHttp2SessionStats,
   createOtelPlugin,
+  createTraceContextPlugin,
   isCancel,
   isNeutrxError,
   LogPlugin,
   OtelPlugin,
+  TraceContextPlugin,
   ValidationPlugin,
   WebSocketPlugin,
   type AdaptiveConcurrencyConfig,
+  type CacheRevalidateEvent,
+  type CacheStrategy,
   type CacheStore,
   type CancelTokenSource,
   type CertificatePinConfig,
@@ -74,10 +78,14 @@ for (const [headerName, headerValue] of headers) {
 }
 
 const formSerializer: FormSerializerOptions = { dots: true, indexes: false, metaTokens: true, maxDepth: 4 };
-const instrumentation: InstrumentationConfig = { openTelemetry: true, tracerName: 'types', propagateTraceHeaders: true };
+const instrumentation: InstrumentationConfig = { openTelemetry: true, tracerName: 'types', propagateTraceHeaders: true, overwriteTraceHeaders: false };
+const traceContext: TraceContext = { traceId: '4bf92f3577b34da6a3ce929d0e0e4736', spanId: '00f067aa0ba902b7', sampled: true };
+const traceFormat: TracePropagationFormat = 'b3-multi';
+const traceContextPluginOptions: TraceContextPluginOptions = { formats: ['w3c', traceFormat], context: traceContext, overwrite: false };
 const otelPluginOptions: OtelPluginOptions = { tracerName: 'created-plugin', propagateTraceHeaders: false };
 const egressPolicy: EgressPolicyConfig = { mode: 'public-api', allowedHosts: ['api.example.com'], allowedPorts: [443] };
 const adaptiveConcurrency: AdaptiveConcurrencyConfig = { enabled: true, initialLimit: 5, minLimit: 1, maxLimit: 20 };
+const cacheStrategy: CacheStrategy = 'swr';
 const pin: CertificatePinConfig = { hostname: 'api.example.com', sha256: 'a'.repeat(64), expiresAt: Date.now() + 60000 };
 const tls: TlsConfig = { ca: 'ca', cert: 'cert', key: 'key', servername: 'api.example.com', certificatePins: [pin] };
 const cacheAdapter: CacheStore = {
@@ -227,6 +235,8 @@ typedClient.interceptors.request.clear();
 typedClient.interceptors.response.use(inner => inner, error => error);
 typedClient.interceptors.response.clear();
 typedClient.eject(requestInterceptorId);
+typedClient.invalidateCache('/schema');
+typedClient.deleteCacheEntry('/schema');
 const typedPlugin: NeutrxPluginType = LogPlugin;
 const typedError: NeutrxErrorType = validationError;
 const typedIsNeutrxError: boolean = isNeutrxError(validationError) && neutrx.isNeutrxError(validationError);

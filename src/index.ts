@@ -37,16 +37,21 @@ export { NeutrxHeaders } from './core/headers.js';
 export { OpenTelemetryInstrumentation } from './monitoring/OpenTelemetryInstrumentation.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
 export type { NeutrxInterceptorManager, NeutrxInterceptors, NeutrxRequestInterceptorManager, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
-export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, createOtelPlugin, type NeutrxPlugin, type OtelPluginOptions } from './plugins/PluginManager.js';
+export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, TraceContextPlugin, createOtelPlugin, createTraceContextPlugin, type NeutrxPlugin, type OtelPluginOptions, type TraceContextPluginOptions, type TracePropagationFormat } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export { ALGORITHMS } from './security/RateLimiter.js';
 export type {
     AdaptiveConcurrencyConfig,
     AuthConfig,
     BasicAuthConfig,
+    CacheRevalidateEvent,
+    CacheRevalidateReason,
     Canceler,
     CacheRecord,
+    CacheStrategy,
+    CacheStrategyInput,
     CacheStore,
+    DeprecatedCacheStrategy,
     BulkheadStats,
     CacheStats,
     CancelTokenSource,
