@@ -430,7 +430,7 @@ void test('browser ws uses native WebSocket URL preparation and callbacks', asyn
         const connection = await api.ws<{ readonly ok: boolean }>('/realtime', {
             params: { room: 'ops' },
             protocols: 'json.v1',
-            parseMessage: data => JSON.parse(String(data)) as { readonly ok: boolean },
+            parseMessage: data => JSON.parse(typeof data === 'string' ? data : '{}') as { readonly ok: boolean },
             onMessage: data => messages.push(data),
         });
 

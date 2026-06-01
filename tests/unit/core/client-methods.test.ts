@@ -331,8 +331,11 @@ void test('node ws uses baseURL, auth headers, defaults, and request interceptor
     const messageReceived = deferred<string>();
     const typedMessages: Array<{ readonly ready: boolean }> = [];
     const server = http.createServer();
+    const sockets = new Set<Duplex>();
 
     server.on('upgrade', (request, socket) => {
+        sockets.add(socket);
+        socket.on('close', () => sockets.delete(socket));
         upgrades.push({
             ...(request.url !== undefined ? { url: request.url } : {}),
             headers: request.headers,
@@ -345,6 +348,10 @@ void test('node ws uses baseURL, auth headers, defaults, and request interceptor
             const parsed = readClientTextFrame(buffer);
             if (!parsed) return;
             buffer = buffer.subarray(parsed.consumed);
+            if (!parsed.text) {
+                socket.end();
+                return;
+            }
             messageReceived.resolve(parsed.text);
         });
     });
@@ -367,7 +374,7 @@ void test('node ws uses baseURL, auth headers, defaults, and request interceptor
 
         const connection = await api.ws<{ readonly ready: boolean }>('/realtime', {
             params: { room: 'ops' },
-            parseMessage: data => JSON.parse(String(data)) as { readonly ready: boolean },
+            parseMessage: data => JSON.parse(typeof data === 'string' ? data : '{}') as { readonly ready: boolean },
             onOpen: () => opened.resolve(),
             onMessage: data => typedMessages.push(data),
         });
@@ -385,6 +392,7 @@ void test('node ws uses baseURL, auth headers, defaults, and request interceptor
         assert.deepEqual(typedMessages, [{ ready: true }]);
         connection.close();
     } finally {
+        for (const socket of sockets) socket.destroy();
         api.destroy();
         await closeServer(server);
     }
@@ -394,9 +402,12 @@ void test('node ws reconnects with configured attempts, delay, and backoff', asy
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const secondOpen = deferred<void>();
     const server = http.createServer();
+    const sockets = new Set<Duplex>();
     let upgrades = 0;
 
     server.on('upgrade', (request, socket) => {
+        sockets.add(socket);
+        socket.on('close', () => sockets.delete(socket));
         upgrades += 1;
         acceptWebSocketUpgrade(request, socket);
         if (upgrades === 1) {
@@ -423,6 +434,7 @@ void test('node ws reconnects with configured attempts, delay, and backoff', asy
         assert.equal(upgrades, 2);
         connection.close();
     } finally {
+        for (const socket of sockets) socket.destroy();
         api.destroy();
         await closeServer(server);
     }

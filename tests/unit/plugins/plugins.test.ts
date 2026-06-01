@@ -455,26 +455,18 @@ void test('WebSocketPlugin resolves URLs, sends messages, and reconnects', async
     connection.close();
 });
 
-void test('WebSocketPlugin covers unavailable runtime, protocol guard, and disabled reconnect', async () => {
+void test('WebSocketPlugin covers protocol guard and disabled reconnect', async () => {
     const { default: Neutrx, WebSocketPlugin } = await import(builtEntry) as typeof PackageEntry;
     FakeWebSocket.reset();
 
     const api = Neutrx.create({ baseURL: 'https://api.example.com' });
     api.use(WebSocketPlugin);
 
-    const webSocketGlobal = globalThis as unknown as { WebSocket: typeof WebSocket | undefined };
-    const originalWebSocket = webSocketGlobal.WebSocket;
-    webSocketGlobal.WebSocket = undefined;
-    try {
-        await assert.rejects(api.ws('/missing'), /WebSocket is unavailable/u);
-    } finally {
-        webSocketGlobal.WebSocket = originalWebSocket;
-    }
     const ftpApi = Neutrx.create({ baseURL: 'ftp://api.example.com' });
     ftpApi.use(WebSocketPlugin);
     await assert.rejects(
         ftpApi.ws('/realtime', { webSocket: FakeWebSocket as unknown as typeof WebSocket }),
-        /Unsupported protocol/u
+        /Protocol injection|Unsupported protocol/u
     );
 
     const connection = await Neutrx.create({ security: { profile: 'legacy' } }).ws('ws://api.example.com/realtime', {

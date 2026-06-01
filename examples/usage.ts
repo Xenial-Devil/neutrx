@@ -112,7 +112,7 @@ async function run(): Promise<void> {
     if (process.env.NEUTRX_EXAMPLE_WS === '1') {
         const realtime = await api.ws<{ readonly event: string }>('/realtime', {
             reconnect: { attempts: 3, delay: 500, backoff: 'exponential' },
-            parseMessage: data => JSON.parse(String(data)) as { readonly event: string },
+            parseMessage: data => JSON.parse(typeof data === 'string' ? data : '{}') as { readonly event: string },
             onMessage: message => console.log(message.event),
         });
         realtime.send('hello');

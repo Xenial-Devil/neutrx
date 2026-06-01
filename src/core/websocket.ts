@@ -121,7 +121,7 @@ export function createNativeWebSocketConnection<TMessage, TSend extends NeutrxWe
             if (socket?.readyState !== (WebSocketCtor.OPEN ?? WEB_SOCKET_OPEN)) {
                 throw new NeutrxSecurityError('WebSocket is not open', { code: 'WEBSOCKET_NOT_OPEN' });
             }
-            socket.send(serializeWebSocketMessage(options, data) as never);
+            socket.send(serializeWebSocketMessage(options, data));
         },
         close(code?: number, reason?: string) {
             closedByCaller = true;
