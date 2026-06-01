@@ -1,6 +1,6 @@
 # Migration Guide
 
-This guide helps users move to Neutrx from another HTTP client or from legacy request libraries. It focuses on secure Node.js 22+ backend usage rather than one-to-one compatibility.
+This guide helps users move to Neutrx from another HTTP client or from legacy request libraries. It focuses on secure Node.js 18+ backend usage rather than one-to-one compatibility.
 
 ## Installation
 
@@ -8,7 +8,7 @@ This guide helps users move to Neutrx from another HTTP client or from legacy re
 npm install neutrx
 ```
 
-Neutrx supports Node.js >=22.
+Neutrx supports Node.js >=18.
 
 ## Creating A Client
 
@@ -214,7 +214,7 @@ Cache only responses that are safe for your service and tenant model.
 
 ## Common Behavior Differences
 
-- Node.js >=22 is required.
+- Node.js >=18 is required.
 - Security profiles may block localhost, private IPs, link-local IPs, and cloud metadata endpoints.
 - Strict mode protects against HTTPS downgrade redirects.
 - Sensitive headers are stripped across unsafe redirects.

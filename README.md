@@ -10,6 +10,8 @@
 
 Neutrx is a security-first HTTP client for Node.js 18+ backends. It keeps an ergonomic request API, then adds production concerns that backend services usually need: SSRF protection, secure redirects, retries, circuit breaking, service discovery, in-memory caching, metrics hooks, OpenTelemetry-friendly instrumentation, typed errors, and zero required runtime dependencies.
 
+Full documentation: [https://xenial-devil.github.io/neutrx/](https://xenial-devil.github.io/neutrx/).
+
 ## Installation
 
 ```bash
@@ -80,7 +82,7 @@ await api.get('/me', {
 
 Request config still overrides instance defaults. Live `instance.defaults` mutation is shallow by design, with mutable `headers.common` and method header buckets. Security, resilience, and performance profiles should be set when creating a client so constructed SSRF, redirect, retry, circuit breaker, and cache behavior stays consistent.
 
-See [docs/axios-migration-matrix.md](docs/axios-migration-matrix.md), [docs/migration-from-http-clients.md](docs/migration-from-http-clients.md), and [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for behavior differences.
+See the full [Axios migration guide](https://xenial-devil.github.io/neutrx/axios-migration.html), [docs/axios-migration-matrix.md](docs/axios-migration-matrix.md), and [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for behavior differences.
 
 ## Why Neutrx
 
@@ -597,7 +599,7 @@ Neutrx remains backend-focused; browser support is useful when you want the same
 
 ## API Reference
 
-See [docs/api.md](docs/api.md), [docs/config-reference.md](docs/config-reference.md), [docs/adapter-security-contract.md](docs/adapter-security-contract.md), and [docs/recipes/backend-recipes.md](docs/recipes/backend-recipes.md).
+See the full [API reference](https://xenial-devil.github.io/neutrx/api.html), [docs/config-reference.md](docs/config-reference.md), [docs/adapter-security-contract.md](docs/adapter-security-contract.md), and [docs/recipes/backend-recipes.md](docs/recipes/backend-recipes.md).
 
 ## Testing
 

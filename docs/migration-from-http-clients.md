@@ -1,6 +1,6 @@
 # Migrating From Other HTTP Clients
 
-This document provides a short migration reference for users moving to Neutrx from another HTTP client or from legacy request libraries. For the full guide, see [../MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md).
+This document provides a short migration reference for users moving to Neutrx from another HTTP client or from legacy request libraries. For the full docs-site guide, see [axios-migration.md](axios-migration.md).
 
 ## Common Replacements
 

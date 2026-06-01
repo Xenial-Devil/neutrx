@@ -111,13 +111,16 @@
     "benchmark:large": "npm run build && node --expose-gc benchmarks/large-input.bench.js",
     "benchmark:async": "npm run build && node --expose-gc benchmarks/async.bench.js",
     "benchmark:http": "npm run build && node --expose-gc benchmarks/http-client-comparison.mjs",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "package:validate": "npm run build && node scripts/validate-package.cjs",
     "package:smoke": "npm run build && node scripts/pack-smoke.cjs",
     "changelog:preview": "conventional-changelog -p angular -r 0 --stdout",
     "changelog:write": "conventional-changelog -p angular -i CHANGELOG.md -o CHANGELOG.md -r 1",
     "release:validate": "npm run validate",
-    "validate": "npm run typecheck && npm run lint && npm test && npm run package:validate",
-    "ci": "npm run lint && npm run typecheck && npm test && npm run coverage && npm run package:validate && npm run package:smoke"
+    "validate": "npm run typecheck && npm run lint && npm test && npm run docs:build && npm run package:validate",
+    "ci": "npm run lint && npm run typecheck && npm test && npm run coverage && npm run docs:build && npm run package:validate && npm run package:smoke"
   },
   "c8": {
     "all": true,
@@ -165,6 +168,7 @@
     "conventional-changelog-angular": "^8.3.1",
     "eslint": "^8.0.0",
     "tsup": "^8.5.1",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitepress": "^1.6.4"
   }
 }
