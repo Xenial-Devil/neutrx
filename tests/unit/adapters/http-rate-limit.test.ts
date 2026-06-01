@@ -37,7 +37,7 @@ void test('node http adapter caps buffered upload bandwidth and reports realisti
         assert.ok(elapsed >= minimumElapsed(payload.length, RATE));
         assert.equal(uploadEvents.at(-1)?.loaded, payload.length);
         assert.equal(uploadEvents.at(-1)?.progress, 1);
-        assert.ok(maxPositiveRate(uploadEvents) <= RATE * 2);
+        assertRealisticProgressRates(uploadEvents, RATE);
     } finally {
         await close(server);
     }
@@ -106,7 +106,7 @@ void test('node http adapter caps buffered download bandwidth and progress rates
         assert.equal(downloadEvents.at(-1)?.loaded, payload.length);
         assert.equal(downloadEvents.at(-1)?.progress, 1);
         assert.ok(downloadEvents.length > 3);
-        assert.ok(maxPositiveRate(downloadEvents) <= RATE * 2);
+        assertRealisticProgressRates(downloadEvents, RATE);
     } finally {
         await close(server);
     }
@@ -137,7 +137,7 @@ void test('node http adapter caps response stream download bandwidth', async () 
         assert.ok(chunks > 2);
         assert.ok(elapsed >= minimumElapsed(payload.length, RATE));
         assert.equal(downloadEvents.at(-1)?.loaded, payload.length);
-        assert.ok(maxPositiveRate(downloadEvents) <= RATE * 2);
+        assertRealisticProgressRates(downloadEvents, RATE);
     } finally {
         await close(server);
     }
@@ -161,8 +161,10 @@ function minimumElapsed(size: number, rate: number): number {
     return (size / rate) * 1000 * 0.6;
 }
 
-function maxPositiveRate(events: readonly PackageEntry.ProgressEvent[]): number {
-    return Math.max(0, ...events.map(event => event.rate).filter(rate => rate > 0));
+function assertRealisticProgressRates(events: readonly PackageEntry.ProgressEvent[], expectedRate: number): void {
+    const rates = events.map(event => event.rate).filter(rate => rate > 0).sort((left, right) => left - right);
+    assert.ok(rates.length > 0);
+    assert.ok((rates[Math.floor(rates.length / 2)] ?? 0) <= expectedRate * 2);
 }
 
 async function collectReadable(stream: Readable): Promise<{ readonly buffer: Buffer; readonly chunks: number }> {

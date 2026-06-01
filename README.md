@@ -1,7 +1,7 @@
 # Neutrx
 
 [![CI](https://github.com/Xenial-Devil/neutrx/actions/workflows/ci.yml/badge.svg)](https://github.com/Xenial-Devil/neutrx/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-thresholds%20enforced-brightgreen.svg)](scripts/run-coverage.cjs)
+[![Codecov](https://codecov.io/gh/Xenial-Devil/neutrx/branch/main/graph/badge.svg)](https://codecov.io/gh/Xenial-Devil/neutrx)
 [![npm version](https://img.shields.io/npm/v/neutrx.svg)](https://www.npmjs.com/package/neutrx)
 [![GitHub release](https://img.shields.io/github/v/release/Xenial-Devil/neutrx?sort=semver)](https://github.com/Xenial-Devil/neutrx/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -612,7 +612,7 @@ npm run package:validate
 npm run package:smoke
 ```
 
-Tests use local servers and `node:test`. Security tests cover SSRF blocks, DNS validation, redirect header stripping, downgrade blocking, cache behavior, retry/circuit behavior, interceptors, ESM/CJS package imports, and TypeScript declarations. Coverage thresholds are enforced by `npm run coverage` on Node.js versions that support Node's built-in threshold flags.
+Tests use local servers and `node:test`. Security tests cover SSRF blocks, DNS validation, redirect header stripping, downgrade blocking, cache behavior, retry/circuit behavior, interceptors, ESM/CJS package imports, and TypeScript declarations. `npm run coverage` uses c8, emits text and lcov reports, and enforces minimum coverage thresholds for the built core, security, resilience, and performance modules.
 
 ## Benchmarks
 
