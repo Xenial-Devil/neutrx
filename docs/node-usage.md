@@ -92,6 +92,7 @@ await api.get('/exports/monthly.csv', {
 
 ## Node Reference
 
+- [Node infrastructure usage](node-infrastructure.md)
 - [Config reference](config-reference.md)
 - [Secure egress](secure-egress.md)
 - [Adapter security contract](adapter-security-contract.md)

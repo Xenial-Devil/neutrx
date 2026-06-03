@@ -42,6 +42,114 @@ void test('browser entry supports fetch, credentials, and postForm', async () =>
     }
 });
 
+void test('browser entry supports axios-like full-stack migration workflow', async () => {
+    const originalFetch = globalThis.fetch;
+    const globalWithFetch = globalThis as typeof globalThis & { fetch: typeof fetch };
+    const requests: Array<{
+        readonly url: string;
+        readonly method: string | undefined;
+        readonly credentials: FetchCredentials | undefined;
+        readonly headers: Record<string, string>;
+        readonly bodyType: string;
+    }> = [];
+    const uploadEvents: BrowserEntry.ProgressEvent[] = [];
+    const downloadEvents: BrowserEntry.ProgressEvent[] = [];
+    const requestInterceptors: string[] = [];
+
+    globalWithFetch.fetch = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const headers = new Headers(init?.headers);
+        requests.push({
+            url: typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url,
+            method: init?.method,
+            credentials: init?.credentials,
+            headers: Object.fromEntries(headers.entries()),
+            bodyType: init?.body instanceof FormData ? 'form' : typeof init?.body,
+        });
+
+        const payload = JSON.stringify({ ok: true, request: requests.length });
+        return Promise.resolve(new Response(payload, {
+            status: 200,
+            statusText: 'OK',
+            headers: {
+                'content-length': String(new TextEncoder().encode(payload).byteLength),
+                'content-type': 'application/json',
+            },
+        }));
+    };
+
+    try {
+        const mod = await import(browserEntry) as typeof BrowserEntry;
+        const api = mod.default.create({
+            baseURL: 'https://initial.example/api',
+            adapter: 'fetch',
+            headers: new mod.NeutrxHeaders({ 'X-Client': 'web' }),
+            withCredentials: true,
+        });
+
+        api.defaults.baseURL = 'https://tenant.example/v1';
+        api.defaults.timeout = 10_000;
+        api.defaults.headers.common.Authorization = 'Bearer default-token';
+        api.defaults.headers.get['X-Mode'] = 'read';
+
+        api.interceptors.request.use(
+            config => {
+                requestInterceptors.push('get');
+                config.headers.set('X-Request', 'sync');
+                return config;
+            },
+            undefined,
+            {
+                synchronous: true,
+                runWhen: config => config.method === 'GET',
+            }
+        );
+        api.interceptors.request.use(
+            config => {
+                requestInterceptors.push('post');
+                config.headers.set('X-Upload', 'tracked');
+                return config;
+            },
+            undefined,
+            {
+                runWhen: config => config.method === 'POST',
+            }
+        );
+        api.interceptors.response.use(response => {
+            if (isRecord(response.data)) response.data = { ...response.data, responseIntercepted: true };
+            return response;
+        });
+
+        const getResponse = await api.get('/users', {
+            onDownloadProgress: event => downloadEvents.push(event),
+        });
+        const postResponse = await api.post('/users', { name: 'Ada' }, {
+            headers: { Authorization: 'Bearer request-token' },
+            onUploadProgress: event => uploadEvents.push(event),
+        });
+
+        assert.deepEqual(requestInterceptors, ['get', 'post']);
+        assert.deepEqual(getResponse.data, { ok: true, request: 1, responseIntercepted: true });
+        assert.deepEqual(postResponse.data, { ok: true, request: 2, responseIntercepted: true });
+        assert.equal(requests[0]?.url, 'https://tenant.example/v1/users');
+        assert.equal(requests[0]?.method, 'GET');
+        assert.equal(requests[0]?.credentials, 'include');
+        assert.equal(requests[0]?.headers['authorization'], 'Bearer default-token');
+        assert.equal(requests[0]?.headers['x-client'], 'web');
+        assert.equal(requests[0]?.headers['x-mode'], 'read');
+        assert.equal(requests[0]?.headers['x-request'], 'sync');
+        assert.equal(requests[1]?.method, 'POST');
+        assert.equal(requests[1]?.headers['authorization'], 'Bearer request-token');
+        assert.equal(requests[1]?.headers['x-upload'], 'tracked');
+        assert.equal(requests[1]?.bodyType, 'string');
+        assert.ok(uploadEvents.some(event => event.upload === true && event.loaded === 0 && event.progress === 0));
+        assert.ok(uploadEvents.some(event => event.upload === true && event.progress === 1 && event.total !== undefined));
+        assert.ok(downloadEvents.some(event => event.download === true && event.loaded === 0 && event.progress === 0));
+        assert.ok(downloadEvents.some(event => event.download === true && event.progress === 1 && event.total !== undefined));
+    } finally {
+        globalWithFetch.fetch = originalFetch;
+    }
+});
+
 void test('browser entry exposes CancelToken and preserves cancel reason', async () => {
     const originalFetch = globalThis.fetch;
     const globalWithFetch = globalThis as typeof globalThis & { fetch: typeof fetch };

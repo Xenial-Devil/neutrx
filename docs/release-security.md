@@ -7,6 +7,7 @@ Neutrx's release path should match its security-first product claim.
 - Node.js 18, 20, and 22 CI.
 - `npm ci`, lint, typecheck, tests, coverage, build, package validation, and packed-package smoke tests.
 - `npm pack --dry-run` in CI and release workflow.
+- Package validation fails if the MIT license, Node.js 18+ runtime floor, ESM/CJS package entries, required trust docs, GitHub release workflow, or Node.js CI matrix are removed.
 - Locked `conventional-changelog` tooling for repeatable changelog previews and manual refreshes.
 - `semantic-release` creates semver tags, updates `CHANGELOG.md`, and publishes GitHub release notes from Conventional Commits.
 - Dependency Review and CodeQL workflows.

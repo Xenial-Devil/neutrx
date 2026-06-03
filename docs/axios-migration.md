@@ -2,6 +2,8 @@
 
 This guide covers the common Axios backend migration path. Neutrx intentionally keeps familiar request ergonomics, but it does not clone Axios blindly: backend security and resilience behavior stay explicit.
 
+For browser, edge, and shared full-stack clients, see [Full-stack and frontend migration](full-stack-frontend-migration.md).
+
 ## Install And Create A Client
 
 ```bash

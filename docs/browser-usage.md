@@ -2,6 +2,8 @@
 
 Browser support exists through `neutrx/browser` and the package `browser` condition. It is useful when you want Neutrx request ergonomics in frontend code, while accepting normal browser platform limits.
 
+For a side-by-side migration view covering adapters, `NeutrxHeaders`, `instance.defaults`, interceptor options, richer progress events, and Axios workflow mappings, see [Full-stack and frontend migration](full-stack-frontend-migration.md).
+
 ```ts
 import neutrx from 'neutrx/browser';
 

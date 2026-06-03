@@ -23,6 +23,9 @@ Core goal: remove adoption blockers first, close useful Axios migration gaps sec
 - [x] Add CI, npm, license, Node, and runtime dependency badges.
 - [x] Validate ESM, CJS, browser, and subpath exports from built output.
 - [x] Keep `.npmrc` script-blocking posture documented in release security docs.
+- [x] Enforce the MIT license, Node.js 18+ floor, ESM/CJS package entries, trust docs, GitHub release workflow, and Node.js CI matrix in package validation.
+- [x] Enforce browser/full-stack adoption docs and browser export conditions in package validation.
+- [x] Enforce Node infrastructure adoption docs in package validation.
 - [ ] Add signed/provenance release badge only after trusted publishing is live and verified.
 - [ ] Add GitHub release note template that repeats security, runtime, and package validation status.
 
@@ -34,6 +37,8 @@ Core goal: remove adoption blockers first, close useful Axios migration gaps sec
 - [x] Support `CancelToken` bridge while recommending `AbortController`.
 - [x] Support URL-encoded form helpers.
 - [x] Document and test interceptor order.
+- [x] Document full-stack/frontend Axios migration workflows, including browser fetch adapter limits and richer progress events.
+- [x] Document advanced Node infrastructure workflows for Docker sockets, local proxies, enterprise egress gateways, timeout diagnostics, `maxRate`, and utility methods.
 - [ ] Add more focused "unsafe Axios pattern to safe Neutrx pattern" recipes.
 - [ ] Consider a separate `neutrx/axios-compat` entry only if demand appears; keep core security posture unchanged.
 

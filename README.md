@@ -85,6 +85,10 @@ Request config still overrides instance defaults. Live `instance.defaults` mutat
 
 See the full [Axios migration guide](https://xenial-devil.github.io/neutrx/axios-migration.html), [docs/axios-migration-matrix.md](docs/axios-migration-matrix.md), and [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for behavior differences.
 
+For frontend, edge, and shared full-stack code, see [docs/full-stack-frontend-migration.md](docs/full-stack-frontend-migration.md). It maps adapter selection, the fetch adapter, browser builds, `NeutrxHeaders`, `instance.defaults`, interceptor options, richer progress events, and common Axios workflows.
+
+For Docker sockets, local proxies, enterprise egress gateways, timeout diagnostics, bandwidth caps, and operational utility methods, see [docs/node-infrastructure.md](docs/node-infrastructure.md).
+
 ## Why Neutrx
 
 | Area | Neutrx posture |

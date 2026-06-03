@@ -10,10 +10,17 @@ This project uses Conventional Commits. Maintainers can preview generated releas
 
 - Locked `conventional-changelog` as the local changelog generator.
 - Added repeatable changelog preview/write scripts for maintainers.
+- Added package validation for the adoption contract: MIT license, Node.js 18+ runtime, ESM/CJS entries, required trust docs, release workflow, and CI matrix.
+- Added a full-stack and frontend migration guide covering adapter selection, the fetch adapter, browser builds, `NeutrxHeaders`, mutable defaults, interceptor options, richer progress events, and Axios workflow mappings.
+- Added package validation for browser/full-stack adoption docs and export conditions.
+- Added a Node infrastructure usage guide covering Docker sockets, local proxies, redirect hooks, decompression, encodings, absolute URL pinning, clarified timeout errors, `maxRate`, and utility methods.
+- Added package validation for Node infrastructure adoption docs.
 
 ### Changed
 
 - Documented the release process so future GitHub releases include changelog updates, package validation, and release notes.
+- Expanded browser and Axios migration docs so frontend and full-stack users can compare Neutrx directly with common Axios workflows.
+- Expanded Node docs and examples for Docker, local proxy, infrastructure, and enterprise adoption workflows.
 
 ## [1.3.0](https://github.com/Xenial-Devil/neutrx/compare/v1.2.0...v1.3.0) - 2026-05-20
 

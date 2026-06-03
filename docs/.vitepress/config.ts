@@ -56,6 +56,7 @@ export default defineConfig({
         items: [
           { text: 'API Reference', link: '/api' },
           { text: 'Config Reference', link: '/config-reference' },
+          { text: 'Node Infrastructure', link: '/node-infrastructure' },
           { text: 'Errors', link: '/errors' },
           { text: 'Cache', link: '/cache' },
           { text: 'Observability', link: '/observability' },

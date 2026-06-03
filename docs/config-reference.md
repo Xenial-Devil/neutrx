@@ -178,6 +178,8 @@ Neutrx-specific options are focused on secure backend service-to-service HTTP: `
 
 Some compatible options have backend-first semantics. Redirects are followed by Neutrx so SSRF, downgrade, and credential-stripping policy stays in force; custom adapters should return redirect responses rather than following them internally. `decompress`, agents, lookup, sockets, TLS, and `responseEncoding` are Node transport controls and are unavailable or platform-limited in browsers.
 
+For Docker sockets, local proxies, `allowAbsoluteUrls: false` egress gateways, timeout diagnostics, and bandwidth shaping examples, see [node-infrastructure.md](node-infrastructure.md).
+
 Docker Engine over the default Unix socket:
 
 ```ts
