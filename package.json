@@ -10,6 +10,10 @@
     "url": "https://github.com/Xenial-Devil/neutrx/issues"
   },
   "homepage": "https://github.com/Xenial-Devil/neutrx#readme",
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/Xenial-Devil"
+  },
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
@@ -74,6 +78,7 @@
     "docs",
     "README.md",
     "SECURITY.md",
+    "SUPPORT.md",
     "THREATMODEL.md",
     "CONTRIBUTING.md",
     "CODE_OF_CONDUCT.md",

@@ -20,14 +20,18 @@ export default defineConfig({
           { text: 'Overview', link: '/' },
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'Axios Migration Guide', link: '/axios-migration' },
+          { text: 'Full-Stack Frontend Migration', link: '/full-stack-frontend-migration' },
           { text: 'Why Neutrx', link: '/why-neutrx' },
+          { text: 'Support', link: '/support' },
         ],
       },
       {
         text: 'Core Usage',
         items: [
           { text: 'Node Usage', link: '/node-usage' },
+          { text: 'Node Infrastructure', link: '/node-infrastructure' },
           { text: 'Browser Usage', link: '/browser-usage' },
+          { text: 'Full-Stack Frontend Migration', link: '/full-stack-frontend-migration' },
           { text: 'Security Features', link: '/security-features' },
           { text: 'Retry Strategies', link: '/retries' },
           { text: 'Circuit Breaker', link: '/circuit-breaker' },

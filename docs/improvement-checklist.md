@@ -11,8 +11,10 @@ Core goal: remove adoption blockers first, close useful Axios migration gaps sec
 | License clarity | Done | Package uses MIT, includes `LICENSE`, and documents MIT in README/package metadata. |
 | CommonJS build | Done | Package publishes dual ESM/CJS outputs and smoke-tests `require('neutrx')`. |
 | Browser entry and fetch adapter | Done | Browser entry, package `browser` condition, and `fetch` adapter exist, with tests. Browser remains secondary. |
+| Full-stack/frontend migration | Done | Dedicated guide maps adapters, fetch, browser builds, `NeutrxHeaders`, mutable defaults, interceptor options, progress events, and Axios workflows. |
+| Node infrastructure adoption | Done | Dedicated guide and tests cover sockets, local proxies, redirects, decompression, encodings, timeout diagnostics, bandwidth caps, and utility methods. |
 | Node.js >=18 support | Done | Package engines, build target, runtime smoke test, and CI matrix cover Node.js 18, 20, and 22. |
-| Trust/community files | Done | README badges plus `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, roadmap, threat model, and release-security docs are packaged. |
+| Trust/community files | Done | README badges plus `CHANGELOG.md`, `SECURITY.md`, `SUPPORT.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, roadmap, threat model, and release-security docs are packaged. |
 
 ## Phase 0: Trust And Packaging
 
@@ -78,6 +80,7 @@ Core goal: remove adoption blockers first, close useful Axios migration gaps sec
 - [ ] Add reproducible benchmark protocol with environment, Node version, commit, and commands.
 - [ ] Add docs-site generation or TypeDoc plan.
 - [ ] Add OpenAPI typed client generator design doc.
+- [x] Add sponsorship metadata, GitHub funding profile, and support policy.
 
 ## Guardrails
 

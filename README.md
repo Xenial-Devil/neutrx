@@ -7,6 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
 [![Runtime deps: 0](https://img.shields.io/badge/runtime_deps-0-brightgreen.svg)](package.json)
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-fafbfc?logo=githubsponsors)](https://github.com/sponsors/Xenial-Devil)
 
 Neutrx is a security-first HTTP client for Node.js 18+ backends. It keeps an ergonomic request API, then adds production concerns that backend services usually need: SSRF protection, secure redirects, retries, circuit breaking, service discovery, in-memory caching, metrics hooks, OpenTelemetry-friendly instrumentation, typed errors, and zero required runtime dependencies.
 
@@ -317,6 +318,13 @@ See [docs/secure-egress.md](docs/secure-egress.md), [docs/security-model.md](doc
 - Report suspected vulnerabilities privately through [SECURITY.md](SECURITY.md). Do not include exploit details in public issues, pull requests, discussions, or social posts.
 - Open issues and pull requests using [CONTRIBUTING.md](CONTRIBUTING.md), including a minimal reproduction and security impact notes when relevant.
 - Keep project spaces professional and respectful under the [Code of Conduct](CODE_OF_CONDUCT.md).
+- See [SUPPORT.md](SUPPORT.md) for public support expectations, maintainer response priorities, and sponsorship details.
+
+## Support And Sustainability
+
+Neutrx is maintained as an open-source project. Public support happens through GitHub issues, security reports belong in GitHub private vulnerability reporting, and sponsorship helps fund maintenance, security review, documentation, examples, compatibility work, and release validation.
+
+Users and organizations that depend on Neutrx can support development through [GitHub Sponsors](https://github.com/sponsors/Xenial-Devil). OpenCollective is not configured for this project at this time.
 
 ## Service Discovery
 
