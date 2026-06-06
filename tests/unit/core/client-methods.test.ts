@@ -211,7 +211,7 @@ void test('node client false header sentinel blocks automatic content-type', asy
 });
 
 void test('node client validates response schema and can disable it per request', async () => {
-    const { default: Neutrx, NeutrxValidationError } = await import(builtEntry) as typeof PackageEntry;
+    const { default: Neutrx, NeutrxValidationError, createTraceContextPlugin } = await import(builtEntry) as typeof PackageEntry;
     let calls = 0;
     const userSchema = {
         safeParse(value: unknown) {
@@ -233,6 +233,13 @@ void test('node client validates response schema and can disable it per request'
         performance: { enableCaching: false },
         resilience: { enableRetry: true, enableCircuitBreaker: false, enableBulkhead: false },
     });
+    api.use(createTraceContextPlugin({
+        context: {
+            traceId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            spanId: 'bbbbbbbbbbbbbbbb',
+            sampled: true,
+        },
+    }));
 
     try {
         const valid = await api.get('/valid', { schema: userSchema });
@@ -244,6 +251,8 @@ void test('node client validates response schema and can disable it per request'
             api.get('/invalid'),
             error => error instanceof NeutrxValidationError
                 && error.phase === 'response'
+                && error.category === 'validation'
+                && error.traceContext?.traceId === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
                 && error.issues[0]?.path?.[0] === 'id'
                 && error.issues[0]?.code === 'invalid_type'
         );

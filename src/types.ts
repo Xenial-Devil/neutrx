@@ -74,6 +74,7 @@ export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
 export type MaybePromise<T> = T | Promise<T>;
 export type Canceler = (message?: string) => void;
 export type ValidationPath = readonly (string | number)[];
+export type NeutrxErrorCategory = 'network' | 'timeout' | 'security' | 'http' | 'resilience' | 'validation' | 'limits' | 'unknown';
 
 export interface ValidationIssue {
     readonly path?: ValidationPath;
@@ -774,6 +775,7 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly requestId: string;
     readonly startTime: number;
     readonly hops: number;
+    readonly traceContext?: TraceContext;
     readonly mockResponse?: NeutrxResponse;
     readonly idempotencyKey?: string;
     readonly idempotencyKeyHeader?: string;
@@ -798,6 +800,7 @@ export interface NeutrxResponse<TData extends ParsedResponseData = ParsedRespons
     readonly request?: TransportRequest;
     readonly timing: { readonly duration: number };
     readonly requestId: string;
+    readonly traceContext?: TraceContext;
     attempts?: readonly RetryAttempt[];
     cached?: boolean;
     cacheAge?: number;

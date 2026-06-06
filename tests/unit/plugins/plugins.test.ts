@@ -501,13 +501,15 @@ void test('LogPlugin writes structured success and error entries', async () => {
         error: entry => errors.push(entry),
     });
 
-    await api.get('https://api.example.com/ok');
+    await api.get('https://api.example.com/ok?token=secret');
     await assert.rejects(api.get('https://api.example.com/fail'), /HTTP 500/u);
 
     assert.equal(info[0]?.method, 'GET');
     assert.equal(info[0]?.status, 200);
     assert.equal(info[0]?.attempts, 1);
+    assert.equal(info[0]?.url, 'https://api.example.com/ok');
     assert.equal(errors[0]?.code, 'HTTP_500');
+    assert.equal(errors[0]?.category, 'http');
     assert.equal(errors[0]?.url, 'https://api.example.com/fail');
 });
 

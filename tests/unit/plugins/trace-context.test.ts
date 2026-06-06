@@ -31,6 +31,8 @@ void test('TraceContextPlugin injects generated W3C traceparent headers', async 
     assert.equal(data.tracestate, null);
     assert.equal(data.b3TraceId, null);
     assert.equal(data.b3, null);
+    assert.equal(response.traceContext?.traceId, data.traceparent?.split('-')[1]);
+    assert.equal(response.traceContext?.spanId, data.traceparent?.split('-')[2]);
 });
 
 void test('TraceContextPlugin supports W3C, B3 multi-header, and B3 single-header formats', async () => {
@@ -56,6 +58,13 @@ void test('TraceContextPlugin supports W3C, B3 multi-header, and B3 single-heade
     assert.equal(data.b3SpanId, SPAN_ID);
     assert.equal(data.b3Sampled, '1');
     assert.equal(data.b3, `${TRACE_ID}-${SPAN_ID}-1-${PARENT_SPAN_ID}`);
+    assert.deepEqual(response.traceContext, {
+        traceId: TRACE_ID,
+        spanId: SPAN_ID,
+        parentSpanId: PARENT_SPAN_ID,
+        sampled: true,
+        tracestate: 'rojo=00f067aa0ba902b7',
+    });
 });
 
 void test('TraceContextPlugin respects user-supplied trace headers unless overwrite is enabled', async () => {

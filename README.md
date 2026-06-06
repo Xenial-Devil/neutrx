@@ -543,12 +543,12 @@ realtime.send('hello');
 
 `TraceContextPlugin` injects W3C `traceparent` by default and can also emit `tracestate`, B3 multi-header, and B3 single-header propagation. Existing user-supplied trace headers are preserved unless you set `overwrite: true`. When the OpenTelemetry bridge injects carrier headers, the trace context plugin reuses that context for any additional requested formats.
 
-The OpenTelemetry plugin detects `@opentelemetry/api` when your application installs it, but Neutrx does not require it. Spans include safe request and response attributes such as method, path target, host, retry count, status code, cache hit or miss, duration, and circuit breaker state. Errors record exceptions and mark the span as failed.
+The OpenTelemetry plugin detects `@opentelemetry/api` when your application installs it, but Neutrx does not require it. Propagation uses the newly created client span, retries become span events, and spans include safe request and response attributes such as method, path target, host, retry count, status code, cache hit or miss, duration, and circuit breaker state. Errors record exceptions, stable error categories, and failure status. `response.traceContext` exposes the resolved trace identity.
 
 ## Error Handling
 
 ```ts
-import { NeutrxHTTPError, isNeutrxError } from 'neutrx';
+import { NeutrxHTTPError, isNeutrxError, toStructuredError } from 'neutrx';
 
 try {
   await api.get('/users');
@@ -559,7 +559,7 @@ try {
 }
 ```
 
-`throwHttpErrors: false` returns non-2xx responses instead of throwing. `error.toJSON()` redacts sensitive URL params, headers, and response fields such as tokens, cookies, passwords, secrets, and API keys.
+`throwHttpErrors: false` returns non-2xx responses instead of throwing. `error.toJSON()` redacts sensitive URL params, headers, response fields, and causes while exposing a stable error category plus trace and request identity. Use `toStructuredError(error)` to safely normalize third-party errors for logs.
 
 ## TypeScript
 

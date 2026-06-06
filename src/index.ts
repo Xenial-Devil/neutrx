@@ -25,6 +25,7 @@ export {
     NeutrxTimeoutError,
     NeutrxValidationError,
     isNeutrxError,
+    toStructuredError,
 } from './core/NeutrxError.js';
 export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
@@ -90,6 +91,7 @@ export type {
     MaybePromise,
     NeutrxLogger,
     NeutrxLogValue,
+    NeutrxErrorCategory,
     NeutrxAdapter,
     NeutrxRequestConfig,
     NeutrxResponse,

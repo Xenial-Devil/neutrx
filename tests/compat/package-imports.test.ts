@@ -31,6 +31,7 @@ void test('package self-reference imports expose ESM, CJS, and subpath APIs', as
     assert.equal(typeof root.createOtelPlugin, 'function');
     assert.equal(typeof root.TraceContextPlugin, 'object');
     assert.equal(typeof root.createTraceContextPlugin, 'function');
+    assert.equal(typeof root.toStructuredError, 'function');
     assert.equal(typeof pluginsEntry.TraceContextPlugin, 'object');
     assert.equal(typeof pluginsEntry.createTraceContextPlugin, 'function');
 });

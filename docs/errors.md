@@ -3,7 +3,7 @@
 Neutrx errors are typed, branded, and machine-readable.
 
 ```ts
-import { NeutrxHTTPError, isNeutrxError } from 'neutrx';
+import { NeutrxHTTPError, isNeutrxError, toStructuredError } from 'neutrx';
 
 try {
   await api.get('/users');
@@ -16,9 +16,15 @@ try {
     console.error(error.status, error.retryAfter);
   }
 }
+
+console.error(toStructuredError(new Error('third-party failure')));
 ```
 
-The default client exposes the same guard as `neutrx.isNeutrxError(error)`. `toJSON()` is intended for structured logs: it includes the common fields `name`, `code`, `message`, `timestamp`, `requestId`, `url`, `method`, `retryable`, `duration`, and redacted `context`. Subclasses add relevant machine-readable fields such as HTTP `status`, `retryAfter`, timeout `phase`, security `severity`, response `headers` and `data`, retry `attempts`, or body `size` and `limit`.
+The default client exposes the same guard as `neutrx.isNeutrxError(error)`. `toJSON()` is intended for structured logs: it includes the common fields `name`, `code`, stable `category`, `message`, `timestamp`, `requestId`, `url`, `method`, `retryable`, `duration`, `traceId`, `spanId`, redacted `context`, and a redacted `cause` when present. Subclasses add relevant machine-readable fields such as HTTP `status`, `retryAfter`, timeout `phase`, security `severity`, response `headers` and `data`, retry `attempts`, or body `size` and `limit`.
+
+Stable categories are `network`, `timeout`, `security`, `http`, `resilience`, `validation`, `limits`, and `unknown`. Use categories for dashboards and alerts; use the more specific error code for diagnosis.
+
+`toStructuredError(error)` gives loggers a safe common representation even when an adapter, interceptor, or third-party library throws a non-Neutrx error.
 
 Common codes:
 

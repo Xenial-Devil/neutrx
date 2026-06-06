@@ -10,6 +10,7 @@ const snapshot = api.getMetrics();
 console.log(snapshot.requests.active);
 console.log(snapshot.requests.retried);
 console.log(snapshot.errors.byCode);
+console.log(snapshot.errors.byCategory);
 console.log(snapshot.byStatus);
 ```
 
@@ -18,10 +19,12 @@ Tracked signals:
 - total, active, success, error, cached, retried, and deduplicated request counts
 - duration min, max, average, and percentiles
 - status code counts
-- error type and code counts
+- error type, code, and stable category counts
 - endpoint metrics using host plus path, without query strings
 
 Prometheus text is available through `api.getMetricsPrometheus()`.
+
+The exporter includes `neutrx_requests_total`, `neutrx_active_requests`, `neutrx_duration_ms`, `neutrx_cache_hits_total`, `neutrx_retries_total`, `neutrx_deduplication_hits_total`, `neutrx_status_total`, `neutrx_errors_by_code_total`, and `neutrx_errors_total{category=...}`. Dynamic label values are escaped before rendering.
 
 A starter Grafana dashboard is available at [grafana-dashboard.json](grafana-dashboard.json). Import it into Grafana and point panels at the Prometheus data source scraping `api.getMetricsPrometheus()`.
 
@@ -44,7 +47,7 @@ api.use(LogPlugin);
 api.setLogger(console);
 ```
 
-`LogPlugin` emits redaction-friendly fields such as request id, method, URL, status, duration, attempt count, cache state, error code, and error name. It accepts console-like, pino-like, or winston-like loggers with `info` and `error` methods.
+`LogPlugin` emits redaction-friendly fields such as request id, trace id, span id, method, query-free URL, status, duration, attempt count, cache state, error category, error code, and error name. It accepts console-like, pino-like, or winston-like loggers with `info` and `error` methods. Error entries use the same redacted representation as `toStructuredError(error)`.
 
 ## Trace Context Propagation
 
@@ -68,6 +71,8 @@ api.use(createTraceContextPlugin({
 The default `TraceContextPlugin` emits W3C `traceparent`. Configured formats can include `w3c`, `b3-multi`, and `b3-single`; `b3` is accepted as an alias for the single-header form. The plugin preserves user-supplied `traceparent`, `tracestate`, `X-B3-TraceId`, `X-B3-SpanId`, `X-B3-Sampled`, and `b3` headers unless `overwrite: true` is set.
 
 If OpenTelemetry propagation is also enabled, Neutrx injects the OTel carrier first. `TraceContextPlugin` then reuses that carrier context when generating any additional requested B3 or W3C headers, so formats stay aligned.
+
+The resolved identity is exposed as `response.traceContext`. Typed Neutrx errors also include `traceId` and `spanId` in `error.toJSON()`, including response-schema validation failures.
 
 ## OpenTelemetry Bridge
 
@@ -94,6 +99,8 @@ api.use(createOtelPlugin({ tracerName: 'billing-http' }));
 ```
 
 Span attributes include method, scheme, host, port, path target without query string, status code, retry count, cache hit or miss, request duration, and circuit breaker state.
+
+Propagation is injected from the newly created client span, not merely from the previously active parent context. Retry attempts are recorded as `neutrx.request.attempt` span events. Typed failures add `neutrx.error.category`, `neutrx.error.retryable`, and, when available, `neutrx.error.phase`.
 
 Neutrx follows OpenTelemetry HTTP client semantic attribute names where they can be emitted safely:
 

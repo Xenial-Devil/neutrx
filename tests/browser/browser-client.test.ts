@@ -127,6 +127,51 @@ void test('browser instance defaults are mutable after creation', async () => {
     }
 });
 
+void test('browser cache keys include headers added by request interceptors', async () => {
+    const originalFetch = globalThis.fetch;
+    const globalWithFetch = globalThis as MutableGlobal;
+    let calls = 0;
+    let token = 'tenant-a';
+
+    globalWithFetch.fetch = (_input, init): Promise<Response> => {
+        calls += 1;
+        return Promise.resolve(jsonResponse({
+            authorization: new Headers(init?.headers).get('Authorization'),
+            calls,
+        }));
+    };
+
+    try {
+        const mod = await import(browserEntry) as typeof BrowserEntry;
+        const api = mod.default.create({
+            baseURL: 'https://cache.example',
+            performance: { enableCaching: true, cacheTTL: 1000 },
+            resilience: { enableRetry: false, enableCircuitBreaker: false, enableBulkhead: false },
+        });
+        api.interceptors.request.use(config => ({
+            ...config,
+            headers: { ...config.headers, Authorization: `Bearer ${token}` },
+        }));
+
+        try {
+            const first = await api.get('/profile');
+            token = 'tenant-b';
+            const second = await api.get('/profile');
+            const cached = await api.get('/profile');
+
+            assert.deepEqual(first.data, { authorization: 'Bearer tenant-a', calls: 1 });
+            assert.deepEqual(second.data, { authorization: 'Bearer tenant-b', calls: 2 });
+            assert.deepEqual(cached.data, second.data);
+            assert.equal(cached.cached, true);
+            assert.equal(calls, 2);
+        } finally {
+            destroyClient(api);
+        }
+    } finally {
+        globalWithFetch.fetch = originalFetch;
+    }
+});
+
 void test('browser client covers shorthands, controls, and browser-only guards', async () => {
     const originalFetch = globalThis.fetch;
     const captured: SeenRequest[] = [];

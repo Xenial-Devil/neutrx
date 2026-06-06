@@ -63,6 +63,7 @@ const api = neutrx.create({
 ```
 
 Header mutations affect the next redirected request. Redirects still go through Neutrx policy, including HTTPS downgrade blocking, SSRF checks, egress policy, and credential stripping.
+The hook may add safe per-hop headers, but it cannot restore sensitive or body-specific headers that Neutrx strips for a cross-origin or method-changing redirect.
 
 ## decompress
 

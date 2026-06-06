@@ -9,12 +9,6 @@ const api = neutrx.create({
   baseURL: 'https://api.example.com',
   timeout: 10_000,
   security: { profile: 'standard' },
-  instrumentation: {
-    openTelemetry: true,
-    tracerName: 'billing-http',
-    propagateTraceHeaders: true,
-    overwriteTraceHeaders: false,
-  },
 });
 
 api.use(createOtelPlugin({
@@ -29,9 +23,10 @@ api.use(createTraceContextPlugin({
 
 export async function fetchHealth(): Promise<number> {
   const response = await api.get('/health');
+  console.log(response.traceContext);
   console.log(api.getMetrics());
   return response.status;
 }
 ```
 
-Span attributes avoid raw query strings and use safe request details such as method, path target, host, retry count, status, cache state, duration, and circuit breaker state.
+The OTel carrier is injected from the client span created for the request. Additional B3 headers reuse the same identity, retry attempts are span events, and `response.traceContext` exposes the trace and span IDs for correlation. Span attributes avoid raw query strings and use safe request details such as method, path target, host, retry count, status, cache state, duration, and circuit breaker state.

@@ -9,7 +9,7 @@ It is not a general claim that Neutrx is better than Axios. Axios is broader, ol
 - You run Node.js 18+ backend services.
 - Requests may be influenced by users, webhooks, partners, or integrations.
 - SSRF, cloud metadata access, redirect credential leaks, and secret logging are real risks.
-- You want retries, circuit breaker, bulkhead isolation, cache metrics, events, and OpenTelemetry-friendly hooks in one client.
+- You want retries, circuit breaker, bulkhead isolation, schema validation, safe structured errors, Prometheus metrics, W3C/B3 propagation, and an OpenTelemetry client-span bridge in one client.
 - You want zero required runtime dependencies in core.
 
 ## Keep Axios Or Native Fetch When

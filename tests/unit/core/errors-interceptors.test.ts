@@ -16,6 +16,12 @@ void test('error classes expose metadata and redact JSON output', async () => {
             code: 'BASE',
             url: 'https://user:pass@example.com/path?token=secret&ok=1',
             method: 'GET',
+            traceContext: {
+                traceId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                spanId: 'bbbbbbbbbbbbbbbb',
+                sampled: true,
+            },
+            cause: new Error('cause?token=secret'),
             context: {
                 Authorization: 'Bearer secret',
                 normal: 'ok',
@@ -27,7 +33,11 @@ void test('error classes expose metadata and redact JSON output', async () => {
         assert.equal(base.stack, 'NeutrxError: failed?token=secret');
         assert.equal(base.toString(), '[NeutrxError] BASE: failed?token=[REDACTED]');
         assert.equal(json.message, 'failed?token=[REDACTED]');
+        assert.equal(json.category, 'unknown');
+        assert.equal(json.traceId, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+        assert.equal(json.spanId, 'bbbbbbbbbbbbbbbb');
         assert.equal(json.url, 'https://%5BREDACTED%5D:%5BREDACTED%5D@example.com/path?token=%5BREDACTED%5D&ok=1');
+        assert.equal((json.cause as { readonly message?: unknown }).message, 'cause?token=[REDACTED]');
         assert.deepEqual(json.context, {
             Authorization: '[REDACTED]',
             normal: 'ok',
@@ -58,6 +68,7 @@ void test('error classes expose metadata and redact JSON output', async () => {
     ]);
 
     assert.equal(clientError.name, 'NeutrxClientError');
+    assert.equal(clientError.category, 'http');
     assert.equal(clientError.retryable, true);
     assert.equal(clientError.retryAfter, '1, 2');
     assert.equal(clientError.toJSON().response && typeof clientError.toJSON().response === 'object', true);
@@ -78,6 +89,23 @@ void test('error classes expose metadata and redact JSON output', async () => {
         { path: ['user', 'token'], message: '?token=[REDACTED]', code: 'bad_token' },
         { message: 'plain issue' },
     ]);
+    assert.equal(validation.category, 'validation');
+    assert.deepEqual(errors.toStructuredError(Object.assign(new Error('failed?token=secret'), {
+        code: 'ECONNRESET',
+        url: 'https://api.example.com/path?token=secret',
+    })), {
+        name: 'Error',
+        code: 'ECONNRESET',
+        category: 'network',
+        message: 'failed?token=[REDACTED]',
+        requestId: null,
+        url: 'https://api.example.com/path?token=%5BREDACTED%5D',
+        method: null,
+        retryable: false,
+        duration: undefined,
+        traceId: null,
+        spanId: null,
+    });
 
     const assorted = [
         new errors.NeutrxSSRFError('http://169.254.169.254/', 'metadata'),

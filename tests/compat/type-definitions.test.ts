@@ -24,6 +24,7 @@ import neutrx, {
   createTraceContextPlugin,
   isCancel,
   isNeutrxError,
+  toStructuredError,
   LogPlugin,
   OtelPlugin,
   TraceContextPlugin,
@@ -42,6 +43,7 @@ import neutrx, {
   type InferValidationSchema,
   type InstrumentationConfig,
   type NeutrxLogger,
+  type NeutrxErrorCategory,
   type NeutrxAdapter,
   type NeutrxInstance,
   type NeutrxRequestConfig,
@@ -84,6 +86,7 @@ for (const [headerName, headerValue] of headers) {
 const formSerializer: FormSerializerOptions = { dots: true, indexes: false, metaTokens: true, maxDepth: 4 };
 const instrumentation: InstrumentationConfig = { openTelemetry: true, tracerName: 'types', propagateTraceHeaders: true, overwriteTraceHeaders: false };
 const traceContext: TraceContext = { traceId: '4bf92f3577b34da6a3ce929d0e0e4736', spanId: '00f067aa0ba902b7', sampled: true };
+const errorCategory: NeutrxErrorCategory = 'validation';
 const traceFormat: TracePropagationFormat = 'b3-multi';
 const traceContextPluginOptions: TraceContextPluginOptions = { formats: ['w3c', traceFormat], context: traceContext, overwrite: false };
 const otelPluginOptions: OtelPluginOptions = { tracerName: 'created-plugin', propagateTraceHeaders: false };
@@ -259,6 +262,7 @@ typedClient.deleteCacheEntry('/schema');
 const typedPlugin: NeutrxPluginType = LogPlugin;
 const typedError: NeutrxErrorType = validationError;
 const typedIsNeutrxError: boolean = isNeutrxError(validationError) && neutrx.isNeutrxError(validationError);
+const structuredError: Record<string, unknown> = toStructuredError(validationError);
 const typedUri: string = neutrx.getUri({ url: '/typed', params: { page: 1 } });
 const response: Promise<NeutrxResponse<{ readonly ok: boolean }>> = neutrx.get('/health', {
   ...config,
@@ -316,6 +320,8 @@ void adapterResponse;
 void typedPlugin;
 void typedError;
 void typedIsNeutrxError;
+void structuredError;
+void errorCategory;
 void typedUri;
 void response;
 void schemaResponse;

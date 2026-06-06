@@ -12,6 +12,7 @@ import {
     NeutrxResponseTimeoutError,
     NeutrxSecurityError,
     axiosTimeoutErrorCode,
+    isNeutrxError,
 } from './NeutrxError.js';
 import { abortError, abortReason, mergeCancellationSignal } from './cancel.js';
 import { resolveServiceEndpoint, type ServiceDiscoveryState } from './config.js';
@@ -84,7 +85,7 @@ type BrowserListener = (payload: unknown) => void;
 type FetchInit = RequestInit & { duplex?: 'half' };
 type FetchBody = NonNullable<RequestInit['body']>;
 type BrowserRequestMetrics = { total: number; active: number; success: number; errors: number; cached: number; retried: number; deduplicated: number };
-type BrowserErrorMetrics = { byType: Record<string, number>; byCode: Record<string, number> };
+type BrowserErrorMetrics = { byType: Record<string, number>; byCode: Record<string, number>; byCategory: Record<string, number> };
 type BrowserMetricsSnapshot = {
     readonly requests: BrowserRequestMetrics;
     readonly performance: { readonly min: number; readonly max: number; readonly avg: number; readonly total: number; readonly p50: number; readonly p90: number; readonly p95: number; readonly p99: number };
@@ -454,6 +455,8 @@ export default class BrowserClient extends TinyEmitter {
         let trackedUrl = config.url;
         let circuitChecked = false;
         let cacheConfig: InternalRequestConfig | null = null;
+        let traceContext = undefined as InternalRequestConfig['traceContext'];
+        let trackedMethod = typeof config.method === 'string' ? config.method.toUpperCase() : 'GET';
         this.#metrics.recordStart();
 
         try {
@@ -461,9 +464,14 @@ export default class BrowserClient extends TinyEmitter {
             trackedUrl = rc.url;
 
             rc = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', rc));
+            traceContext = rc.traceContext;
+            trackedMethod = rc.method;
             if (rc.mockResponse) return rc.mockResponse as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
 
             rc = toInternalRequestConfig(this.#validateRequest(rc));
+            rc = toInternalRequestConfig(await this.#interceptors.runRequest(rc));
+            rc = toInternalRequestConfig(this.#validateRequest(rc));
+            trackedUrl = rc.url;
 
             if (rc.method === 'GET' && rc.cache !== false) {
                 cacheConfig = rc;
@@ -478,7 +486,6 @@ export default class BrowserClient extends TinyEmitter {
                 }
             }
 
-            rc = toInternalRequestConfig(await this.#interceptors.runRequest(rc));
             await this.#circuitBreaker.canRequest(rc.url);
             circuitChecked = true;
 
@@ -523,6 +530,11 @@ export default class BrowserClient extends TinyEmitter {
             const normalized = normalizeError(error) as Error & { requestId?: string; duration?: number; code?: string };
             normalized.requestId = requestId;
             normalized.duration = Date.now() - t0;
+            if (isNeutrxError(normalized)) {
+                if (!normalized.traceContext && traceContext) normalized.traceContext = traceContext;
+                normalized.url ??= trackedUrl;
+                normalized.method ??= trackedMethod;
+            }
 
             if (cacheConfig) {
                 const fallback = this.#cache.getNetworkFallback(cacheConfig);
@@ -883,6 +895,7 @@ export default class BrowserClient extends TinyEmitter {
             ...(raw.request ? { request: raw.request } : {}),
             timing: { duration: Date.now() - config.startTime },
             requestId: config.requestId,
+            ...(config.traceContext ? { traceContext: config.traceContext } : {}),
             ...(raw.deduplicated ? { deduplicated: true } : {}),
         };
 
@@ -986,6 +999,7 @@ export default class BrowserClient extends TinyEmitter {
         config = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', config));
         config = toInternalRequestConfig(this.#validateRequest(config));
         config = toInternalRequestConfig(await this.#interceptors.runRequest(config));
+        config = toInternalRequestConfig(this.#validateRequest(config));
         return {
             ...config,
             url: webSocketUrl(config.url),
@@ -1490,7 +1504,7 @@ class BrowserMetrics {
     #requests: BrowserRequestMetrics = { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0, deduplicated: 0 };
     #durations: number[] = [];
     #byStatus: Record<string, number> = {};
-    #errors: BrowserErrorMetrics = { byType: {}, byCode: {} };
+    #errors: BrowserErrorMetrics = { byType: {}, byCode: {}, byCategory: {} };
 
     recordStart(): void {
         this.#requests.active += 1;
@@ -1507,11 +1521,12 @@ class BrowserMetrics {
         this.#inc(this.#byStatus, String(status));
     }
 
-    recordError(_url: string, error: Error & { readonly code?: string }): void {
+    recordError(_url: string, error: Error & { readonly code?: string; readonly category?: string }): void {
         this.#requests.errors += 1;
         this.#requests.total += 1;
         this.#inc(this.#errors.byType, error.name);
         this.#inc(this.#errors.byCode, error.code ?? 'UNKNOWN');
+        this.#inc(this.#errors.byCategory, error.category ?? 'unknown');
     }
 
     recordCacheHit(): void {
@@ -1572,6 +1587,21 @@ class BrowserMetrics {
             '',
             '# TYPE neutrx_deduplication_hits_total counter',
             `neutrx_deduplication_hits_total ${this.#requests.deduplicated}`,
+            '',
+            '# TYPE neutrx_cache_hits_total counter',
+            `neutrx_cache_hits_total ${this.#requests.cached}`,
+            '',
+            '# TYPE neutrx_retries_total counter',
+            `neutrx_retries_total ${this.#requests.retried}`,
+            '',
+            '# TYPE neutrx_status_total counter',
+            ...Object.entries(this.#byStatus).map(([status, count]) => `neutrx_status_total{status="${prometheusLabel(status)}"} ${count}`),
+            '',
+            '# TYPE neutrx_errors_by_code_total counter',
+            ...Object.entries(this.#errors.byCode).map(([code, count]) => `neutrx_errors_by_code_total{code="${prometheusLabel(code)}"} ${count}`),
+            '',
+            '# TYPE neutrx_errors_total counter',
+            ...Object.entries(this.#errors.byCategory).map(([category, count]) => `neutrx_errors_total{category="${prometheusLabel(category)}"} ${count}`),
         ].join('\n');
     }
 
@@ -1579,7 +1609,7 @@ class BrowserMetrics {
         this.#requests = { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0, deduplicated: 0 };
         this.#durations = [];
         this.#byStatus = {};
-        this.#errors = { byType: {}, byCode: {} };
+        this.#errors = { byType: {}, byCode: {}, byCategory: {} };
     }
 
     destroy(): void {
@@ -2180,6 +2210,10 @@ function quantile(values: readonly number[], pct: number): number {
     if (!values.length) return 0;
     const sorted = [...values].sort((a, b) => a - b);
     return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * pct))] ?? 0;
+}
+
+function prometheusLabel(value: string): string {
+    return value.replace(/\\/gu, '\\\\').replace(/\n/gu, '\\n').replace(/"/gu, '\\"');
 }
 
 function isBlobLike(value: unknown): value is Blob {

@@ -42,6 +42,7 @@ export interface NodeHttp2AdapterOptions {
 interface SessionRecord {
     readonly key: string;
     readonly origin: string;
+    readonly owner?: object;
     readonly session: http2.ClientHttp2Session;
     readonly ready: Promise<void>;
     activeStreams: number;
@@ -213,9 +214,10 @@ export async function http2Adapter(config: InternalRequestConfig, options: NodeH
     });
 }
 
-export function closeHttp2Sessions(): void {
-    for (const record of sessions.values()) record.session.close();
-    sessions.clear();
+export function closeHttp2Sessions(owner?: object): void {
+    for (const [key, record] of sessions) {
+        if (owner === undefined || record.owner === owner) retireSession(key);
+    }
 }
 
 export function getHttp2SessionStats(): Http2SessionStats {
@@ -244,7 +246,7 @@ async function getSession(
     options: NodeHttp2AdapterOptions
 ): Promise<SessionRecord> {
     const rejectUnauthorized = tlsConfig?.rejectUnauthorized ?? config.http2Options?.rejectUnauthorized ?? options.defaults?.security.validateCertificate;
-    const key = sessionKey(origin, tlsConfig, rejectUnauthorized, lookupKey);
+    const key = sessionKey(origin, tlsConfig, rejectUnauthorized, lookupKey, options.security);
     const existing = sessions.get(key);
     if (existing && !existing.session.closed && !existing.session.destroyed) {
         await existing.ready;
@@ -252,15 +254,23 @@ async function getSession(
     }
 
     const maxSessions = positiveInteger(config.http2Options?.maxSessions);
-    if (maxSessions !== undefined && sessions.size >= maxSessions) {
-        const first = sessions.keys().next().value;
-        if (first) retireSession(first);
+    const ownedSessions = [...sessions.values()].filter(record => record.owner === options.security);
+    if (maxSessions !== undefined && ownedSessions.length >= maxSessions) {
+        const first = ownedSessions[0];
+        if (first) retireSession(first.key);
     }
 
     const connectOptions = createConnectOptions(url, config, tlsConfig, lookup, options);
     const session = http2.connect(origin, connectOptions);
     const ready = waitForSessionConnect(session, config, key);
-    const record: SessionRecord = { key, origin, session, ready, activeStreams: 0 };
+    const record: SessionRecord = {
+        key,
+        origin,
+        ...(options.security ? { owner: options.security } : {}),
+        session,
+        ready,
+        activeStreams: 0,
+    };
     sessions.set(key, record);
 
     const sessionTimeout = positiveInteger(config.http2Options?.sessionTimeout);
@@ -441,10 +451,12 @@ function sessionKey(
     origin: string,
     tlsConfig: TlsConfig | undefined,
     rejectUnauthorized: boolean | undefined,
-    lookup: LookupFunction | undefined
+    lookup: LookupFunction | undefined,
+    owner: object | undefined
 ): string {
     return [
         origin,
+        `owner=${owner ? objectId(owner) : 'shared'}`,
         `reject=${String(tlsConfig?.rejectUnauthorized ?? rejectUnauthorized ?? '')}`,
         `servername=${tlsConfig?.servername ?? ''}`,
         `ca=${stableToken(tlsConfig?.ca)}`,

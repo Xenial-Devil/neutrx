@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import net, { type AddressInfo, type Socket } from 'node:net';
 import test from 'node:test';
 import zlib from 'node:zlib';
 import type * as PackageEntry from '../../src/index.js';
@@ -174,6 +174,52 @@ void test('clarified timeout errors expose code, phase, and timeout in JSON', as
     }
 });
 
+void test('connect timeout remains active through a stalled TLS handshake', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const sockets = new Set<Socket>();
+    const server = net.createServer(socket => {
+        sockets.add(socket);
+        socket.once('close', () => sockets.delete(socket));
+    });
+
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            adapter: 'http',
+            baseURL: `https://127.0.0.1:${address.port}`,
+            connectTimeout: 50,
+            timeout: 1000,
+            transitional: { clarifyTimeoutError: true },
+            resilience: { enableRetry: false, enableCircuitBreaker: false, enableBulkhead: false },
+            security: {
+                enforceHTTPS: false,
+                validateCertificate: false,
+                enableSSRFProtection: false,
+                blockPrivateIPs: false,
+            },
+        });
+
+        await assert.rejects(
+            api.get('/stalled-handshake'),
+            error => {
+                const typed = error as Error & { readonly code?: string; readonly toJSON?: () => Record<string, unknown> };
+                const json = typed.toJSON?.() ?? {};
+                assert.equal(typed.code, 'ETIMEDOUT');
+                assert.equal(json.phase, 'connect');
+                assert.equal(json.timeout, 50);
+                assert.match(String(json.message), /Connect timeout after 50ms/u);
+                return true;
+            }
+        );
+    } finally {
+        for (const socket of sockets) socket.destroy();
+        await close(server);
+    }
+});
+
 void test('utility methods configure and inspect an operational client', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const api = Neutrx.create({
@@ -229,13 +275,13 @@ function isAddressInfo(address: string | AddressInfo | null): address is Address
     return address !== null && typeof address === 'object';
 }
 
-function listen(server: http.Server): Promise<void> {
+function listen(server: http.Server | net.Server): Promise<void> {
     return new Promise(resolve => {
         server.listen(0, '127.0.0.1', resolve);
     });
 }
 
-function close(server: http.Server): Promise<void> {
+function close(server: http.Server | net.Server): Promise<void> {
     return new Promise(resolve => {
         server.close(() => resolve());
     });

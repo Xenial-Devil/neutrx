@@ -56,20 +56,36 @@ export default class Deduplicator {
     }
 
     key(config: InternalRequestConfig, options: Pick<DeduplicationDispatchOptions, 'adapterKey' | 'canUseDefaultKey'>): string | null {
-        if (!this.#enabled || !this.#methods.has(config.method) || config.cache === false || config.responseType === 'stream') return null;
+        if (
+            !this.#enabled
+            || !this.#methods.has(config.method)
+            || config.cache === false
+            || config.responseType === 'stream'
+            || config.signal !== undefined
+            || config.cancelToken !== undefined
+        ) return null;
 
         if (this.#key) {
             const customKey = this.#key(config);
             return customKey === undefined || customKey === null || customKey === '' ? null : String(customKey);
         }
 
-        if (!options.canUseDefaultKey) return null;
+        if (!options.canUseDefaultKey || hasCustomTransport(config)) return null;
 
         return JSON.stringify({
             method: config.method,
             socketPath: config.socketPath ?? '',
             url: config.url,
             responseType: config.responseType,
+            timeout: config.timeout,
+            connectTimeout: config.connectTimeout,
+            maxRedirects: config.maxRedirects,
+            maxContentLength: config.maxContentLength,
+            maxBodyLength: config.maxBodyLength,
+            followRedirects: config.followRedirects,
+            httpVersion: config.httpVersion ?? '',
+            http2Options: config.http2Options ?? {},
+            proxy: config.proxy === false ? 'disabled' : '',
             headers: selectedHeaders(config, this.#headers),
             adapter: options.adapterKey,
         });
@@ -105,6 +121,19 @@ function headerToString(value: HeaderValue): string {
 
 function normalizeHeaderNames(names: readonly string[]): readonly string[] {
     return [...new Set(names.map(name => name.toLowerCase()))].sort();
+}
+
+function hasCustomTransport(config: InternalRequestConfig): boolean {
+    return Boolean(
+        config.beforeRedirect
+        || config.fetch
+        || config.httpAgent
+        || config.httpsAgent
+        || config.lookup
+        || (config.proxy !== undefined && config.proxy !== false)
+        || config.tls
+        || config.maxRate !== undefined
+    );
 }
 
 function cloneRawData(data: RawHttpResponse['data']): RawHttpResponse['data'] {

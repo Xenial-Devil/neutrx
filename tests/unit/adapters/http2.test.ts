@@ -86,6 +86,49 @@ void test('HTTP/2 adapter reuses sessions and retires idle sessions after timeou
     }
 });
 
+void test('HTTP/2 sessions are isolated per client and client destroy is scoped', async () => {
+    const { default: Neutrx, getHttp2SessionStats } = await import(builtEntry) as typeof PackageEntry;
+    const server = http2.createServer();
+    let serverSessions = 0;
+
+    server.on('session', () => {
+        serverSessions += 1;
+    });
+    server.on('stream', stream => {
+        stream.respond({ ':status': 200, 'content-type': 'application/json' });
+        stream.end(JSON.stringify({ ok: true }));
+    });
+
+    await listenHttp2(server);
+    const address = server.address();
+    assert.ok(isAddressInfo(address));
+    const origin = `http://127.0.0.1:${address.port}`;
+    const config = {
+        baseURL: origin,
+        httpVersion: 2 as const,
+        security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+    };
+    const first = Neutrx.create(config);
+    const second = Neutrx.create(config);
+
+    try {
+        await first.get('/first');
+        await second.get('/second');
+        assert.equal(serverSessions, 2);
+        assert.equal(getHttp2SessionStats().origins[origin]?.sessionCount, 2);
+
+        first.destroy();
+        assert.equal(getHttp2SessionStats().origins[origin]?.sessionCount, 1);
+
+        await second.get('/still-open');
+        assert.equal(serverSessions, 2);
+    } finally {
+        first.destroy();
+        second.destroy();
+        await closeHttp2(server);
+    }
+});
+
 void test('HTTP/2 adapter supports stream download progress', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const payload = Buffer.alloc(32 * 1024, 'd');

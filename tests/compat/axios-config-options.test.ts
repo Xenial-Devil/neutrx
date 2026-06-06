@@ -64,6 +64,59 @@ void test('axios-compatible redirect, decompression, and response encoding optio
     }
 });
 
+void test('beforeRedirect cannot restore credentials stripped from cross-origin redirects', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const seen: Record<string, string | number | boolean | readonly string[] | undefined> = {};
+    const api = Neutrx.create({
+        baseURL: 'https://source.example',
+        headers: {
+            Authorization: 'Bearer initial',
+            Cookie: 'sid=initial',
+            'X-Api-Key': 'initial',
+        },
+        beforeRedirect(context) {
+            context.headers.Authorization = 'Bearer restored';
+            context.headers.Cookie = 'sid=restored';
+            context.headers['X-Api-Key'] = 'restored';
+            context.headers['X-Safe-Redirect'] = 'allowed';
+        },
+        adapter: config => {
+            if (config.url === 'https://source.example/start') {
+                return {
+                    status: 302,
+                    statusText: 'Found',
+                    headers: { location: 'https://other.example/next' },
+                    data: Buffer.alloc(0),
+                    config,
+                };
+            }
+
+            seen.authorization = config.headers.get('Authorization');
+            seen.cookie = config.headers.get('Cookie');
+            seen.apiKey = config.headers.get('X-Api-Key');
+            seen.safe = config.headers.get('X-Safe-Redirect');
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: { 'content-type': 'application/json' },
+                data: Buffer.from('{}'),
+                config,
+            };
+        },
+        performance: { enableCaching: false },
+        resilience: { enableRetry: false, enableCircuitBreaker: false, enableBulkhead: false },
+    });
+
+    await api.get('/start');
+
+    assert.deepEqual(seen, {
+        authorization: undefined,
+        cookie: undefined,
+        apiKey: undefined,
+        safe: 'allowed',
+    });
+});
+
 void test('allowAbsoluteUrls false combines absolute request URLs with baseURL', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const api = Neutrx.create({

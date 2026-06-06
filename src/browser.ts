@@ -22,6 +22,7 @@ export {
     NeutrxTimeoutError,
     NeutrxValidationError,
     isNeutrxError,
+    toStructuredError,
 } from './core/NeutrxError.js';
 export { default as BrowserClient, default as NeutrxClient } from './core/BrowserClient.js';
 export { Cancel, CancelToken, isCancel } from './core/cancel.js';
@@ -72,6 +73,7 @@ export type {
     MaxRate,
     MaybePromise,
     NeutrxAdapter,
+    NeutrxErrorCategory,
     NeutrxLogger,
     NeutrxLogValue,
     NeutrxRequestConfig,

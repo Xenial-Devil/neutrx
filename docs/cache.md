@@ -53,6 +53,8 @@ Cache strategies:
 
 The default deduplication key includes method, final URL with serialized params, response type, adapter, socket path, and selected headers (`Accept`, `Authorization`, and `Range`). Coalescing methods beyond `GET` and `HEAD` is opt-in; include an idempotency key or another application-safe discriminator in `deduplicateRequestKey` when enabling it.
 
+Requests with cancellation signals are never deduplicated, and requests with non-keyable transport overrides are not deduplicated by the default key. This keeps one caller's cancellation, proxy, TLS, agent, lookup, redirect hook, fetch implementation, or bandwidth controls from changing another caller's request. Keyable timeout, redirect-limit, response-limit, proxy-disable, and HTTP/2 settings are included in the default key. Use a custom `deduplicateRequestKey` only when other transport differences are intentionally equivalent.
+
 Custom adapter shape:
 
 ```ts

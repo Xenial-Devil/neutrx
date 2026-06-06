@@ -64,6 +64,8 @@ function validationError(phase: 'request' | 'response', config: InternalRequestC
         url: config.url,
         method: config.method,
         requestId: config.requestId,
+        ...(config.traceContext ? { traceContext: config.traceContext } : {}),
+        cause: error,
     });
 }
 

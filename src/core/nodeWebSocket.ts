@@ -122,7 +122,9 @@ class NodeWebSocketConnection<TMessage, TSend extends NeutrxWebSocketMessage> im
             this.#request = undefined;
             if (!this.#isValidUpgrade(response.headers, key)) {
                 socket.destroy();
-                this.#handleError(new NeutrxSecurityError('Invalid WebSocket upgrade response', { code: 'WEBSOCKET_UPGRADE_FAILED' }));
+                const error = new NeutrxSecurityError('Invalid WebSocket upgrade response', { code: 'WEBSOCKET_UPGRADE_FAILED' });
+                this.#handleError(error);
+                this.#notifyClose(CLOSE_ABNORMAL, '', false);
                 return;
             }
 
@@ -141,7 +143,9 @@ class NodeWebSocketConnection<TMessage, TSend extends NeutrxWebSocketMessage> im
 
         request.once('response', response => {
             response.resume();
-            this.#handleError(new NeutrxSecurityError(`WebSocket upgrade failed with HTTP ${response.statusCode ?? 0}`, { code: 'WEBSOCKET_UPGRADE_FAILED' }));
+            const error = new NeutrxSecurityError(`WebSocket upgrade failed with HTTP ${response.statusCode ?? 0}`, { code: 'WEBSOCKET_UPGRADE_FAILED' });
+            this.#handleError(error);
+            this.#notifyClose(CLOSE_ABNORMAL, '', false);
         });
 
         request.once('error', error => {
@@ -197,7 +201,7 @@ class NodeWebSocketConnection<TMessage, TSend extends NeutrxWebSocketMessage> im
 
         const requestedProtocols = protocolList(this.#options.protocols);
         const selectedProtocol = headerToString(headers['sec-websocket-protocol']).trim();
-        return !selectedProtocol || requestedProtocols.length === 0 || requestedProtocols.includes(selectedProtocol);
+        return !selectedProtocol || requestedProtocols.includes(selectedProtocol);
     }
 
     #handleData(chunk: Buffer): void {

@@ -152,6 +152,49 @@ void test('deduplicateRequests skips POST by default and supports explicit custo
     }
 });
 
+void test('deduplicateRequests keeps cancellation and timeout policies isolated', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    let calls = 0;
+    const server = http.createServer((_request, response) => {
+        calls += 1;
+        setTimeout(() => {
+            response.setHeader('content-type', 'application/json');
+            response.end(JSON.stringify({ ok: true }));
+        }, 30);
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            performance: { enableCaching: false, deduplicateRequests: true },
+            resilience: { enableRetry: false },
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+        const firstController = new AbortController();
+        const secondController = new AbortController();
+
+        await Promise.all([
+            api.get('/signals', { signal: firstController.signal }),
+            api.get('/signals', { signal: secondController.signal }),
+        ]);
+        assert.equal(calls, 2);
+
+        const timeoutResults = await Promise.allSettled([
+            api.get('/timeouts', { timeout: 5 }),
+            api.get('/timeouts', { timeout: 1000 }),
+        ]);
+        assert.equal(timeoutResults[0]?.status, 'rejected');
+        assert.equal(timeoutResults[1]?.status, 'fulfilled');
+        assert.equal(calls, 4);
+        assert.equal(api.getMetrics().requests.deduplicated, 0);
+    } finally {
+        await close(server);
+    }
+});
+
 function isAddressInfo(address: string | AddressInfo | null): address is AddressInfo {
     return address !== null && typeof address === 'object';
 }

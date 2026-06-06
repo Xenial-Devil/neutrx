@@ -25,6 +25,7 @@ export interface MetricsSnapshot {
     readonly errors: {
         readonly byType: Record<string, number>;
         readonly byCode: Record<string, number>;
+        readonly byCategory: Record<string, number>;
     };
     readonly summary: {
         readonly total: number;
@@ -42,7 +43,7 @@ interface MutableMetrics {
     performance: { min: number; max: number; avg: number; total: number; p50: number; p90: number; p95: number; p99: number };
     byStatus: Record<string, number>;
     byEndpoint: Record<string, EndpointMetrics>;
-    errors: { byType: Record<string, number>; byCode: Record<string, number> };
+    errors: { byType: Record<string, number>; byCode: Record<string, number>; byCategory: Record<string, number> };
 }
 
 interface EndpointMetrics {
@@ -83,11 +84,12 @@ export default class MetricsCollector extends EventEmitter {
         this.#endpoint(url, duration, true);
     }
 
-    recordError(url: string, error: Error & { readonly code?: string }): void {
+    recordError(url: string, error: Error & { readonly code?: string; readonly category?: string }): void {
         this.#metrics.requests.errors += 1;
         this.#metrics.requests.total += 1;
         this.#inc(this.#metrics.errors.byType, error.name);
         this.#inc(this.#metrics.errors.byCode, error.code ?? 'UNKNOWN');
+        this.#inc(this.#metrics.errors.byCategory, error.category ?? 'unknown');
         this.#endpoint(url, null, false);
         this.emit('error:recorded', { url, error });
     }
@@ -145,6 +147,21 @@ export default class MetricsCollector extends EventEmitter {
             '',
             '# TYPE neutrx_deduplication_hits_total counter',
             `neutrx_deduplication_hits_total ${metrics.requests.deduplicated}`,
+            '',
+            '# TYPE neutrx_cache_hits_total counter',
+            `neutrx_cache_hits_total ${metrics.requests.cached}`,
+            '',
+            '# TYPE neutrx_retries_total counter',
+            `neutrx_retries_total ${metrics.requests.retried}`,
+            '',
+            '# TYPE neutrx_status_total counter',
+            ...Object.entries(metrics.byStatus).map(([status, count]) => `neutrx_status_total{status="${prometheusLabel(status)}"} ${count}`),
+            '',
+            '# TYPE neutrx_errors_by_code_total counter',
+            ...Object.entries(metrics.errors.byCode).map(([code, count]) => `neutrx_errors_by_code_total{code="${prometheusLabel(code)}"} ${count}`),
+            '',
+            '# TYPE neutrx_errors_total counter',
+            ...Object.entries(metrics.errors.byCategory).map(([category, count]) => `neutrx_errors_total{category="${prometheusLabel(category)}"} ${count}`),
         ].join('\n');
     }
 
@@ -163,7 +180,7 @@ export default class MetricsCollector extends EventEmitter {
             performance: { min: 0, max: 0, avg: 0, total: 0, p50: 0, p90: 0, p95: 0, p99: 0 },
             byStatus: {},
             byEndpoint: {},
-            errors: { byType: {}, byCode: {} },
+            errors: { byType: {}, byCode: {}, byCategory: {} },
         };
     }
 
@@ -218,4 +235,8 @@ export default class MetricsCollector extends EventEmitter {
     #inc(target: Record<string, number>, key: string): void {
         target[key] = (target[key] ?? 0) + 1;
     }
+}
+
+function prometheusLabel(value: string): string {
+    return value.replace(/\\/gu, '\\\\').replace(/\n/gu, '\\n').replace(/"/gu, '\\"');
 }

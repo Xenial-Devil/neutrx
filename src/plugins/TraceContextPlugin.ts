@@ -38,7 +38,7 @@ export function createTraceContextPlugin(options: TraceContextPluginOptions = {}
                     else headers.setIfUnset(name, value);
                 }
 
-                return { ...config, headers };
+                return { ...config, headers, traceContext: context };
             });
         },
     };

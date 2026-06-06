@@ -24,6 +24,7 @@ import { createNativeWebSocketConnection, webSocketRequestConfig, webSocketUrl }
 import {
     NeutrxErrorFactory,
     NeutrxSecurityError,
+    isNeutrxError,
 } from './NeutrxError.js';
 import {
     applyRequestTransforms,
@@ -85,6 +86,7 @@ import type {
     RetryContext,
     SchemaResponseData,
     SseHandle,
+    TraceContext,
     ValidationPluginConfig,
 } from '../types.js';
 
@@ -468,6 +470,8 @@ export default class NeutrxClient extends EventEmitter {
         let circuitChecked = false;
         let cacheConfig: InternalRequestConfig | null = null;
         let span: Awaited<ReturnType<OpenTelemetryInstrumentation['start']>>['span'] = null;
+        let traceContext: TraceContext | undefined;
+        let trackedMethod = typeof config.method === 'string' ? config.method.toUpperCase() : 'GET';
         let retryCount = 0;
         this.#metrics.recordStart();
 
@@ -476,13 +480,17 @@ export default class NeutrxClient extends EventEmitter {
             trackedUrl = rc.url;
             const telemetry = await this.#otel.start(rc);
             span = telemetry.span;
+            traceContext = telemetry.traceContext;
+            if (traceContext) rc = { ...rc, traceContext };
             if (Object.keys(telemetry.carrier).length > 0) {
                 rc = { ...rc, headers: mergeCarrierHeaders(rc, telemetry.carrier) };
             }
 
             rc = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', rc));
+            traceContext = rc.traceContext ?? traceContext;
+            trackedMethod = rc.method;
             if (rc.mockResponse) {
-                const response = rc.mockResponse as NeutrxResponse<TData>;
+                const response = withTraceContext(rc.mockResponse as NeutrxResponse<TData>, traceContext);
                 this.#otel.finish(span, response, {
                     retries: 0,
                     cacheHit: false,
@@ -533,6 +541,7 @@ export default class NeutrxClient extends EventEmitter {
             const { result: response, attempts } = await this.#retryEngine.execute(
                 async (attempt): Promise<NeutrxResponse<TData>> => {
                     retryCount = attempt;
+                    this.#otel.recordAttempt(span, attempt);
                     if (attempt > 0) this.#metrics.recordRetry(rc.url, attempt);
                     const raw = await this.#bulkhead.execute(domain, () => this.#dispatchDeduped(rc));
                     return this.#parse<TData>(raw, rc);
@@ -572,6 +581,13 @@ export default class NeutrxClient extends EventEmitter {
             const normalized = normalizeError(error) as Error & { requestId?: string; duration?: number; code?: string };
             normalized.requestId = requestId;
             normalized.duration = Date.now() - t0;
+            if (isNeutrxError(normalized)) {
+                normalized.requestId = requestId;
+                normalized.duration = Date.now() - t0;
+                if (!normalized.traceContext && traceContext) normalized.traceContext = traceContext;
+                normalized.url ??= trackedUrl;
+                normalized.method ??= trackedMethod;
+            }
             if (cacheConfig) {
                 const stale = this.#cache.usesNetworkFirst()
                     ? this.#cache.getNetworkFallback(cacheConfig)
@@ -779,7 +795,7 @@ export default class NeutrxClient extends EventEmitter {
     destroy(): void {
         this.#agents.http.destroy();
         this.#agents.https.destroy();
-        closeHttp2Sessions();
+        closeHttp2Sessions(this.#security);
         this.#deduplicator.clear();
         this.#cache.destroy();
         this.#metrics.destroy();
@@ -837,7 +853,16 @@ export default class NeutrxClient extends EventEmitter {
             : { ...config, url: redirectUrl, method: redirectedMethod, headers, hops };
 
         await config.beforeRedirect?.(buildRedirectContext(raw.status, location, config.url, redirectUrl, redirectedConfig.headers));
-        return this.#dispatchWithRedirects(redirectedConfig, adapter);
+        const securedHeaders = stripRedirectHeaders(
+            redirectedConfig.headers,
+            config.url,
+            redirectUrl,
+            redirectedMethod !== config.method
+        );
+        for (const [key, value] of NeutrxHeaders.from(securedHeaders)) {
+            this.#security.validateHeader(key, value);
+        }
+        return this.#dispatchWithRedirects({ ...redirectedConfig, headers: securedHeaders }, adapter);
     }
 
     async #dispatchDeduped(config: InternalRequestConfig): Promise<RawHttpResponse> {
@@ -963,6 +988,7 @@ export default class NeutrxClient extends EventEmitter {
             ...(raw.request ? { request: raw.request } : {}),
             timing: { duration: Date.now() - config.startTime },
             requestId: config.requestId,
+            ...(config.traceContext ? { traceContext: config.traceContext } : {}),
             ...(raw.deduplicated ? { deduplicated: true } : {}),
         };
 
@@ -1072,8 +1098,9 @@ export default class NeutrxClient extends EventEmitter {
         let config = await this.#buildRC(webSocketRequestConfig(url, options, defaults.baseURL), this.#id());
         config = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', config));
         config = toInternalRequestConfig(this.#security.validateRequest(config));
-        this.#rateLimiter.checkLimit(config.url);
         config = toInternalRequestConfig(await this.#interceptors.runRequest(config));
+        config = toInternalRequestConfig(this.#security.validateRequest(config));
+        this.#rateLimiter.checkLimit(config.url);
         return {
             ...config,
             url: webSocketUrl(config.url),
@@ -1204,6 +1231,13 @@ function mergeCarrierHeaders(config: InternalRequestConfig, carrier: Record<stri
         else headers.setIfUnset(name, value);
     }
     return toInternalHeaders(headers);
+}
+
+function withTraceContext<TData extends ParsedResponseData>(
+    response: NeutrxResponse<TData>,
+    traceContext: TraceContext | undefined
+): NeutrxResponse<TData> {
+    return traceContext ? { ...response, traceContext } : response;
 }
 
 function toInternalRequestConfig<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {

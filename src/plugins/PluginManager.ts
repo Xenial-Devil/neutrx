@@ -1,6 +1,7 @@
 import type NeutrxClient from '../core/NeutrxClient.js';
 import { NeutrxHeaders } from '../core/headers.js';
 import { validateValue } from '../core/validation.js';
+import { toStructuredError } from '../core/NeutrxError.js';
 import type {
     GraphQLResult,
     HeaderSource,
@@ -10,6 +11,7 @@ import type {
     MockController,
     MockResponse,
     NeutrxResponse,
+    NeutrxLogValue,
     OAuth2Config,
     ParsedResponseData,
     ValidationPluginConfig,
@@ -322,34 +324,21 @@ export const LogPlugin: NeutrxPlugin = {
             client.logger?.info?.({
                 requestId: response.requestId,
                 method: response.config.method,
-                url: response.config.url,
+                url: safeUrl(response.config.url),
                 status: response.status,
                 duration: response.timing.duration,
                 attempts: response.attempts?.length ?? 1,
                 cached: response.cached,
                 stale: response.stale,
                 deduplicated: response.deduplicated,
+                traceId: response.traceContext?.traceId,
+                spanId: response.traceContext?.spanId,
             });
             return response;
         });
 
         client.addPluginHook('onError', error => {
-            const details = error as Error & {
-                readonly code?: string;
-                readonly requestId?: string;
-                readonly url?: string | null;
-                readonly method?: string | null;
-                readonly duration?: number;
-            };
-            client.logger?.error?.({
-                requestId: details.requestId,
-                code: details.code,
-                name: details.name,
-                message: details.message,
-                url: details.url ?? undefined,
-                method: details.method ?? undefined,
-                duration: details.duration,
-            });
+            client.logger?.error?.(toStructuredError(error) as Record<string, NeutrxLogValue>);
             return error;
         });
     },
@@ -392,4 +381,16 @@ function withoutData(config: InternalRequestConfig): InternalRequestConfig {
 
 function withData(config: InternalRequestConfig, data: unknown): InternalRequestConfig {
     return { ...config, data } as InternalRequestConfig;
+}
+
+function safeUrl(value: string): string {
+    try {
+        const url = new URL(value);
+        url.username = '';
+        url.password = '';
+        url.search = '';
+        return url.href;
+    } catch {
+        return value.split('?')[0] ?? value;
+    }
 }

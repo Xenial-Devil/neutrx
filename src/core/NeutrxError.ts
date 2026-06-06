@@ -1,15 +1,18 @@
-import type { Headers, NeutrxResponse, ValidationIssue } from '../types.js';
+import type { Headers, NeutrxErrorCategory, NeutrxResponse, TraceContext, ValidationIssue } from '../types.js';
 
 const REDACTION = '[REDACTED]';
 const SENSITIVE_KEY_RE = /(?:^|[-_.])(authorization|cookie|set-cookie|proxy-authorization|token|access-token|refresh-token|secret|password|passwd|api-key|apikey|client-secret|idempotency-key)(?:$|[-_.])/i;
 
 export interface NeutrxErrorOptions {
     readonly code?: string;
+    readonly category?: NeutrxErrorCategory;
     readonly requestId?: string | null;
     readonly url?: string | null;
     readonly method?: string | null;
     readonly retryable?: boolean;
     readonly context?: Record<string, string | number | boolean | null | undefined>;
+    readonly traceContext?: TraceContext;
+    readonly cause?: unknown;
     readonly errno?: string | number | null;
     readonly syscall?: string | null;
     readonly timeout?: number;
@@ -24,24 +27,28 @@ export function axiosTimeoutErrorCode(transitional?: { readonly clarifyTimeoutEr
 export class NeutrxError extends Error {
     readonly __isNeutrxError!: true;
     code: string;
+    category: NeutrxErrorCategory;
     timestamp: string;
     requestId: string | null;
     url: string | null;
     method: string | null;
     retryable: boolean;
     context: Record<string, string | number | boolean | null | undefined>;
+    traceContext?: TraceContext;
     duration?: number;
 
     constructor(message: string, options: NeutrxErrorOptions = {}) {
-        super(message);
+        super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
         this.name = this.constructor.name;
         this.code = options.code ?? 'NEUTRX_ERROR';
+        this.category = options.category ?? 'unknown';
         this.timestamp = new Date().toISOString();
         this.requestId = options.requestId ?? null;
         this.url = options.url ?? null;
         this.method = options.method ?? null;
         this.retryable = options.retryable ?? false;
         this.context = options.context ?? {};
+        if (options.traceContext) this.traceContext = options.traceContext;
         Object.defineProperty(this, '__isNeutrxError', {
             value: true,
             enumerable: false,
@@ -60,6 +67,7 @@ export class NeutrxError extends Error {
         return {
             name: this.name,
             code: this.code,
+            category: this.category,
             message: redactText(this.message),
             timestamp: this.timestamp,
             requestId: this.requestId,
@@ -67,7 +75,10 @@ export class NeutrxError extends Error {
             method: this.method,
             retryable: this.retryable,
             duration: this.duration,
+            traceId: this.traceContext?.traceId ?? null,
+            spanId: this.traceContext?.spanId ?? null,
             context: redactUnknown(this.context),
+            ...(this.cause !== undefined ? { cause: serializeCause(this.cause) } : {}),
         };
     }
 
@@ -84,12 +95,48 @@ export function isNeutrxError(error: unknown): error is NeutrxError {
     );
 }
 
+export function toStructuredError(error: unknown): Record<string, unknown> {
+    if (isNeutrxError(error)) return error.toJSON();
+    if (error instanceof Error) {
+        const details = error as Error & {
+            readonly code?: unknown;
+            readonly requestId?: unknown;
+            readonly url?: unknown;
+            readonly method?: unknown;
+            readonly duration?: unknown;
+            readonly retryable?: unknown;
+            readonly traceContext?: TraceContext;
+        };
+        return {
+            name: error.name,
+            code: typeof details.code === 'string' ? details.code : 'UNKNOWN',
+            category: inferErrorCategory(error),
+            message: redactText(error.message),
+            requestId: typeof details.requestId === 'string' ? details.requestId : null,
+            url: typeof details.url === 'string' ? redactUrl(details.url) : null,
+            method: typeof details.method === 'string' ? details.method : null,
+            retryable: details.retryable === true,
+            duration: typeof details.duration === 'number' ? details.duration : undefined,
+            traceId: details.traceContext?.traceId ?? null,
+            spanId: details.traceContext?.spanId ?? null,
+            ...(error.cause !== undefined ? { cause: serializeCause(error.cause) } : {}),
+        };
+    }
+    return {
+        name: 'UnknownError',
+        code: 'UNKNOWN',
+        category: 'unknown',
+        message: redactText(String(error)),
+        retryable: false,
+    };
+}
+
 export class NeutrxNetworkError extends NeutrxError {
     errno: string | number | null;
     syscall: string | null;
 
     constructor(message: string, options: NeutrxErrorOptions = {}) {
-        super(message, { ...options, code: options.code ?? 'NETWORK_ERROR', retryable: true });
+        super(message, { ...options, code: options.code ?? 'NETWORK_ERROR', category: options.category ?? 'network', retryable: true });
         this.errno = options.errno ?? null;
         this.syscall = options.syscall ?? null;
     }
@@ -130,7 +177,7 @@ export class NeutrxTimeoutError extends NeutrxError {
     phase: string;
 
     constructor(message: string, options: NeutrxErrorOptions = {}) {
-        super(message, { ...options, code: options.code ?? 'TIMEOUT', retryable: true });
+        super(message, { ...options, code: options.code ?? 'TIMEOUT', category: options.category ?? 'timeout', retryable: true });
         this.timeout = options.timeout ?? null;
         this.phase = options.phase ?? 'request';
     }
@@ -170,7 +217,7 @@ export class NeutrxSecurityError extends NeutrxError {
     severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
     constructor(message: string, options: NeutrxErrorOptions = {}) {
-        super(message, { ...options, code: options.code ?? 'SECURITY_VIOLATION', retryable: false });
+        super(message, { ...options, code: options.code ?? 'SECURITY_VIOLATION', category: options.category ?? 'security', retryable: false });
         this.severity = options.severity ?? 'HIGH';
     }
 
@@ -289,9 +336,18 @@ export class NeutrxHTTPError extends NeutrxError {
     retryAfter: HeaderValueAsString | null;
 
     constructor(response: NeutrxResponse, options: NeutrxErrorOptions = {}) {
+        const traceContext = options.traceContext ?? response.traceContext ?? response.config.traceContext;
         super(
             `HTTP ${response.status} ${response.statusText}: ${response.config.url}`,
-            { ...options, code: `HTTP_${response.status}`, url: response.config.url, method: response.config.method }
+            {
+                ...options,
+                code: `HTTP_${response.status}`,
+                category: options.category ?? 'http',
+                requestId: options.requestId ?? response.requestId,
+                url: response.config.url,
+                method: response.config.method,
+                ...(traceContext ? { traceContext } : {}),
+            }
         );
         this.status = response.status;
         this.statusText = response.statusText;
@@ -338,6 +394,7 @@ export class NeutrxCircuitBreakerError extends NeutrxError {
         super(`Circuit open for ${url}. Retry after ${retryAfterMs}ms`, {
             ...options,
             code: 'CIRCUIT_OPEN',
+            category: options.category ?? 'resilience',
             retryable: false,
         });
         this.retryAfter = retryAfterMs;
@@ -359,7 +416,9 @@ export class NeutrxMaxRetriesError extends NeutrxError {
         super(`Max retries (${attempts}) exceeded: ${url ?? 'unknown URL'}`, {
             ...options,
             code: 'MAX_RETRIES_EXCEEDED',
+            category: options.category ?? 'resilience',
             retryable: false,
+            cause: options.cause ?? lastError,
         });
         this.attempts = attempts;
         this.lastError = lastError;
@@ -381,6 +440,7 @@ export class NeutrxBulkheadError extends NeutrxError {
         super(`Bulkhead limit (${limit}) reached: ${domain}`, {
             ...options,
             code: 'BULKHEAD_FULL',
+            category: options.category ?? 'resilience',
             retryable: true,
         });
         this.limit = limit;
@@ -402,6 +462,7 @@ export class NeutrxResponseSizeError extends NeutrxError {
         super(`Response size ${size}b exceeds limit ${limit}b`, {
             ...options,
             code: 'RESPONSE_TOO_LARGE',
+            category: options.category ?? 'limits',
             retryable: false,
         });
         this.size = size;
@@ -425,6 +486,7 @@ export class NeutrxRequestSizeError extends NeutrxError {
         super(`Request body size ${size}b exceeds limit ${limit}b`, {
             ...options,
             code: 'REQUEST_TOO_LARGE',
+            category: options.category ?? 'limits',
             retryable: false,
         });
         this.size = size;
@@ -449,6 +511,7 @@ export class NeutrxValidationError extends NeutrxError {
         super(`${capitalize(phase)} validation failed${summary ? `: ${summary}` : ''}`, {
             ...options,
             code: phase === 'request' ? 'REQUEST_VALIDATION_FAILED' : 'RESPONSE_VALIDATION_FAILED',
+            category: options.category ?? 'validation',
             retryable: false,
             context: {
                 ...options.context,
@@ -489,6 +552,7 @@ export class NeutrxErrorFactory {
             context: { errno: nodeError.errno, syscall: nodeError.syscall },
             errno: nodeError.errno ?? null,
             syscall: nodeError.syscall ?? null,
+            cause: nodeError,
         };
 
         switch (nodeError.code) {
@@ -587,13 +651,33 @@ function isSensitiveKey(key: string): boolean {
 }
 
 function serializeNestedError(error: Error): Record<string, unknown> {
-    if (isNeutrxError(error)) return error.toJSON();
     const maybeCode = (error as { readonly code?: unknown }).code;
     return {
         name: error.name,
         message: redactText(error.message),
         ...(typeof maybeCode === 'string' || typeof maybeCode === 'number' ? { code: maybeCode } : {}),
+        ...(isNeutrxError(error) ? {
+            category: error.category,
+            requestId: error.requestId,
+            retryable: error.retryable,
+            traceId: error.traceContext?.traceId ?? null,
+            spanId: error.traceContext?.spanId ?? null,
+        } : {}),
     };
+}
+
+function serializeCause(cause: unknown): unknown {
+    if (cause instanceof Error) return serializeNestedError(cause);
+    return redactUnknown(cause);
+}
+
+function inferErrorCategory(error: Error): NeutrxErrorCategory {
+    const code = (error as { readonly code?: unknown }).code;
+    if (typeof code === 'string') {
+        if (code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code.includes('TIMEOUT')) return 'timeout';
+        if (/^(?:EAI_|EADDR|ECONN|EHOST|ENET|ENOTFOUND|EPIPE|ERR_NETWORK)/u.test(code)) return 'network';
+    }
+    return 'unknown';
 }
 
 function summarizeIssues(issues: readonly ValidationIssue[]): string {

@@ -360,14 +360,17 @@ Built-in plugins:
 - `WebSocketPlugin`
 - `LogPlugin`
 - `OtelPlugin`
+- `TraceContextPlugin`
 
 `ValidationPlugin` reads `config.validation.request` before dispatch and `config.validation.response` after parsing. Use the first-class `schema` option for normal response validation; use the plugin when request-body validation or central plugin hooks are needed. Validators may be functions or schema-like objects with `safeParse`, `parse`, `validate`, or TypeBox-style `Check`/`Errors`. Failures throw `NeutrxValidationError`.
 
 `WebSocketPlugin` is retained as a compatibility plugin; `api.ws(url, options)` is available directly on clients.
 
-`LogPlugin` writes structured request success and error entries to any logger installed with `api.setLogger(logger)`.
+`LogPlugin` writes structured request success and error entries to any logger installed with `api.setLogger(logger)`. Success URLs omit query strings; error entries use the redacted `toStructuredError()` representation.
 
-`OtelPlugin` enables the built-in OpenTelemetry bridge through `api.use(OtelPlugin)` without adding a runtime dependency to Neutrx.
+`OtelPlugin` enables the built-in OpenTelemetry bridge through `api.use(OtelPlugin)` without adding a runtime dependency to Neutrx. It creates a client span, propagates that span's context, records retry-attempt events, and attaches safe HTTP and Neutrx attributes.
+
+`TraceContextPlugin` provides dependency-free W3C Trace Context and B3 propagation. The resolved identity is available on `response.traceContext` and typed errors.
 
 ## Headers
 
@@ -398,3 +401,5 @@ try {
 ```
 
 HTTP failures throw `NeutrxHTTPError` subclasses unless `validateStatus` accepts the status or `throwHttpErrors: false` is set.
+
+Typed errors expose a stable `category`, request and trace identity, retryability, and a redacted `toJSON()` representation. `toStructuredError(error)` safely normalizes non-Neutrx errors for structured logging.

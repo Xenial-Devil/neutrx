@@ -72,6 +72,82 @@ void test('OpenTelemetry instrumentation creates spans and propagates trace head
     }
 });
 
+void test('OpenTelemetry propagation uses the client span and exposes trace context with retry events', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const traceId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const spanId = 'bbbbbbbbbbbbbbbb';
+    const traceparent = `00-${traceId}-${spanId}-01`;
+    const activeContext = { name: 'parent' };
+    const events: Array<{ readonly name: string; readonly attempt?: string | number | boolean }> = [];
+    let adapterCalls = 0;
+
+    const span = {
+        setAttribute: () => undefined,
+        addEvent: (name: string, attributes?: Record<string, string | number | boolean>) => {
+            const attempt = attributes?.['neutrx.retry.attempt'];
+            events.push({ name, ...(attempt !== undefined ? { attempt } : {}) });
+        },
+        setStatus: () => undefined,
+        spanContext: () => ({ traceId, spanId, traceFlags: 1 }),
+        end: () => undefined,
+    };
+
+    (globalThis as OTelGlobal).__NEUTRX_OTEL_API__ = {
+        trace: {
+            getTracer: () => ({ startSpan: () => span }),
+            setSpan: (context: unknown, currentSpan: unknown) => {
+                assert.equal(context, activeContext);
+                assert.equal(currentSpan, span);
+                return { currentSpan };
+            },
+        },
+        propagation: {
+            inject: (context: unknown, carrier: Record<string, string>) => {
+                assert.deepEqual(context, { currentSpan: span });
+                carrier.traceparent = traceparent;
+            },
+        },
+        context: { active: () => activeContext },
+        SpanStatusCode: { ERROR: 2, OK: 1 },
+    };
+
+    try {
+        const api = Neutrx.create({
+            instrumentation: { openTelemetry: true, propagateTraceHeaders: true },
+            resilience: {
+                enableCircuitBreaker: false,
+                enableBulkhead: false,
+                maxRetries: 1,
+                retryDelay: 0,
+                retryJitter: false,
+            },
+            performance: { enableCaching: false },
+            adapter: config => {
+                adapterCalls += 1;
+                if (adapterCalls === 1) throw Object.assign(new Error('reset'), { code: 'ECONNRESET' });
+                return {
+                    status: 200,
+                    statusText: 'OK',
+                    headers: { 'content-type': 'application/json' },
+                    data: Buffer.from(JSON.stringify({ traceparent: config.headers.traceparent })),
+                    config,
+                };
+            },
+        });
+
+        const response = await api.get('https://api.example.com/retry');
+
+        assert.deepEqual(response.data, { traceparent });
+        assert.deepEqual(response.traceContext, { traceId, spanId, sampled: true });
+        assert.deepEqual(events, [
+            { name: 'neutrx.request.attempt', attempt: 0 },
+            { name: 'neutrx.request.attempt', attempt: 1 },
+        ]);
+    } finally {
+        delete (globalThis as OTelGlobal).__NEUTRX_OTEL_API__;
+    }
+});
+
 void test('OpenTelemetry instrumentation records safe sizes and service endpoint metadata', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const attributes: Record<string, string | number | boolean> = {};
@@ -250,6 +326,11 @@ void test('OpenTelemetry propagation respects user trace headers unless overwrit
         });
 
         assert.deepEqual(preserved.data, { traceparent: userTraceparent });
+        assert.deepEqual(preserved.traceContext, {
+            traceId: '11111111111111111111111111111111',
+            spanId: '2222222222222222',
+            sampled: false,
+        });
         assert.deepEqual(overwritten.data, { traceparent: otelTraceparent });
     } finally {
         delete (globalThis as OTelGlobal).__NEUTRX_OTEL_API__;

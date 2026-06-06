@@ -1,10 +1,17 @@
-import type { HeaderValue, InternalRequestConfig, NeutrxResponse, ParsedResponseData } from '../types.js';
+import type { HeaderValue, InternalRequestConfig, NeutrxResponse, ParsedResponseData, TraceContext } from '../types.js';
 import { getHeader, headerToString } from '../core/headers.js';
+import { isNeutrxError } from '../core/NeutrxError.js';
 
 type SpanLike = {
     setAttribute(name: string, value: string | number | boolean): void;
+    addEvent?(name: string, attributes?: Record<string, string | number | boolean>): void;
     recordException?(error: Error): void;
     setStatus?(status: { readonly code: number; readonly message?: string }): void;
+    spanContext?(): {
+        readonly traceId: string;
+        readonly spanId: string;
+        readonly traceFlags: number;
+    };
     end(): void;
 };
 
@@ -13,7 +20,10 @@ type TracerLike = {
 };
 
 type OpenTelemetryApiLike = {
-    trace?: { readonly getTracer?: (name: string) => TracerLike };
+    trace?: {
+        readonly getTracer?: (name: string) => TracerLike;
+        readonly setSpan?: (context: unknown, span: SpanLike) => unknown;
+    };
     propagation?: { readonly inject?: (context: unknown, carrier: Record<string, string>) => void };
     context?: { readonly active?: () => unknown };
     SpanStatusCode?: { readonly ERROR?: number; readonly OK?: number };
@@ -36,7 +46,11 @@ export class OpenTelemetryInstrumentation {
     #api: OpenTelemetryApiLike | null | undefined;
     #ended = new WeakSet<SpanLike>();
 
-    async start(config: InternalRequestConfig): Promise<{ readonly span: SpanLike | null; readonly carrier: Record<string, string> }> {
+    async start(config: InternalRequestConfig): Promise<{
+        readonly span: SpanLike | null;
+        readonly carrier: Record<string, string>;
+        readonly traceContext?: TraceContext;
+    }> {
         if (!config.instrumentation?.openTelemetry) return { span: null, carrier: {} };
 
         const api = await this.#loadApi();
@@ -44,13 +58,30 @@ export class OpenTelemetryInstrumentation {
         const attributes = requestAttributes(config);
         const span = tracer?.startSpan(`HTTP ${config.method}`, { attributes }) ?? null;
         for (const [name, value] of Object.entries(attributes)) span?.setAttribute(name, value);
+        const activeContext = api?.context?.active?.();
+        const propagationContext = span && activeContext !== undefined
+            ? api?.trace?.setSpan?.(activeContext, span) ?? activeContext
+            : activeContext;
 
         const carrier: Record<string, string> = {};
         if (config.instrumentation.propagateTraceHeaders !== false) {
-            api?.propagation?.inject?.(api.context?.active?.(), carrier);
+            api?.propagation?.inject?.(propagationContext, carrier);
         }
 
-        return { span, carrier };
+        const existingTraceContext = config.instrumentation.overwriteTraceHeaders === true
+            ? undefined
+            : traceContextFromTraceparent(
+                headerToString(getHeader(config.headers, 'traceparent')),
+                headerToString(getHeader(config.headers, 'tracestate'))
+            );
+        const traceContext = existingTraceContext ?? traceContextFromSpan(span) ?? traceContextFromCarrier(carrier);
+        return { span, carrier, ...(traceContext ? { traceContext } : {}) };
+    }
+
+    recordAttempt(span: SpanLike | null, attempt: number): void {
+        if (!span) return;
+        span.setAttribute('neutrx.retry.count', attempt);
+        span.addEvent?.('neutrx.request.attempt', { 'neutrx.retry.attempt': attempt });
     }
 
     finish<TData extends ParsedResponseData>(
@@ -80,6 +111,13 @@ export class OpenTelemetryInstrumentation {
         if (!span) return;
         span.recordException?.(error);
         span.setAttribute('error.type', error.name);
+        if (isNeutrxError(error)) {
+            span.setAttribute('neutrx.error.category', error.category);
+            span.setAttribute('neutrx.error.retryable', error.retryable);
+            if (error.requestId) span.setAttribute('neutrx.request.id', error.requestId);
+            const phase = (error as { readonly phase?: unknown }).phase;
+            if (typeof phase === 'string') span.setAttribute('neutrx.error.phase', phase);
+        }
         if (details.retries !== undefined) span.setAttribute('neutrx.retry.count', details.retries);
         if (details.durationMs !== undefined) span.setAttribute('neutrx.request.duration_ms', details.durationMs);
         setOptionalAttribute(span, 'neutrx.circuit_breaker.state', details.circuitState);
@@ -204,4 +242,40 @@ function payloadSize(value: unknown): number | undefined {
 
 function setOptionalAttribute(span: SpanLike, name: string, value: AttributeValue | undefined): void {
     if (value !== undefined) span.setAttribute(name, value);
+}
+
+function traceContextFromSpan(span: SpanLike | null): TraceContext | undefined {
+    const context = span?.spanContext?.();
+    if (!context || !validTraceId(context.traceId) || !validSpanId(context.spanId)) return undefined;
+    return {
+        traceId: context.traceId.toLowerCase(),
+        spanId: context.spanId.toLowerCase(),
+        sampled: (context.traceFlags & 1) === 1,
+    };
+}
+
+function traceContextFromCarrier(carrier: Record<string, string>): TraceContext | undefined {
+    return traceContextFromTraceparent(carrier.traceparent, carrier.tracestate);
+}
+
+function traceContextFromTraceparent(traceparent: string | undefined, tracestate?: string): TraceContext | undefined {
+    const parts = traceparent?.split('-');
+    const traceId = parts?.[1];
+    const spanId = parts?.[2];
+    const flags = parts?.[3];
+    if (!traceId || !spanId || !flags || !validTraceId(traceId) || !validSpanId(spanId)) return undefined;
+    return {
+        traceId: traceId.toLowerCase(),
+        spanId: spanId.toLowerCase(),
+        sampled: (Number.parseInt(flags, 16) & 1) === 1,
+        ...(tracestate ? { tracestate } : {}),
+    };
+}
+
+function validTraceId(value: string): boolean {
+    return /^[0-9a-f]{32}$/iu.test(value) && !/^0+$/u.test(value);
+}
+
+function validSpanId(value: string): boolean {
+    return /^[0-9a-f]{16}$/iu.test(value) && !/^0+$/u.test(value);
 }

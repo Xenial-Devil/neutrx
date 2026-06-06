@@ -1,5 +1,6 @@
 import http, { type Agent as HttpAgent, type ClientRequest, type IncomingMessage, type RequestOptions } from 'node:http';
 import https, { type Agent as HttpsAgent } from 'node:https';
+import type { Socket } from 'node:net';
 import { Readable } from 'node:stream';
 import type { Duplex } from 'node:stream';
 import type { PeerCertificate } from 'node:tls';
@@ -88,9 +89,21 @@ export async function nodeHttpAdapter(config: InternalRequestConfig, options: No
         const rate = parseMaxRate(runtimeConfig.maxRate);
         const tlsConfig = runtimeConfig.tls ?? options.defaults.tls;
         let settled = false;
+        let connectionEstablished = false;
+        let connectTimer: ReturnType<typeof setTimeout> | undefined;
+        let cleanupSocketTiming: (() => void) | undefined;
+        const cleanupTiming = (): void => {
+            if (connectTimer !== undefined) {
+                clearTimeout(connectTimer);
+                connectTimer = undefined;
+            }
+            cleanupSocketTiming?.();
+            cleanupSocketTiming = undefined;
+        };
         const fail = (error: Error): void => {
             if (settled) return;
             settled = true;
+            cleanupTiming();
             reject(error);
         };
 
@@ -151,34 +164,53 @@ export async function nodeHttpAdapter(config: InternalRequestConfig, options: No
             void handleNodeHttpResponse(response, runtimeConfig, maxSize, req, rate.download).then(result => {
                 if (settled) return;
                 settled = true;
+                cleanupTiming();
                 resolve(result);
             }, fail);
         });
 
-        const connectTimer = setTimeout(() => {
-            req.destroy();
-            fail(new NeutrxConnectTimeoutError(runtimeConfig.url, runtimeConfig.connectTimeout, {
+        connectTimer = setTimeout(() => {
+            const error = new NeutrxConnectTimeoutError(runtimeConfig.url, runtimeConfig.connectTimeout, {
                 code: axiosTimeoutErrorCode(runtimeConfig.transitional),
-            }));
+            });
+            fail(error);
+            req.destroy(error);
         }, runtimeConfig.connectTimeout);
 
         req.on('socket', socket => {
-            clearTimeout(connectTimer);
             const onTimeout = (): void => {
                 req.destroy();
                 fail(new NeutrxResponseTimeoutError(runtimeConfig.url, runtimeConfig.timeout, {
                     code: axiosTimeoutErrorCode(runtimeConfig.transitional),
                 }));
             };
-            socket.setTimeout(runtimeConfig.timeout);
-            socket.once('timeout', onTimeout);
-            req.once('close', () => {
+            const connectEvent = isHTTPS ? 'secureConnect' : 'connect';
+            const onConnected = (): void => {
+                connectionEstablished = true;
+                if (connectTimer !== undefined) {
+                    clearTimeout(connectTimer);
+                    connectTimer = undefined;
+                }
+                socket.setTimeout(runtimeConfig.timeout);
+                socket.once('timeout', onTimeout);
+            };
+            const cleanup = (): void => {
+                socket.off(connectEvent, onConnected);
                 socket.off('timeout', onTimeout);
-            });
+                req.off('close', cleanup);
+            };
+
+            cleanupSocketTiming = cleanup;
+            req.once('close', cleanup);
+            if (isConnectionPending(socket, isHTTPS)) socket.once(connectEvent, onConnected);
+            else onConnected();
         });
+        if (connectionEstablished && connectTimer !== undefined) {
+            clearTimeout(connectTimer);
+            connectTimer = undefined;
+        }
 
         req.on('error', error => {
-            clearTimeout(connectTimer);
             const normalized = normalizeError(error);
             fail(normalized instanceof NeutrxError ? normalized : NeutrxErrorFactory.fromNodeError(normalized, runtimeConfig));
         });
@@ -402,4 +434,11 @@ function toTransferBuffer(chunk: unknown): Buffer {
 function normalizeError(error: unknown): Error {
     if (error instanceof Error) return error;
     return new Error(String(error));
+}
+
+function isConnectionPending(socket: Socket, isHTTPS: boolean): boolean {
+    if (socket.connecting) return true;
+    if (!isHTTPS) return false;
+    const tlsSocket = socket as Socket & { readonly encrypted?: boolean; readonly secureConnecting?: boolean };
+    return tlsSocket.encrypted === true && tlsSocket.secureConnecting === true;
 }

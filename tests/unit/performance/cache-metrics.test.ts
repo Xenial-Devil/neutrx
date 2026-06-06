@@ -196,7 +196,7 @@ void test('MetricsCollector records success, errors, cache hits, retries, and pr
     assert.equal(metrics.getAll().requests.active, 1);
     metrics.recordEnd();
     metrics.recordSuccess('https://api.example.com/users', 20, 200);
-    metrics.recordError('https://api.example.com/users', Object.assign(new Error('boom'), { code: 'EBOOM' }));
+    metrics.recordError('https://api.example.com/users', Object.assign(new Error('boom'), { code: 'EBOOM', category: 'network' }));
     metrics.recordCacheHit('https://api.example.com/users');
     metrics.recordRetry('https://api.example.com/users', 1);
     metrics.recordDeduplicationHit('https://api.example.com/users');
@@ -206,10 +206,16 @@ void test('MetricsCollector records success, errors, cache hits, retries, and pr
     assert.equal(snapshot.requests.active, 0);
     assert.equal(snapshot.requests.retried, 1);
     assert.equal(snapshot.requests.deduplicated, 1);
+    assert.equal(snapshot.errors.byCategory.network, 1);
     assert.equal(snapshot.summary.deduplicationRate, '33.33%');
     assert.match(metrics.toPrometheus(), /neutrx_requests_total\{status="success"\} 1/u);
     assert.match(metrics.toPrometheus(), /neutrx_deduplication_hits_total 1/u);
     assert.match(metrics.toPrometheus(), /neutrx_active_requests 0/u);
+    assert.match(metrics.toPrometheus(), /neutrx_cache_hits_total 1/u);
+    assert.match(metrics.toPrometheus(), /neutrx_retries_total 1/u);
+    assert.match(metrics.toPrometheus(), /neutrx_status_total\{status="200"\} 1/u);
+    assert.match(metrics.toPrometheus(), /neutrx_errors_by_code_total\{code="EBOOM"\} 1/u);
+    assert.match(metrics.toPrometheus(), /neutrx_errors_total\{category="network"\} 1/u);
     metrics.destroy();
 });
 
