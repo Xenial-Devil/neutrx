@@ -1,3 +1,21 @@
+# [1.4.0](https://github.com/Xenial-Devil/neutrx/compare/v1.3.0...v1.4.0) (2026-06-08)
+
+
+### Bug Fixes
+
+* handle non-string websocket messages safely ([1111e2f](https://github.com/Xenial-Devil/neutrx/commit/1111e2f55e2d911eebf0672e0f1bcd6562bb5e87))
+* update dist entry paths from esm to mjs ([b354f4d](https://github.com/Xenial-Devil/neutrx/commit/b354f4d8053439eef39b4bfb2909c40aeec6e080))
+
+
+### Features
+
+* add request deduplication and cache revalidation ([42455de](https://github.com/Xenial-Devil/neutrx/commit/42455dedae9420f39ee7c4893145141ad37e5ea7))
+* add response schema validation support ([ac0abe5](https://github.com/Xenial-Devil/neutrx/commit/ac0abe56b6538990ca9d541c03c59a5d7cd1220a))
+* add trace context plugin and cache management ([7419ffe](https://github.com/Xenial-Devil/neutrx/commit/7419ffee35d1226b23a29c0499e938177af430ca))
+* expand docs and add support policy ([670e369](https://github.com/Xenial-Devil/neutrx/commit/670e369651c03e1ddb4aa8efacf03de5273bfd79))
+* export error utilities and improve tracing ([25e2dcc](https://github.com/Xenial-Devil/neutrx/commit/25e2dcccd9d412426c2e2ea068637c1f16976c8f))
+* make request deduplication enabled by default ([0ab7b39](https://github.com/Xenial-Devil/neutrx/commit/0ab7b397d2c539e6914cd9c9a7e43661ec4b7c1e))
+
 # Changelog
 
 All notable changes to Neutrx are documented here.
