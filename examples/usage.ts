@@ -68,7 +68,7 @@ async function run(): Promise<void> {
     console.log(browserStyle.status);
 
     const http2Ready = await api.get('/users', {
-        httpVersion: '2',
+        httpVersion: 2,
         http2Options: {
             sessionTimeout: 30_000,
             maxSessions: 4,
@@ -107,6 +107,16 @@ async function run(): Promise<void> {
             { id: '123' }
         );
         console.log(graph.data);
+    }
+
+    if (process.env.NEUTRX_EXAMPLE_WS === '1') {
+        const realtime = await api.ws<{ readonly event: string }>('/realtime', {
+            reconnect: { attempts: 3, delay: 500, backoff: 'exponential' },
+            parseMessage: data => JSON.parse(typeof data === 'string' ? data : '{}') as { readonly event: string },
+            onMessage: message => console.log(message.event),
+        });
+        realtime.send('hello');
+        realtime.close();
     }
 
     console.log(api.getMetrics());

@@ -4,7 +4,7 @@ Guidance for Codex and other AI coding agents working in this repository.
 
 ## Product Direction
 
-Neutrx is a secure-by-default HTTP client for Node.js 22+ backend services. Keep Axios-like ergonomics, but do not copy Axios blindly. Prefer backend safety, typed errors, observability, and resilience.
+Neutrx is a secure-by-default HTTP client for Node.js 18+ backend services. Keep Axios-like ergonomics, but do not copy Axios blindly. Prefer backend safety, typed errors, observability, and resilience.
 
 Use this positioning:
 
@@ -15,7 +15,7 @@ Use this positioning:
 ## Constraints
 
 - Do not add runtime dependencies unless a maintainer explicitly accepts the tradeoff.
-- Keep Node.js `>=22.0.0`.
+- Keep Node.js `>=18.0.0`.
 - Keep ESM, CJS, and declaration exports working.
 - Security profiles are `strict`, `standard`, and `legacy`. Deprecated aliases may be supported for compatibility, but docs and examples should use canonical names.
 - Do not weaken SSRF, redirect, redaction, size-limit, timeout, retry, circuit-breaker, cache, or metrics behavior without tests and documentation.

@@ -5,13 +5,13 @@ import type { Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
 
 import { NeutrxSecurityError } from './NeutrxError.js';
-import { hasHeader } from './headers.js';
-import type { Headers, ProxyConfig } from '../types.js';
+import { NeutrxHeaders, hasHeader, toOutgoingHeaders } from './headers.js';
+import type { Headers, InternalHeaders, ProxyConfig } from '../types.js';
 
 export type NormalizedProxyConfig = Required<Pick<ProxyConfig, 'protocol' | 'host'>> & Pick<ProxyConfig, 'port' | 'auth' | 'headers'>;
 export type RequestTarget =
-    | { readonly url: URL; readonly path: string; readonly headers: Headers; readonly isProxied: false; readonly tunnel?: undefined }
-    | { readonly url: URL; readonly path: string; readonly headers: Headers; readonly isProxied: true; readonly tunnel?: HttpsProxyTunnel };
+    | { readonly url: URL; readonly path: string; readonly headers: InternalHeaders; readonly isProxied: false; readonly tunnel?: undefined }
+    | { readonly url: URL; readonly path: string; readonly headers: InternalHeaders; readonly isProxied: true; readonly tunnel?: HttpsProxyTunnel };
 
 export type HttpsProxyTunnel = {
     readonly proxy: NormalizedProxyConfig;
@@ -29,21 +29,22 @@ export function resolveProxy(configProxy: ProxyConfig | false | undefined, targe
     return raw ? proxyFromURL(raw) : undefined;
 }
 
-export function directRequestTarget(targetURL: URL, headers: Headers): RequestTarget {
+export function directRequestTarget(targetURL: URL, headers: Headers | NeutrxHeaders): RequestTarget {
     return {
         url: targetURL,
         path: `${targetURL.pathname}${targetURL.search}`,
-        headers,
+        headers: NeutrxHeaders.from(headers) as unknown as InternalHeaders,
         isProxied: false,
     };
 }
 
-export function proxyRequestTarget(targetURL: URL, requestHeaders: Headers, proxy: NormalizedProxyConfig): RequestTarget {
+export function proxyRequestTarget(targetURL: URL, requestHeaders: Headers | NeutrxHeaders, proxy: NormalizedProxyConfig): RequestTarget {
+    const normalizedRequestHeaders = NeutrxHeaders.from(requestHeaders);
     if (targetURL.protocol === 'https:') {
         return {
             url: targetURL,
             path: `${targetURL.pathname}${targetURL.search}`,
-            headers: requestHeaders,
+            headers: normalizedRequestHeaders as unknown as InternalHeaders,
             isProxied: true,
             tunnel: { proxy, target: targetURL },
         };
@@ -52,14 +53,14 @@ export function proxyRequestTarget(targetURL: URL, requestHeaders: Headers, prox
     const proxyURL = new URL(`${proxy.protocol}://${proxy.host}`);
     if (proxy.port !== undefined) proxyURL.port = String(proxy.port);
 
-    const headers: Headers = { ...(proxy.headers ?? {}) };
-    if (proxy.auth !== undefined) headers['Proxy-Authorization'] = proxyAuthHeader(proxy.auth);
-    if (!hasHeader(requestHeaders, 'Host')) headers.Host = targetURL.host;
+    const headers = NeutrxHeaders.from(proxy.headers);
+    if (proxy.auth !== undefined) headers.setIfNotBlocked('Proxy-Authorization', proxyAuthHeader(proxy.auth));
+    if (!hasHeader(requestHeaders, 'Host') && !headers.has('Host')) headers.set('Host', targetURL.host);
 
     return {
         url: proxyURL,
         path: targetURL.href,
-        headers: { ...requestHeaders, ...headers },
+        headers: NeutrxHeaders.concat(normalizedRequestHeaders, headers) as unknown as InternalHeaders,
         isProxied: true,
     };
 }
@@ -77,15 +78,12 @@ export function createConnectTunnel(tunnel: HttpsProxyTunnel, timeout: number): 
 
         socket.setTimeout(timeout);
         socket.on('connect', () => {
-            const headers: Headers = {
-                Host: tunnel.target.host,
-                ...(tunnel.proxy.headers ?? {}),
-            };
-            if (tunnel.proxy.auth !== undefined) headers['Proxy-Authorization'] = proxyAuthHeader(tunnel.proxy.auth);
+            const headers = NeutrxHeaders.concat({ Host: tunnel.target.host }, tunnel.proxy.headers);
+            if (tunnel.proxy.auth !== undefined) headers.setIfNotBlocked('Proxy-Authorization', proxyAuthHeader(tunnel.proxy.auth));
 
             const request = [
                 `CONNECT ${tunnel.target.hostname}:${tunnel.target.port || 443} HTTP/1.1`,
-                ...Object.entries(headers).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`),
+                ...Object.entries(toOutgoingHeaders(headers)).map(([key, value]) => `${key}: ${String(value)}`),
                 '',
                 '',
             ].join('\r\n');

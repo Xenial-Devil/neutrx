@@ -1,4 +1,4 @@
-import Neutrx, { GraphQLPlugin, OAuth2Plugin } from '../dist/esm/index.js';
+import Neutrx, { GraphQLPlugin, OAuth2Plugin } from '../dist/index.mjs';
 import { runSuite } from './runner.js';
 import { makeRawAdapter, makeRoutingFetch } from './fixtures/payloads.js';
 

@@ -4,8 +4,8 @@ import test from 'node:test';
 import type * as PackageEntry from '../../../src/index.js';
 import type * as RateLimiterModule from '../../../src/security/RateLimiter.js';
 
-const builtEntry = '../../../../dist/esm/index.js';
-const rateLimiterEntry = '../../../../dist/esm/security/RateLimiter.js';
+const builtEntry = '../../../../dist/index.mjs';
+const rateLimiterEntry = '../../../../dist/security/RateLimiter.mjs';
 
 void test('RateLimiter enforces token bucket and refills over time', async () => {
     const { RateLimiter } = await import(rateLimiterEntry) as typeof RateLimiterModule;

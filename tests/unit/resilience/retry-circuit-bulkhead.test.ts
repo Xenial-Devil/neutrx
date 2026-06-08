@@ -5,9 +5,9 @@ import type CircuitBreaker from '../../../src/resilience/CircuitBreaker.js';
 import type Bulkhead from '../../../src/resilience/Bulkhead.js';
 import type { CircuitStateStore, CircuitStatus, RetryBudgetStore } from '../../../src/types.js';
 
-const retryEntry = '../../../../dist/esm/resilience/RetryEngine.js';
-const circuitEntry = '../../../../dist/esm/resilience/CircuitBreaker.js';
-const bulkheadEntry = '../../../../dist/esm/resilience/Bulkhead.js';
+const retryEntry = '../../../../dist/resilience/RetryEngine.mjs';
+const circuitEntry = '../../../../dist/resilience/CircuitBreaker.mjs';
+const bulkheadEntry = '../../../../dist/resilience/Bulkhead.mjs';
 
 void test('RetryEngine retries retryable errors and reports attempts', async () => {
     const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
@@ -103,6 +103,41 @@ void test('RetryEngine adds bounded jitter to computed backoff delay', async () 
         assert.equal(observedDelay, 2);
     } finally {
         Math.random = originalRandom;
+    }
+});
+
+void test('RetryEngine computes fixed, linear, exponential, and fibonacci strategies', async () => {
+    const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
+    const expected = {
+        fixed: [1, 1, 1, 1],
+        linear: [1, 2, 3, 4],
+        exponential: [1, 2, 4, 8],
+        fibonacci: [1, 2, 3, 5],
+    } as const;
+
+    for (const [strategy, expectedDelays] of Object.entries(expected)) {
+        const delays: number[] = [];
+        const engine = new RetryEngine({
+            maxRetries: 4,
+            retryDelay: 1,
+            retryJitter: false,
+            retryStrategy: strategy as keyof typeof expected,
+            retryableCodes: ['ETEST'],
+            onRetry: event => {
+                delays.push(event.delay);
+            },
+        });
+        let calls = 0;
+
+        const result = await engine.execute(async () => {
+            await Promise.resolve();
+            calls += 1;
+            if (calls <= 4) throw Object.assign(new Error('retry strategy'), { code: 'ETEST' });
+            return 'ok';
+        }, { method: 'GET', url: 'https://api.example.com/users' });
+
+        assert.equal(result.result, 'ok');
+        assert.deepEqual(delays, expectedDelays, strategy);
     }
 });
 

@@ -157,10 +157,11 @@ const api = neutrx.create({
 const cached = neutrx.create({
   performance: {
     enableCaching: true,
-    cacheStrategy: 'stale-while-revalidate',
+    cacheStrategy: 'swr',
+    revalidateAfter: 60_000,
     respectCacheHeaders: true,
   },
 });
 ```
 
-Responses with `ETag`, `Last-Modified`, and `stale-if-error` cache directives participate in conditional revalidation and stale fallback behavior.
+Fresh cache hits return immediately. After `revalidateAfter`, stale hits still return immediately with `response.cached = true` and `response.stale = true` while one background refresh updates the cache. Responses with `ETag`, `Last-Modified`, and `stale-if-error` cache directives participate in conditional revalidation and stale fallback behavior.

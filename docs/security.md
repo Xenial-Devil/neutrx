@@ -10,7 +10,7 @@ const standard = neutrx.create({ security: { profile: 'standard' } });
 const legacy = neutrx.create({ security: { profile: 'legacy' } });
 ```
 
-Use `strict` for untrusted URLs. Use `standard` for normal backend service calls. Use `legacy` only when migration targets are fully trusted.
+Use `strict` for untrusted URLs from a Node.js backend. Use `standard` for normal backend service calls. Use `legacy` only when migration targets are fully trusted. Browser security profiles cannot provide the same network-level guarantees as the built-in Node adapters.
 
 ## SSRF Protection
 
@@ -35,6 +35,20 @@ const api = neutrx.create({
 });
 ```
 
+## Unix Sockets
+
+Use `socketPath` only for trusted local services:
+
+```ts
+const docker = neutrx.create({
+  baseURL: 'http://docker',
+  socketPath: '/var/run/docker.sock',
+  proxy: false,
+});
+```
+
+With `socketPath`, Neutrx connects to the absolute local socket path and uses the URL host only as the HTTP `Host` header. DNS, SSRF, private-IP, HTTPS, and egress-policy network checks do not apply to that synthetic host. Neutrx still rejects unsafe socket paths, proxy/socket combinations, HTTPS socket URLs, unsafe headers, and URL credentials outside `legacy`.
+
 ## Egress Policy
 
 Use `egressPolicy` when the allowed outbound network shape should be reviewable:
@@ -56,7 +70,7 @@ See [secure-egress.md](secure-egress.md).
 
 ## Redirect Security
 
-Neutrx validates each redirect target. Cross-origin redirects strip:
+The built-in Node HTTP and HTTP/2 adapters validate each redirect target. Cross-origin redirects strip:
 
 - `Authorization`
 - `Cookie`
@@ -67,6 +81,12 @@ Neutrx validates each redirect target. Cross-origin redirects strip:
 When a redirect changes a body method to `GET`, body headers such as `Content-Type`, `Content-Length`, and `Transfer-Encoding` are stripped.
 
 Strict mode blocks HTTPS to HTTP downgrade redirects unless HTTPS enforcement is explicitly disabled.
+
+Browser and edge fetch platforms may follow redirects internally or hide cross-origin redirect details. The browser build therefore cannot guarantee the same per-hop validation, downgrade blocking, sensitive-header stripping, or redirect limits.
+
+## Browser Runtime Boundary
+
+Normal browser JavaScript cannot inspect DNS answers or resolved private IPs, configure certificate pins, use raw sockets, or control all redirect and network details. Do not rely on browser `strict` mode or `egressPolicy` as a trusted SSRF boundary. Route user-controlled outbound targets through a trusted Node.js service and see [Browser usage](browser-usage.md).
 
 ## Error Redaction
 

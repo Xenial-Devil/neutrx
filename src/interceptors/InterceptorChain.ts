@@ -1,7 +1,10 @@
-import type { InternalRequestConfig, NeutrxResponse, RequestBody } from '../types.js';
+import { normalizeRequestHeaders } from '../core/headers.js';
+import type { HeaderSource, InternalRequestConfig, NeutrxResponse, RequestBody } from '../types.js';
 
-type RequestFulfilled = (config: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>;
-type RequestRejected = (error: Error) => InternalRequestConfig | Promise<InternalRequestConfig>;
+type RequestConfigResult<TBody extends RequestBody = RequestBody> = Omit<InternalRequestConfig<TBody>, 'headers'> & { readonly headers: HeaderSource };
+type RequestFulfilled = (config: InternalRequestConfig) => RequestConfigResult | Promise<RequestConfigResult>;
+type RequestRejectedResult = RequestConfigResult | Error;
+type RequestRejected = (error: Error) => RequestRejectedResult | Promise<RequestRejectedResult>;
 type ResponseFulfilled = (response: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>;
 type ResponseRejected = (error: Error) => NeutrxResponse | Error | Promise<NeutrxResponse | Error>;
 
@@ -13,7 +16,16 @@ export interface RequestInterceptorOptions {
 export interface NeutrxInterceptorManager<TValue> {
     use(
         onFulfilled?: (value: TValue) => TValue | Promise<TValue>,
-        onRejected?: (error: Error) => TValue | Error | Promise<TValue | Error>,
+        onRejected?: (error: Error) => TValue | Error | Promise<TValue | Error>
+    ): number;
+    eject(id: number): void;
+    clear(): void;
+}
+
+export interface NeutrxRequestInterceptorManager {
+    use(
+        onFulfilled?: RequestFulfilled,
+        onRejected?: (error: Error) => RequestConfigResult | Error | Promise<RequestConfigResult | Error>,
         options?: RequestInterceptorOptions
     ): number;
     eject(id: number): void;
@@ -21,7 +33,7 @@ export interface NeutrxInterceptorManager<TValue> {
 }
 
 export interface NeutrxInterceptors {
-    readonly request: NeutrxInterceptorManager<InternalRequestConfig>;
+    readonly request: NeutrxRequestInterceptorManager;
     readonly response: NeutrxInterceptorManager<NeutrxResponse>;
 }
 
@@ -78,17 +90,7 @@ export default class InterceptorChain {
     managers(): NeutrxInterceptors {
         return {
             request: {
-                use: (onFulfilled, onRejected, options) => {
-                    const requestRejected: RequestRejected | undefined = onRejected
-                        ? async (error): Promise<InternalRequestConfig> => {
-                            const result = await onRejected(error);
-                            if (result instanceof Error) throw result;
-                            return result;
-                        }
-                        : undefined;
-
-                    return this.addRequest(onFulfilled, requestRejected, options);
-                },
+                use: (onFulfilled, onRejected, options) => this.addRequest(onFulfilled, onRejected, options),
                 eject: id => this.#request.delete(id),
                 clear: () => this.clearRequest(),
             },
@@ -108,23 +110,22 @@ export default class InterceptorChain {
         let asyncChain: Promise<InternalRequestConfig> | null = null;
 
         for (const { onFulfilled, onRejected, options } of this.#request.values()) {
-            if (options?.runWhen && !options.runWhen(current)) continue;
-
             if (options?.synchronous && asyncChain === null) {
+                if (options.runWhen && !options.runWhen(current)) continue;
                 try {
                     const result = onFulfilled ? onFulfilled(current) : current;
                     if (isPromiseLike(result)) {
-                        asyncChain = result;
+                        asyncChain = result.then(normalizeRequestConfig);
                     } else {
-                        current = result;
+                        current = normalizeRequestConfig(result);
                     }
                 } catch (error: unknown) {
                     if (!onRejected) throw normalizeError(error);
                     const result = onRejected(normalizeError(error));
                     if (isPromiseLike(result)) {
-                        asyncChain = result;
+                        asyncChain = result.then(normalizeRequestRejectedResult);
                     } else {
-                        current = result;
+                        current = normalizeRequestRejectedResult(result);
                     }
                 }
                 continue;
@@ -132,11 +133,12 @@ export default class InterceptorChain {
 
             asyncChain ??= Promise.resolve(current);
             asyncChain = asyncChain.then(async configValue => {
+                if (options?.runWhen && !options.runWhen(configValue)) return configValue;
                 try {
-                    return onFulfilled ? await onFulfilled(configValue) : configValue;
+                    return normalizeRequestConfig(onFulfilled ? await onFulfilled(configValue) : configValue);
                 } catch (error: unknown) {
                     if (!onRejected) throw normalizeError(error);
-                    return onRejected(normalizeError(error));
+                    return normalizeRequestRejectedResult(await onRejected(normalizeError(error)));
                 }
             });
         }
@@ -175,6 +177,18 @@ export default class InterceptorChain {
         }
         return current;
     }
+}
+
+function normalizeRequestConfig<TBody extends RequestBody>(config: RequestConfigResult<TBody>): InternalRequestConfig<TBody> {
+    return {
+        ...config,
+        headers: normalizeRequestHeaders(config.headers),
+    };
+}
+
+function normalizeRequestRejectedResult<TBody extends RequestBody>(result: RequestRejectedResult): InternalRequestConfig<TBody> {
+    if (result instanceof Error) throw result;
+    return normalizeRequestConfig(result) as InternalRequestConfig<TBody>;
 }
 
 function normalizeError(error: unknown): Error {

@@ -1,6 +1,10 @@
 # Code of Conduct
 
-Neutrx is a security-first Node.js 22+ HTTP client project. Everyone participating in project spaces must keep discussion professional, respectful, and focused on secure backend HTTP client work.
+Neutrx is a security-first Node.js 18+ HTTP client project. Everyone participating in project spaces must keep discussion professional, respectful, and focused on secure backend HTTP client work.
+
+## Scope
+
+This Code of Conduct applies to project spaces including issues, pull requests, discussions, reviews, release coordination, security coordination, package metadata, documentation, and community channels connected to Neutrx.
 
 ## Expected Behavior
 

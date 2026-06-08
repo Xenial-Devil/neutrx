@@ -1,7 +1,7 @@
 {
   "name": "neutrx",
   "version": "1.3.0",
-  "description": "Security-first TypeScript HTTP client with retry, circuit breaker, bulkhead, cache, metrics, and plugins.",
+  "description": "Security-first TypeScript HTTP client — SSRF protection, circuit breaker, bulkhead, OTel, Zod validation, browser + Node.js.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Xenial-Devil/neutrx.git"
@@ -10,64 +10,64 @@
     "url": "https://github.com/Xenial-Devil/neutrx/issues"
   },
   "homepage": "https://github.com/Xenial-Devil/neutrx#readme",
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/Xenial-Devil"
+  },
   "type": "module",
-  "main": "./dist/cjs/index.js",
-  "module": "./dist/esm/index.js",
-  "browser": "./dist/esm/browser.js",
-  "types": "./dist/types/index.d.ts",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "browser": "dist/browser.mjs",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
+      "types": "./dist/index.d.ts",
       "browser": {
-        "types": "./dist/types/browser.d.ts",
-        "default": "./dist/esm/browser.js"
+        "types": "./dist/browser.d.ts",
+        "default": "./dist/browser.mjs"
       },
-      "node": {
-        "types": "./dist/types/index.d.ts",
-        "import": "./dist/esm/index.js",
-        "require": "./dist/cjs/index.js"
-      },
-      "import": "./dist/esm/index.js",
-      "require": "./dist/cjs/index.js",
-      "default": "./dist/esm/index.js"
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.mjs"
     },
     "./node": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/esm/index.js",
-      "require": "./dist/cjs/index.js",
-      "default": "./dist/esm/index.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.mjs"
     },
     "./browser": {
-      "types": "./dist/types/browser.d.ts",
-      "import": "./dist/esm/browser.js",
-      "default": "./dist/esm/browser.js"
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.mjs",
+      "require": "./dist/browser.cjs",
+      "default": "./dist/browser.mjs"
     },
     "./plugins": {
-      "types": "./dist/types/plugins/PluginManager.d.ts",
-      "import": "./dist/esm/plugins/PluginManager.js",
-      "require": "./dist/cjs/plugins/PluginManager.js"
+      "types": "./dist/plugins/index.d.ts",
+      "import": "./dist/plugins/index.mjs",
+      "require": "./dist/plugins/index.cjs"
     },
     "./errors": {
-      "types": "./dist/types/core/NeutrxError.d.ts",
-      "import": "./dist/esm/core/NeutrxError.js",
-      "require": "./dist/cjs/core/NeutrxError.js"
+      "types": "./dist/core/NeutrxError.d.ts",
+      "import": "./dist/core/NeutrxError.mjs",
+      "require": "./dist/core/NeutrxError.cjs"
     },
     "./headers": {
-      "types": "./dist/types/core/headers.d.ts",
-      "browser": "./dist/esm/core/headers.js",
-      "import": "./dist/esm/core/headers.js",
-      "require": "./dist/cjs/core/headers.js"
+      "types": "./dist/core/headers.d.ts",
+      "browser": "./dist/core/headers.mjs",
+      "import": "./dist/core/headers.mjs",
+      "require": "./dist/core/headers.cjs"
     },
     "./instrumentation": {
-      "types": "./dist/types/monitoring/OpenTelemetryInstrumentation.d.ts",
-      "import": "./dist/esm/monitoring/OpenTelemetryInstrumentation.js",
-      "require": "./dist/cjs/monitoring/OpenTelemetryInstrumentation.js"
+      "types": "./dist/monitoring/OpenTelemetryInstrumentation.d.ts",
+      "import": "./dist/monitoring/OpenTelemetryInstrumentation.mjs",
+      "require": "./dist/monitoring/OpenTelemetryInstrumentation.cjs"
     },
     "./adapters": {
-      "types": "./dist/types/adapters/index.d.ts",
-      "browser": "./dist/esm/adapters/browser.js",
-      "import": "./dist/esm/adapters/index.js",
-      "require": "./dist/cjs/adapters/index.js"
+      "types": "./dist/adapters/index.d.ts",
+      "browser": "./dist/adapters/browser.mjs",
+      "import": "./dist/adapters/index.mjs",
+      "require": "./dist/adapters/index.cjs"
     },
     "./package.json": {
       "default": "./package.json"
@@ -78,32 +78,35 @@
     "docs",
     "README.md",
     "SECURITY.md",
+    "SUPPORT.md",
     "THREATMODEL.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "MIGRATION_GUIDE.md",
     "CHANGELOG.md",
     "ROADMAP.md",
     "LICENSE"
   ],
   "sideEffects": false,
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=18.0.0"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "clean": "node -e \"const fs=require('node:fs'); fs.rmSync('dist', { recursive: true, force: true }); fs.rmSync('dist-tests', { recursive: true, force: true })\"",
-    "dev": "tsc -p tsconfig.build.json --watch",
-    "build": "npm run clean && npm run build:esm && npm run build:cjs && npm run build:types",
-    "build:esm": "tsc -p tsconfig.build.json && node scripts/prepare-version-imports.cjs",
-    "build:cjs": "tsc -p tsconfig.cjs.json && node scripts/prepare-version-imports.cjs && npm run build:cjs:pkg",
-    "build:cjs:pkg": "node -e \"const fs=require('node:fs'); fs.mkdirSync('dist/cjs', { recursive: true }); fs.writeFileSync('dist/cjs/package.json', JSON.stringify({ type: 'commonjs' }))\"",
-    "build:types": "tsc -p tsconfig.types.json && node scripts/generate-browser-types.cjs",
-    "start": "node -e \"import('./dist/esm/index.js').then(({ default: Neutrx }) => console.log(Neutrx.name))\"",
+    "dev": "tsup --watch",
+    "build": "npm run clean && tsup && node scripts/generate-browser-types.cjs",
+    "build:esm": "tsup --format esm && node scripts/generate-browser-types.cjs",
+    "build:cjs": "tsup --format cjs",
+    "build:types": "tsup --dts-only && node scripts/generate-browser-types.cjs",
+    "start": "node -e \"import('./dist/index.mjs').then(({ default: Neutrx }) => console.log(Neutrx.name))\"",
     "set-version": "node scripts/set-version.cjs",
     "test:compile": "tsc -p tsconfig.test.json && node scripts/prepare-test-build.cjs",
     "test:run": "node --test \"dist-tests/tests/**/*.test.js\"",
     "test": "npm run build && npm run test:compile && npm run test:run",
-    "coverage": "npm run build && npm run test:compile && node scripts/run-coverage.cjs",
+    "coverage": "npm run build && npm run test:compile && c8 node --test \"dist-tests/tests/**/*.test.js\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src/**/*.ts examples/**/*.ts tests/**/*.ts",
     "audit": "npm audit --audit-level=high",
@@ -113,11 +116,40 @@
     "benchmark:large": "npm run build && node --expose-gc benchmarks/large-input.bench.js",
     "benchmark:async": "npm run build && node --expose-gc benchmarks/async.bench.js",
     "benchmark:http": "npm run build && node --expose-gc benchmarks/http-client-comparison.mjs",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "package:validate": "npm run build && node scripts/validate-package.cjs",
     "package:smoke": "npm run build && node scripts/pack-smoke.cjs",
-    "release:validate": "npm run validate",
-    "validate": "npm run typecheck && npm run lint && npm test && npm run package:validate",
-    "ci": "npm run lint && npm run typecheck && npm test && npm run coverage && npm run package:validate && npm run package:smoke"
+    "changelog:preview": "conventional-changelog -p angular -r 0 --stdout",
+    "changelog:write": "conventional-changelog -p angular -i CHANGELOG.md -o CHANGELOG.md -r 1",
+    "release:validate": "npm run ci",
+    "validate": "npm run typecheck && npm run lint && npm test && npm run docs:build && npm run package:validate",
+    "ci": "npm run lint && npm run typecheck && npm test && npm run coverage && npm run docs:build && npm run package:validate && npm run package:smoke"
+  },
+  "c8": {
+    "all": true,
+    "check-coverage": true,
+    "reporter": [
+      "text",
+      "lcov"
+    ],
+    "include": [
+      "dist/core/**/*.mjs",
+      "dist/security/**/*.mjs",
+      "dist/resilience/**/*.mjs",
+      "dist/performance/**/*.mjs"
+    ],
+    "exclude": [
+      "dist/**/*.cjs",
+      "dist/**/*.d.ts",
+      "dist-tests/**",
+      "tests/**"
+    ],
+    "lines": 75,
+    "branches": 70,
+    "functions": 70,
+    "statements": 75
   },
   "keywords": [
     "neutrx",
@@ -129,15 +161,38 @@
     "circuit-breaker",
     "retry",
     "cache",
-    "fetch-alternative"
+    "fetch",
+    "http2",
+    "opentelemetry",
+    "otel",
+    "tracing",
+    "bulkhead",
+    "graphql",
+    "axios-alternative",
+    "node",
+    "browser",
+    "edge"
   ],
   "license": "MIT",
-  "dependencies": {},
+  "peerDependencies": {
+    "@opentelemetry/api": ">=1.0.0 <2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^24.10.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
+    "c8": "^10.1.3",
+    "conventional-changelog": "^7.2.0",
+    "conventional-changelog-angular": "^8.3.1",
     "eslint": "^8.0.0",
-    "typescript": "^5.6.0"
+    "esbuild": "^0.27.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.6.0",
+    "vitepress": "^1.6.4"
   }
 }

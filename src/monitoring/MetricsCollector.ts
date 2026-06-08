@@ -8,6 +8,7 @@ export interface MetricsSnapshot {
         readonly errors: number;
         readonly cached: number;
         readonly retried: number;
+        readonly deduplicated: number;
     };
     readonly performance: {
         readonly min: number;
@@ -24,23 +25,25 @@ export interface MetricsSnapshot {
     readonly errors: {
         readonly byType: Record<string, number>;
         readonly byCode: Record<string, number>;
+        readonly byCategory: Record<string, number>;
     };
     readonly summary: {
         readonly total: number;
         readonly successRate: string;
         readonly errorRate: string;
         readonly cacheRate: string;
+        readonly deduplicationRate: string;
         readonly avgDuration: string;
         readonly p99: string;
     };
 }
 
 interface MutableMetrics {
-    requests: { total: number; active: number; success: number; errors: number; cached: number; retried: number };
+    requests: { total: number; active: number; success: number; errors: number; cached: number; retried: number; deduplicated: number };
     performance: { min: number; max: number; avg: number; total: number; p50: number; p90: number; p95: number; p99: number };
     byStatus: Record<string, number>;
     byEndpoint: Record<string, EndpointMetrics>;
-    errors: { byType: Record<string, number>; byCode: Record<string, number> };
+    errors: { byType: Record<string, number>; byCode: Record<string, number>; byCategory: Record<string, number> };
 }
 
 interface EndpointMetrics {
@@ -81,11 +84,12 @@ export default class MetricsCollector extends EventEmitter {
         this.#endpoint(url, duration, true);
     }
 
-    recordError(url: string, error: Error & { readonly code?: string }): void {
+    recordError(url: string, error: Error & { readonly code?: string; readonly category?: string }): void {
         this.#metrics.requests.errors += 1;
         this.#metrics.requests.total += 1;
         this.#inc(this.#metrics.errors.byType, error.name);
         this.#inc(this.#metrics.errors.byCode, error.code ?? 'UNKNOWN');
+        this.#inc(this.#metrics.errors.byCategory, error.category ?? 'unknown');
         this.#endpoint(url, null, false);
         this.emit('error:recorded', { url, error });
     }
@@ -101,8 +105,13 @@ export default class MetricsCollector extends EventEmitter {
         this.emit('retry:recorded', { url, attempt });
     }
 
+    recordDeduplicationHit(url: string): void {
+        this.#metrics.requests.deduplicated += 1;
+        this.emit('deduplication:hit', { url });
+    }
+
     getAll(): MetricsSnapshot {
-        const { total, success, errors, cached } = this.#metrics.requests;
+        const { total, success, errors, cached, deduplicated } = this.#metrics.requests;
         return {
             ...this.#metrics,
             summary: {
@@ -110,6 +119,7 @@ export default class MetricsCollector extends EventEmitter {
                 successRate: total > 0 ? `${((success / total) * 100).toFixed(2)}%` : '0%',
                 errorRate: total > 0 ? `${((errors / total) * 100).toFixed(2)}%` : '0%',
                 cacheRate: total > 0 ? `${((cached / total) * 100).toFixed(2)}%` : '0%',
+                deduplicationRate: total > 0 ? `${((deduplicated / total) * 100).toFixed(2)}%` : '0%',
                 avgDuration: `${this.#metrics.performance.avg}ms`,
                 p99: `${this.#metrics.performance.p99}ms`,
             },
@@ -124,6 +134,7 @@ export default class MetricsCollector extends EventEmitter {
             `neutrx_requests_total{status="error"} ${metrics.requests.errors}`,
             `neutrx_requests_total{status="cached"} ${metrics.requests.cached}`,
             `neutrx_requests_total{status="retried"} ${metrics.requests.retried}`,
+            `neutrx_requests_total{status="deduplicated"} ${metrics.requests.deduplicated}`,
             '',
             '# TYPE neutrx_active_requests gauge',
             `neutrx_active_requests ${metrics.requests.active}`,
@@ -133,6 +144,24 @@ export default class MetricsCollector extends EventEmitter {
             `neutrx_duration_ms{quantile="0.9"} ${metrics.performance.p90}`,
             `neutrx_duration_ms{quantile="0.95"} ${metrics.performance.p95}`,
             `neutrx_duration_ms{quantile="0.99"} ${metrics.performance.p99}`,
+            '',
+            '# TYPE neutrx_deduplication_hits_total counter',
+            `neutrx_deduplication_hits_total ${metrics.requests.deduplicated}`,
+            '',
+            '# TYPE neutrx_cache_hits_total counter',
+            `neutrx_cache_hits_total ${metrics.requests.cached}`,
+            '',
+            '# TYPE neutrx_retries_total counter',
+            `neutrx_retries_total ${metrics.requests.retried}`,
+            '',
+            '# TYPE neutrx_status_total counter',
+            ...Object.entries(metrics.byStatus).map(([status, count]) => `neutrx_status_total{status="${prometheusLabel(status)}"} ${count}`),
+            '',
+            '# TYPE neutrx_errors_by_code_total counter',
+            ...Object.entries(metrics.errors.byCode).map(([code, count]) => `neutrx_errors_by_code_total{code="${prometheusLabel(code)}"} ${count}`),
+            '',
+            '# TYPE neutrx_errors_total counter',
+            ...Object.entries(metrics.errors.byCategory).map(([category, count]) => `neutrx_errors_total{category="${prometheusLabel(category)}"} ${count}`),
         ].join('\n');
     }
 
@@ -147,11 +176,11 @@ export default class MetricsCollector extends EventEmitter {
 
     #fresh(): MutableMetrics {
         return {
-            requests: { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0 },
+            requests: { total: 0, active: 0, success: 0, errors: 0, cached: 0, retried: 0, deduplicated: 0 },
             performance: { min: 0, max: 0, avg: 0, total: 0, p50: 0, p90: 0, p95: 0, p99: 0 },
             byStatus: {},
             byEndpoint: {},
-            errors: { byType: {}, byCode: {} },
+            errors: { byType: {}, byCode: {}, byCategory: {} },
         };
     }
 
@@ -206,4 +235,8 @@ export default class MetricsCollector extends EventEmitter {
     #inc(target: Record<string, number>, key: string): void {
         target[key] = (target[key] ?? 0) + 1;
     }
+}
+
+function prometheusLabel(value: string): string {
+    return value.replace(/\\/gu, '\\\\').replace(/\n/gu, '\\n').replace(/"/gu, '\\"');
 }

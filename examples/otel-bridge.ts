@@ -1,28 +1,33 @@
-import neutrx from '../src/index.js';
+import neutrx, {
+    LogPlugin,
+    createOtelPlugin,
+    createTraceContextPlugin,
+    toStructuredError,
+} from '../src/index.js';
 
 const api = neutrx.create({
     baseURL: 'https://api.example.com',
     timeout: 10_000,
     security: { profile: 'standard' },
-    instrumentation: {
-        openTelemetry: true,
-        tracerName: 'example-service-http',
-        propagateTraceHeaders: true,
-    },
 });
 
-api.on('request:success', event => {
-    const payload = event as { readonly status?: unknown; readonly duration?: unknown };
-    console.log('http success', payload.status, payload.duration);
-});
-
-api.on('request:error', event => {
-    const payload = event as { readonly error?: { readonly code?: unknown } };
-    console.error('http error', payload.error?.code);
-});
+api.use(LogPlugin);
+api.setLogger(console);
+api.use(createOtelPlugin({
+    tracerName: 'example-service-http',
+    propagateTraceHeaders: true,
+}));
+api.use(createTraceContextPlugin({
+    formats: ['w3c', 'b3-multi'],
+}));
 
 export async function fetchHealth(): Promise<number> {
-    const response = await api.get('/health');
-    console.log(api.getMetrics());
-    return response.status;
+    try {
+        const response = await api.get('/health');
+        console.log(response.traceContext, api.getMetrics());
+        return response.status;
+    } catch (error) {
+        console.error(toStructuredError(error));
+        throw error;
+    }
 }

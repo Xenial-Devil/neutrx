@@ -1,33 +1,59 @@
 # Config Reference
 
-Neutrx config precedence is:
+Neutrx merges config in this order:
 
-1. library defaults
-2. instance defaults from `neutrx.create()`
+1. library defaults from `neutrx.defaults`
+2. instance defaults from `neutrx.create()` and later `api.defaults` mutations
 3. per-request config
+
+Each later layer overrides matching values from earlier layers. Per-request config always wins, including request headers over matching default headers.
 
 ## Core
 
 ```ts
 const api = neutrx.create({
   baseURL: 'https://api.example.com',
+  allowAbsoluteUrls: true,
   timeout: 10_000,
   connectTimeout: 2_000,
   maxRedirects: 5,
   maxContentLength: 52_428_800,
   maxBodyLength: 10_485_760,
+  responseEncoding: 'utf8',
   maxRate: [64 * 1024, 256 * 1024],
   auth: { username: 'service', password: process.env.API_PASSWORD ?? '' },
   idempotencyKeyHeader: 'Idempotency-Key',
   parseJson: text => JSON.parse(text),
   stringifyJson: value => JSON.stringify(value),
   throwHttpErrors: true,
+  beforeRedirect(context) {
+    console.log(context.statusCode, context.toURL);
+  },
+  transitional: { clarifyTimeoutError: true },
 });
 ```
 
 `legacy` keeps request body size unlimited unless you set `maxBodyLength`. `strict` and `standard` use a finite default.
 
-`neutrx.defaults` is mutable and merges into new root requests and new instances. Instance config and per-request config override it. Headers are cloned and normalized during merges.
+`allowAbsoluteUrls` defaults to `true`, matching Axios: absolute request URLs replace `baseURL`. Set it to `false` when you want even absolute-looking request URLs to be appended to `baseURL` or a service-discovery endpoint.
+
+`responseEncoding` defaults to `utf8` for buffered text and JSON responses. It is Node-oriented; browser runtimes use platform `TextDecoder` support.
+
+`transitional.clarifyTimeoutError` mirrors Axios. By default, request timeouts use `ECONNABORTED` for Axios migration compatibility. When set to `true`, Neutrx uses `ETIMEDOUT` while still exposing typed timeout errors with a `phase`.
+
+`neutrx.defaults` is mutable and merges into later root requests and new instances. Instance config and per-request config override it. Headers are cloned and normalized during merges.
+
+Created clients also expose mutable `api.defaults` for common Axios migration patterns:
+
+```ts
+api.defaults.baseURL = 'https://api.example.com';
+api.defaults.timeout = 10_000;
+api.defaults.headers.common.Authorization = `Bearer ${token}`;
+```
+
+Mutable defaults are shared state. Changing `neutrx.defaults` affects later root requests and new instances; changing `api.defaults` affects later requests made through that instance. Prefer per-request config for request-specific values to avoid cross-request state bugs.
+
+Per-request config always wins over `api.defaults`. Live instance defaults are shallow-mutable, with deep mutation intentionally supported for `headers.common` and method header buckets. Set security, resilience, and performance profiles during `neutrx.create()` so the constructed SSRF, redirect, retry, circuit breaker, and cache components stay consistent.
 
 ## Security
 
@@ -89,13 +115,33 @@ await api.get('/users', {
   paramsSerializer: { indexes: false },
   auth: { username: 'request-user', password: 'request-pass' },
   idempotencyKey: 'request-1',
+  schema: userSchema,
   signal: AbortSignal.timeout(2_000),
   validateStatus: status => status < 500,
   throwHttpErrors: false,
+  beforeRedirect(context) {
+    context.headers['X-Redirect-Hop'] = '1';
+  },
 });
 ```
 
 `cancelToken` accepts `CancelToken.source().token` as an Axios migration bridge. Prefer `signal` for new code.
+
+Headers accept both plain objects and `NeutrxHeaders`:
+
+```ts
+await api.get('/plain', {
+  headers: { Authorization: 'Bearer token' },
+});
+
+await api.get('/class', {
+  headers: new NeutrxHeaders({ Authorization: 'Bearer token' }),
+});
+```
+
+At request start, Neutrx clones either input style into an internal `NeutrxHeaders` instance. Request hooks, interceptors, and adapters therefore receive the same case-insensitive header API without mutating the caller-owned input. Set a request header value to `false` to suppress a default and block automatic overwrites without emitting that header; use `NeutrxHeaders.set(name, null)` to delete it outright.
+
+`schema` validates parsed response data with a dependency-free adapter for Zod-like `safeParse`, `parse`, `validate`, TypeBox-style `Check/Errors`, or function validators. Valid schemas may return transformed data, which replaces `response.data`. Invalid data throws `NeutrxValidationError` with normalized `issues`. Set `schema: false` to disable a client default schema for a single request.
 
 `validation` is used by `ValidationPlugin`:
 
@@ -116,11 +162,53 @@ await api.post('/users', { name: 'Ada' }, {
 
 Node-only request fields:
 
-- `socketPath`: Unix domain socket path for HTTP requests.
+- `socketPath`: absolute Unix domain socket path for HTTP requests. It cannot be combined with proxy config and only supports HTTP. The URL host is used as the HTTP `Host` header, not as a DNS or TCP target.
 - `decompress`: defaults to `true`; set `false` to keep gzip/deflate/br bytes compressed.
-- `maxRate`: bytes per second for both directions, or `[uploadBytesPerSec, downloadBytesPerSec]`.
+- `maxRate`: Node HTTP bandwidth cap in bytes per second for both directions, or `[uploadBytesPerSecond, downloadBytesPerSecond]`. Use `0` for either tuple entry to leave that direction uncapped.
 - `tls`: CA, client cert/key, SNI, and SHA-256 certificate pins.
 - `httpAgent`, `httpsAgent`, and `lookup`: Node transport customization.
+
+`security.rateLimit` is request rate limiting: it counts requests per window and can be scoped per domain. `maxRate` is bandwidth rate limiting: it paces request and response bytes in the Node HTTP adapter and is reflected in upload/download progress `rate` samples.
+
+## WebSocket
+
+```ts
+const socket = await api.ws('/events', {
+  headers: { Authorization: `Bearer ${token}` },
+  params: { tenant: 'acme' },
+  reconnect: { attempts: 5, delay: 500, backoff: 'exponential', maxDelay: 30_000 },
+});
+```
+
+WebSocket options reuse request-like fields: `headers`, `auth`, `params`, `paramsSerializer`, `baseURL`, `allowAbsoluteUrls`, `timeout`, `connectTimeout`, `signal`, and `serviceDiscovery`. Neutrx also runs plugin `beforeRequest` hooks and request interceptors before opening the connection.
+
+Reconnect is disabled by default. `reconnect: true` uses bounded exponential defaults; an object can set `attempts`, `delay`, `backoff`, and `maxDelay`. `minDelay` and `factor` are accepted compatibility aliases, but docs and examples use `delay` and `backoff`.
+
+Node sends prepared headers in the HTTP upgrade request. Browser runtimes use native `WebSocket`, which does not permit custom handshake headers.
+
+## Axios-Compatible And Neutrx-Specific Options
+
+Axios-compatible options supported by Neutrx include `baseURL`, `allowAbsoluteUrls`, `url`, `method`, `headers`, `auth`, `params`, `paramsSerializer`, `data`, `timeout`, `maxRedirects`, `maxContentLength`, `maxBodyLength`, `responseType`, `responseEncoding`, `validateStatus`, `transformRequest`, `transformResponse`, `adapter`, `beforeRedirect`, `decompress`, `withCredentials`, `xsrfCookieName`, `xsrfHeaderName`, `onUploadProgress`, `onDownloadProgress`, `cancelToken`, and `transitional.clarifyTimeoutError`.
+
+Neutrx-specific options are focused on secure backend service-to-service HTTP: `connectTimeout`, `throwHttpErrors`, `parseJson`, `stringifyJson`, `schema`, `idempotencyKey`, `idempotencyKeyHeader`, `httpVersion`, `http2Options`, `serviceDiscovery`, `proxy`, `tls`, `httpAgent`, `httpsAgent`, `lookup`, `socketPath`, `maxRate`, `security`, `egressPolicy`, `resilience`, `performance`, `instrumentation`, `validation`, `skipOAuth`, `cache`, and `followRedirects`.
+
+Some compatible options have backend-first semantics. Redirects are followed by Neutrx so SSRF, downgrade, and credential-stripping policy stays in force; custom adapters should return redirect responses rather than following them internally. `decompress`, agents, lookup, sockets, TLS, and `responseEncoding` are Node transport controls and are unavailable or platform-limited in browsers.
+
+For Docker sockets, local proxies, `allowAbsoluteUrls: false` egress gateways, timeout diagnostics, and bandwidth shaping examples, see [node-infrastructure.md](node-infrastructure.md).
+
+Docker Engine over the default Unix socket:
+
+```ts
+const docker = neutrx.create({
+  baseURL: 'http://docker',
+  socketPath: '/var/run/docker.sock',
+  proxy: false,
+});
+
+const version = await docker.get('/v1/version');
+```
+
+For `socketPath`, Neutrx validates the local socket path and skips DNS, SSRF, private-IP, HTTPS, and egress-policy network checks for the synthetic URL host. Treat `socketPath` as trusted local configuration and never derive it from user-controlled input.
 
 `idempotencyKey` sets the `Idempotency-Key` header. For `POST` and `PATCH`, it also marks the request as retryable when the error/status is otherwise retryable.
 
@@ -145,17 +233,24 @@ Adapter fields:
 - `adapter: 'http'`: Node HTTP/HTTPS adapter.
 - `adapter: 'fetch'`: native `globalThis.fetch`.
 - `adapter: 'http2'`: HTTP/2 adapter.
-- `adapter: config => RawHttpResponse`: custom adapter.
+- `adapter: (config: NeutrxRequestConfig) => RawHttpResponse`: custom adapter.
+
+Adapters are transport functions only. Neutrx runs request/response interceptors, retries, circuit breaker, cache, metrics, parsing, redaction, and redirect policy around the selected adapter, so instance-level and per-request adapter swaps do not change user request code.
 
 HTTP/2 options:
 
 ```ts
+httpVersion: 2,
 http2Options: {
   sessionTimeout: 60_000,
   maxSessions: 50,
   maxConcurrentStreams: 100,
 }
 ```
+
+`httpVersion: 2` selects the Node `node:http2` adapter. `adapter: 'http2'` is equivalent when you want explicit adapter selection. Sessions are reused by origin and compatible TLS settings until they are closed, receive GOAWAY, exceed `maxSessions`, or sit idle longer than `sessionTimeout`. `maxConcurrentStreams` applies a local cap on active streams per session in addition to the server's advertised remote setting.
+
+HTTP/2 limitations are intentionally explicit: the adapter does not support `proxy`, `socketPath`, `httpAgent`, `httpsAgent`, or `maxRate`. It does not silently fall back to HTTP/1.1 if the server rejects HTTP/2 or TLS ALPN does not negotiate it; use `adapter: 'http'` or `httpVersion: 1` for HTTP/1.1. Plaintext h2c (`http://`) is supported only when your security profile and egress policy allow HTTP.
 
 ## Resilience
 
@@ -198,16 +293,25 @@ resilience: {
 performance: {
   enableCaching: true,
   deduplicateRequests: true,
-  cacheStrategy: 'stale-while-revalidate',
+  deduplicateRequestKey: config => `${config.method}:${config.url}:${config.headers.get('X-Tenant-ID') ?? ''}`,
+  deduplicateMethods: ['GET', 'HEAD'],
+  deduplicateHeaders: ['accept', 'authorization', 'range'],
+  cacheStrategy: 'swr',
   cacheTTL: 300_000,
+  revalidateAfter: 60_000,
   cacheStaleMax: 1_500_000,
   cacheMaxSize: 500,
   respectCacheHeaders: true,
+  onRevalidate: event => console.log(event.url, event.updated),
   cacheAdapter: myProcessLocalCacheStore,
 }
 ```
 
-`deduplicateRequests` shares identical inflight `GET`/`HEAD` dispatches. `stale-while-revalidate` returns stale cache hits until `cacheStaleMax` while one background refresh updates the entry.
+`deduplicateRequests` defaults to `true` and shares identical inflight `GET`/`HEAD` dispatches. Set it to `false` to disable deduplication. The default key uses the method, final URL with serialized params, response type, adapter, socket path, and selected headers (`deduplicateHeaders`). Use `deduplicateRequestKey` for service-specific keys. Methods other than `GET` and `HEAD` remain excluded unless explicitly added with `deduplicateMethods`; include an application-safe discriminator such as an idempotency key in the custom key. Dedup hits are counted at `api.getMetrics().requests.deduplicated` and `neutrx_deduplication_hits_total`.
+
+`cacheStrategy` supports `max-age`, `swr`, and `network-first`. `swr` returns stale cache hits until `cacheStaleMax` while one background refresh updates the entry. Stale hits are marked with `response.cached = true`, `response.stale = true`, and `x-cache: STALE`.
+
+`revalidateAfter` lets SWR mark an entry stale before its max-age window ends. When it is omitted, `cacheTTL` or upstream `Cache-Control: max-age` controls freshness. `onRevalidate` runs after a background refresh succeeds, fails, or is skipped because another refresh already owns the same cache key.
 
 When upstream cache headers include `ETag`, `Last-Modified`, or `stale-if-error`, Neutrx sends conditional revalidation headers and can return stale cached data during an upstream error.
 
@@ -220,9 +324,14 @@ instrumentation: {
   openTelemetry: true,
   tracerName: 'neutrx',
   propagateTraceHeaders: true,
+  overwriteTraceHeaders: false,
   recordRequestBodySize: false,
   recordResponseBodySize: false,
 }
 ```
 
 OpenTelemetry attributes use HTTP client semantic names where safe and avoid raw query strings. Body size attributes are opt-in and only use known sizes from `Content-Length` or already-buffered/string payloads.
+
+`propagateTraceHeaders` lets the optional OpenTelemetry bridge inject carrier headers. Existing trace headers are respected by default; set `overwriteTraceHeaders: true` to replace them with the active OpenTelemetry context.
+
+For dependency-free generated propagation headers, use `TraceContextPlugin` or `createTraceContextPlugin({ formats: ['w3c', 'b3-multi', 'b3-single'] })`.

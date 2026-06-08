@@ -18,10 +18,21 @@ import neutrx, {
   createSecureAdapter,
   fetchAdapter,
   http2Adapter,
+  nodeHttpAdapter,
   getHttp2SessionStats,
+  createOtelPlugin,
+  createTraceContextPlugin,
   isCancel,
+  isNeutrxError,
+  toStructuredError,
+  LogPlugin,
+  OtelPlugin,
+  TraceContextPlugin,
   ValidationPlugin,
+  WebSocketPlugin,
   type AdaptiveConcurrencyConfig,
+  type CacheRevalidateEvent,
+  type CacheStrategy,
   type CacheStore,
   type CancelTokenSource,
   type CertificatePinConfig,
@@ -29,27 +40,59 @@ import neutrx, {
   type ClientConfig,
   type EgressPolicyConfig,
   type FormSerializerOptions,
+  type InferValidationSchema,
   type InstrumentationConfig,
+  type NeutrxLogger,
+  type NeutrxErrorCategory,
+  type NeutrxAdapter,
+  type NeutrxInstance,
+  type NeutrxRequestConfig,
   type NeutrxResponse,
+  type NeutrxWebSocketMessageEvent,
+  type NeutrxWSConnection,
+  type OtelPluginOptions,
   type ProxyConfig,
+  type RawHttpResponse,
   type RequestConfig,
+  type RequestInterceptorOptions,
+  type ResponseValidationSchema,
   type RetryBudgetStore,
   type ServiceDiscoveryConfig,
   type ServiceEndpoint,
   type ServiceResolver,
   type TlsConfig,
+  type TraceContext,
+  type TraceContextPluginOptions,
+  type TracePropagationFormat,
+  type TransitionalConfig,
   type ValidationPluginConfig,
   type ValidationSchema,
 } from 'neutrx';
+import type { NeutrxError as NeutrxErrorType } from 'neutrx/errors';
+import type { NeutrxPlugin as NeutrxPluginType } from 'neutrx/plugins';
 
 const headers = new NeutrxHeaders({ 'content-type': 'application/json' })
   .setBearerAuth('token')
-  .setAccept('application/json');
+  .setAccept('application/json')
+  .setUserAgent('neutrx-types')
+  .setContentType(null)
+  .setAuthorization(false);
+const authHeader: string | undefined = headers.getAuthorization();
+for (const [headerName, headerValue] of headers) {
+  void headerName;
+  void headerValue;
+}
 
 const formSerializer: FormSerializerOptions = { dots: true, indexes: false, metaTokens: true, maxDepth: 4 };
-const instrumentation: InstrumentationConfig = { openTelemetry: true, tracerName: 'types', propagateTraceHeaders: true };
+const instrumentation: InstrumentationConfig = { openTelemetry: true, tracerName: 'types', propagateTraceHeaders: true, overwriteTraceHeaders: false };
+const traceContext: TraceContext = { traceId: '4bf92f3577b34da6a3ce929d0e0e4736', spanId: '00f067aa0ba902b7', sampled: true };
+const errorCategory: NeutrxErrorCategory = 'validation';
+const traceFormat: TracePropagationFormat = 'b3-multi';
+const traceContextPluginOptions: TraceContextPluginOptions = { formats: ['w3c', traceFormat], context: traceContext, overwrite: false };
+const otelPluginOptions: OtelPluginOptions = { tracerName: 'created-plugin', propagateTraceHeaders: false };
 const egressPolicy: EgressPolicyConfig = { mode: 'public-api', allowedHosts: ['api.example.com'], allowedPorts: [443] };
 const adaptiveConcurrency: AdaptiveConcurrencyConfig = { enabled: true, initialLimit: 5, minLimit: 1, maxLimit: 20 };
+const cacheStrategy: CacheStrategy = 'swr';
 const pin: CertificatePinConfig = { hostname: 'api.example.com', sha256: 'a'.repeat(64), expiresAt: Date.now() + 60000 };
 const tls: TlsConfig = { ca: 'ca', cert: 'cert', key: 'key', servername: 'api.example.com', certificatePins: [pin] };
 const cacheAdapter: CacheStore = {
@@ -83,16 +126,44 @@ const cancelSource: CancelTokenSource = CancelToken.source();
 const userResponseSchema: ValidationSchema = {
   safeParse: value => ({ success: true, data: value }),
 };
+const firstClassUserSchema = {
+  safeParse(value: unknown) {
+    return typeof value === 'object' && value !== null && 'id' in value
+      ? { success: true as const, data: { id: String((value as { id: unknown }).id), active: true } }
+      : { success: false as const, issues: [{ path: ['id'], message: 'id missing' }] };
+  },
+} satisfies ResponseValidationSchema<{ readonly id: string; readonly active: boolean }>;
+type FirstClassUser = InferValidationSchema<typeof firstClassUserSchema>;
+const inferredUser: FirstClassUser = { id: 'typed', active: true };
 const validation: ValidationPluginConfig = {
   request: () => true,
   response: userResponseSchema,
 };
+const transitional: TransitionalConfig = { clarifyTimeoutError: true };
+const typedAdapter: NeutrxAdapter = (inner: NeutrxRequestConfig): RawHttpResponse => ({
+  status: 200,
+  statusText: 'OK',
+  headers: { 'content-type': 'application/json' },
+  data: Buffer.from(JSON.stringify({ ok: true })),
+  config: inner,
+});
+const logger: NeutrxLogger = {
+  info: entry => void entry.requestId,
+  error: entry => void entry.code,
+};
+const onRevalidate = (event: CacheRevalidateEvent): void => {
+  const updated: boolean = event.updated;
+  const status: number | undefined = event.status;
+  void updated;
+  void status;
+};
 const config: ClientConfig = {
   baseURL: 'https://api.example.com',
+  allowAbsoluteUrls: false,
   auth: { username: 'api-user', password: 'api-pass' },
   idempotencyKey: true,
   idempotencyKeyHeader: 'Idempotency-Key',
-  headers: headers.toJSON(),
+  headers,
   formSerializer,
   instrumentation,
   egressPolicy,
@@ -106,16 +177,25 @@ const config: ClientConfig = {
     retryBudget: { maxRetries: 10, windowMs: 60_000, scope: 'origin', namespace: 'types', store: retryBudgetStore },
     circuitBreakerStorage: { store: circuitStateStore, namespace: 'types' },
   },
-  performance: { cacheAdapter },
+  performance: { cacheAdapter, cacheStrategy, revalidateAfter: 1000, onRevalidate },
+  beforeRedirect: context => {
+    context.headers['X-Redirect-Hook'] = 'yes';
+  },
+  responseEncoding: 'latin1',
+  transitional: { clarifyTimeoutError: true },
   adapter: 'http2',
+  schema: firstClassUserSchema,
   maxRate: [1024, 2048],
 };
+const plainHeaderConfig: ClientConfig = { headers: { Authorization: 'Bearer plain' } };
+const collectionHeaderConfig: ClientConfig = { headers: new NeutrxHeaders({ Authorization: 'Bearer collection' }) };
 neutrx.defaults.baseURL = 'https://defaults.example';
 neutrx.defaults.headers = { 'X-Default': 'yes' };
 const request: RequestConfig<FormData> = {
   url: '/upload',
   method: 'POST',
   data: new FormData(),
+  allowAbsoluteUrls: true,
   auth: { username: 'request-user', password: 'request-pass' },
   idempotencyKey: 'upload-1',
   adapter: 'fetch',
@@ -123,19 +203,80 @@ const request: RequestConfig<FormData> = {
   xsrfCookieName: 'XSRF-TOKEN',
   xsrfHeaderName: 'X-XSRF-TOKEN',
   withXSRFToken: true,
+  transitional: { clarifyTimeoutError: false },
+  onDownloadProgress: event => {
+    const progress: number | undefined = event.progress;
+    const bytes: number = event.bytes;
+    const rate: number = event.rate;
+    const estimated: number | undefined = event.estimated;
+    void progress;
+    void bytes;
+    void rate;
+    void estimated;
+  },
   cancelToken: cancelSource.token,
   validation,
+  schema: false,
   serviceDiscovery: { resolver: ['https://uploads.example.com'], strategy: 'sticky-origin' },
+};
+const plainHeaderRequest: RequestConfig = {
+  url: '/plain-headers',
+  headers: { Authorization: 'Bearer plain' },
+};
+const collectionHeaderRequest: RequestConfig = {
+  url: '/collection-headers',
+  headers: new NeutrxHeaders({ Authorization: 'Bearer collection' }),
 };
 cancelSource.cancel('typed cancel');
 const rootCancelSource = neutrx.CancelToken.source();
 rootCancelSource.cancel('root typed cancel');
 const wasCancel = isCancel(cancelSource.token.reason) && neutrx.isCancel(rootCancelSource.token.reason);
 neutrx.use(ValidationPlugin);
+neutrx.use(LogPlugin);
+neutrx.use(OtelPlugin);
+neutrx.use(createOtelPlugin(otelPluginOptions));
+neutrx.use(TraceContextPlugin);
+neutrx.use(createTraceContextPlugin(traceContextPluginOptions));
+neutrx.use(WebSocketPlugin);
+neutrx.setLogger(logger);
+neutrx.enableOpenTelemetry({ tracerName: 'types-plugin' });
 neutrx.configureValidation?.(validation);
+const ws: Promise<NeutrxWSConnection<{ readonly ok: boolean }>> = neutrx.ws<{ readonly ok: boolean }>('wss://api.example.com/realtime', {
+  reconnect: { attempts: 2, delay: 100, backoff: 'exponential' },
+  parseMessage: data => ({ ok: String(data) === 'ok' }),
+  onMessage: (message, event: NeutrxWebSocketMessageEvent<{ readonly ok: boolean }>) => {
+    const ok: boolean = message.ok && event.data.ok;
+    void ok;
+  },
+});
 const validationError = new NeutrxValidationError('response', [{ path: ['id'], message: 'id missing' }]);
+const typedClient: NeutrxInstance = neutrx.create(config);
+typedClient.defaults.baseURL = 'https://typed-instance.example';
+typedClient.defaults.timeout = 2500;
+typedClient.defaults.headers.common.Authorization = 'Bearer typed-token';
+const interceptorOptions: RequestInterceptorOptions = {
+  synchronous: true,
+  runWhen: inner => inner.method === 'GET',
+};
+const requestInterceptorId = typedClient.useRequest(inner => inner, error => error, interceptorOptions);
+const managerInterceptorId = typedClient.interceptors.request.use(inner => inner, undefined, {
+  runWhen: inner => inner.url.includes('/health'),
+});
+typedClient.interceptors.request.eject(managerInterceptorId);
+typedClient.interceptors.request.clear();
+typedClient.interceptors.response.use(inner => inner, error => error);
+typedClient.interceptors.response.clear();
+typedClient.eject(requestInterceptorId);
+typedClient.invalidateCache('/schema');
+typedClient.deleteCacheEntry('/schema');
+const typedPlugin: NeutrxPluginType = LogPlugin;
+const typedError: NeutrxErrorType = validationError;
+const typedIsNeutrxError: boolean = isNeutrxError(validationError) && neutrx.isNeutrxError(validationError);
+const structuredError: Record<string, unknown> = toStructuredError(validationError);
+const typedUri: string = neutrx.getUri({ url: '/typed', params: { page: 1 } });
 const response: Promise<NeutrxResponse<{ readonly ok: boolean }>> = neutrx.get('/health', {
   ...config,
+  schema: false,
   adapter: createSecureAdapter(inner => ({
     status: 200,
     statusText: 'OK',
@@ -144,19 +285,80 @@ const response: Promise<NeutrxResponse<{ readonly ok: boolean }>> = neutrx.get('
     config: inner,
   })),
 });
+const schemaResponse: Promise<NeutrxResponse<FirstClassUser>> = neutrx.get('/schema', {
+  ...config,
+  schema: firstClassUserSchema,
+  adapter: createSecureAdapter(inner => ({
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'application/json' },
+    data: Buffer.from(JSON.stringify({ id: 'typed' })),
+    config: inner,
+  })),
+});
 const encoded = neutrx.postUrlEncoded('/form', { name: 'Ada' });
+const postForm = neutrx.postForm('/form', new FormData());
+const putForm = typedClient.putForm('/form', { name: 'Grace' });
+const patchForm = typedClient.patchForm('/form', { name: 'Katherine' });
+const adapterResponse = typedAdapter({
+  url: 'https://api.example.com/typed-adapter',
+  method: 'GET',
+  headers: new NeutrxHeaders() as unknown as NeutrxRequestConfig['headers'],
+  timeout: 1000,
+  connectTimeout: 1000,
+  maxRedirects: 0,
+  maxContentLength: 1024,
+  maxBodyLength: 1024,
+  allowAbsoluteUrls: true,
+  responseType: 'json',
+  responseEncoding: 'utf8',
+  validateStatus: status => status >= 200 && status < 300,
+  throwHttpErrors: true,
+  decompress: true,
+  transitional: { clarifyTimeoutError: true },
+  followRedirects: true,
+  requestId: 'typed',
+  startTime: Date.now(),
+  hops: 0,
+});
 void request;
+void plainHeaderConfig;
+void collectionHeaderConfig;
+void plainHeaderRequest;
+void collectionHeaderRequest;
+void authHeader;
 void wasCancel;
 void validationError;
+void typedClient;
+void adapterResponse;
+void typedPlugin;
+void typedError;
+void typedIsNeutrxError;
+void structuredError;
+void errorCategory;
+void typedUri;
 void response;
+void schemaResponse;
+void inferredUser;
 void encoded;
+void postForm;
+void putForm;
+void patchForm;
+void ws;
 void HttpAdapter;
 void createSecureAdapter;
 void fetchAdapter;
 void http2Adapter;
+void nodeHttpAdapter;
 void getHttp2SessionStats;
 void OpenTelemetryInstrumentation;
 void ValidationPlugin;
+void LogPlugin;
+void OtelPlugin;
+void createOtelPlugin;
+void TraceContextPlugin;
+void createTraceContextPlugin;
+void WebSocketPlugin;
 `);
 
     const tscPath = path.join(process.cwd(), 'node_modules', 'typescript', 'bin', 'tsc');

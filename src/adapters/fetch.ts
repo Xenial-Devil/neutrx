@@ -1,7 +1,7 @@
-import { NeutrxResponseSizeError, NeutrxResponseTimeoutError } from '../core/NeutrxError.js';
-import { NeutrxHeaders } from '../core/headers.js';
-import { reportDownloadProgress, reportUploadProgress } from '../core/progress.js';
-import type { FetchCredentials, Headers, RawHttpResponse, RequestAdapter, RequestBody } from '../types.js';
+import { NeutrxResponseSizeError, NeutrxResponseTimeoutError, axiosTimeoutErrorCode } from '../core/NeutrxError.js';
+import { NeutrxHeaders, getContentLength } from '../core/headers.js';
+import { reportDownloadProgress, reportUploadProgress, toUploadBuffer } from '../core/progress.js';
+import type { FetchCredentials, Headers, InternalHeaders, RawHttpResponse, RequestAdapter, RequestBody } from '../types.js';
 
 type FetchInit = RequestInit & { duplex?: 'half' };
 type FetchBody = NonNullable<RequestInit['body']>;
@@ -22,20 +22,23 @@ export const fetchAdapter: RequestAdapter = async config => {
     const headers = NeutrxHeaders.from(config.headers);
     injectXsrfHeader(headers, config);
 
-    const body = bodyless(config.method) ? undefined : toFetchBody(config.data, config.stringifyJson);
+    const body = trackFetchUploadProgress(
+        config,
+        bodyless(config.method) ? undefined : toFetchBody(config.data, config.stringifyJson)
+    );
     const timeoutSignal = AbortSignal.timeout(config.timeout);
-    const signal = config.signal ? AbortSignal.any([config.signal, timeoutSignal]) : timeoutSignal;
+    const signal = combineAbortSignals(config.signal, timeoutSignal);
 
     const init: FetchInit = {
         method: config.method,
         headers: toFetchHeaders(headers.toJSON()),
         credentials: credentialsFor(config.withCredentials, config.credentials),
+        redirect: 'manual',
         signal,
         ...(body !== undefined ? { body } : {}),
     };
 
     if (body !== undefined && (isNodeReadable(body) || isReadableStreamLike(body))) init.duplex = 'half';
-    reportFetchUploadProgress(config, body);
 
     try {
         const response = await fetchImpl(config.url, init);
@@ -45,12 +48,16 @@ export const fetchAdapter: RequestAdapter = async config => {
             statusText: response.statusText,
             headers: fromFetchHeaders(response.headers),
             data: await readResponseBody(response, config),
-            config: { ...config, headers: headers.toJSON() },
+            config: { ...config, headers: headers as unknown as InternalHeaders },
             ...(request ? { request } : {}),
         } satisfies RawHttpResponse;
     } catch (error: unknown) {
         if (signal.aborted) {
-            const reason = timeoutSignal.aborted ? new NeutrxResponseTimeoutError(config.url, config.timeout) : abortReason(signal);
+            const reason = timeoutSignal.aborted
+                ? new NeutrxResponseTimeoutError(config.url, config.timeout, {
+                    code: axiosTimeoutErrorCode(config.transitional),
+                })
+                : abortReason(signal);
             if (reason instanceof Error) throw reason;
         }
         throw error;
@@ -63,6 +70,38 @@ function bodyless(method: string): boolean {
 
 function abortReason(signal: AbortSignal): unknown {
     return (signal as AbortSignalWithReason).reason;
+}
+
+function combineAbortSignals(signal: AbortSignal | undefined, timeoutSignal: AbortSignal): AbortSignal {
+    if (!signal) return timeoutSignal;
+    if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeoutSignal]);
+
+    const controller = new AbortController();
+    const abortFrom = (source: AbortSignal): void => {
+        const reason = abortReason(source);
+        if (reason === undefined) controller.abort();
+        else controller.abort(reason);
+    };
+
+    if (signal.aborted) {
+        abortFrom(signal);
+        return controller.signal;
+    }
+    if (timeoutSignal.aborted) {
+        abortFrom(timeoutSignal);
+        return controller.signal;
+    }
+
+    const abortFromCaller = () => abortFrom(signal);
+    const abortFromTimeout = () => abortFrom(timeoutSignal);
+    signal.addEventListener('abort', abortFromCaller, { once: true });
+    timeoutSignal.addEventListener('abort', abortFromTimeout, { once: true });
+    controller.signal.addEventListener('abort', () => {
+        signal.removeEventListener('abort', abortFromCaller);
+        timeoutSignal.removeEventListener('abort', abortFromTimeout);
+    }, { once: true });
+
+    return controller.signal;
 }
 
 function toFetchBody(data: RequestBody | undefined, stringifyJson = JSON.stringify): FetchBody | undefined {
@@ -98,7 +137,7 @@ function fromFetchHeaders(headers: globalThis.Headers): Headers {
 async function readResponseBody(response: Response, config: Parameters<RequestAdapter>[0]): Promise<RawHttpResponse['data']> {
     switch (config.responseType) {
         case 'stream':
-            return response.body;
+            return trackFetchDownloadStream(response.body, config, contentLength(response.headers));
         case 'blob':
             return typeof response.blob === 'function' ? response.blob() : Buffer.from(await response.arrayBuffer());
         case 'formData':
@@ -117,6 +156,7 @@ async function readResponseBody(response: Response, config: Parameters<RequestAd
 async function readArrayBuffer(response: Response, config: Parameters<RequestAdapter>[0]): Promise<ArrayBuffer> {
     const total = contentLength(response.headers);
     if (!response.body || !config.onDownloadProgress) {
+        reportDownloadProgress(config, 0, total);
         const data = await response.arrayBuffer();
         if (data.byteLength > config.maxContentLength) throw new NeutrxResponseSizeError(data.byteLength, config.maxContentLength);
         reportDownloadProgress(config, data.byteLength, total ?? data.byteLength);
@@ -144,10 +184,22 @@ async function readArrayBuffer(response: Response, config: Parameters<RequestAda
     return toArrayBuffer(concatChunks(chunks, loaded));
 }
 
-function reportFetchUploadProgress(config: Parameters<RequestAdapter>[0], body: FetchBody | undefined): void {
-    if (!config.onUploadProgress || body === undefined || isNodeReadable(body) || isReadableStreamLike(body)) return;
-    const bytes = fetchBodyLength(body);
-    if (bytes !== undefined) reportUploadProgress(config, bytes, bytes);
+function trackFetchUploadProgress(config: Parameters<RequestAdapter>[0], body: FetchBody | undefined): FetchBody | undefined {
+    if (!config.onUploadProgress || body === undefined) return body;
+
+    const knownBytes = fetchBodyLength(body);
+    if (knownBytes !== undefined) {
+        reportKnownUploadProgress(config, knownBytes);
+        return body;
+    }
+
+    const total = getContentLength(config.headers);
+    if (isReadableStreamLike(body)) return trackReadableStreamUploadProgress(body, config, total);
+    if (isNodeReadable(body) && isAsyncIterable(body) && typeof ReadableStream !== 'undefined') {
+        return trackAsyncIterableUploadProgress(body, config, total) as FetchBody;
+    }
+
+    return body;
 }
 
 function fetchBodyLength(body: FetchBody): number | undefined {
@@ -158,6 +210,80 @@ function fetchBodyLength(body: FetchBody): number | undefined {
     if (body instanceof URLSearchParams) return Buffer.byteLength(body.toString());
     if (isBlobLike(body)) return body.size;
     return undefined;
+}
+
+function reportKnownUploadProgress(config: Parameters<RequestAdapter>[0], total: number): void {
+    reportUploadProgress(config, 0, total);
+    reportUploadProgress(config, total, total);
+}
+
+function trackReadableStreamUploadProgress(
+    stream: ReadableStream<Uint8Array>,
+    config: Parameters<RequestAdapter>[0],
+    total?: number
+): ReadableStream<Uint8Array> {
+    if (typeof TransformStream === 'undefined') return stream;
+
+    let loaded = 0;
+    reportUploadProgress(config, loaded, total);
+    return stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller): void {
+            loaded += chunk.byteLength;
+            reportUploadProgress(config, loaded, total);
+            controller.enqueue(chunk);
+        },
+    }));
+}
+
+function trackAsyncIterableUploadProgress(
+    stream: AsyncIterable<unknown>,
+    config: Parameters<RequestAdapter>[0],
+    total?: number
+): ReadableStream<Uint8Array> {
+    const iterator = stream[Symbol.asyncIterator]();
+    let loaded = 0;
+    reportUploadProgress(config, loaded, total);
+
+    return new ReadableStream<Uint8Array>({
+        async pull(controller): Promise<void> {
+            try {
+                const read = await iterator.next();
+                if (read.done) {
+                    controller.close();
+                    return;
+                }
+                const chunk = toUploadBuffer(read.value);
+                loaded += chunk.byteLength;
+                reportUploadProgress(config, loaded, total);
+                controller.enqueue(chunk);
+            } catch (error) {
+                controller.error(error);
+            }
+        },
+        async cancel(): Promise<void> {
+            await iterator.return?.();
+            const destroy = (stream as { readonly destroy?: () => void }).destroy;
+            if (typeof destroy === 'function') destroy.call(stream);
+        },
+    });
+}
+
+function trackFetchDownloadStream(
+    stream: ReadableStream<Uint8Array> | null,
+    config: Parameters<RequestAdapter>[0],
+    total?: number
+): ReadableStream<Uint8Array> | null {
+    if (!stream || !config.onDownloadProgress || typeof TransformStream === 'undefined') return stream;
+
+    let loaded = 0;
+    reportDownloadProgress(config, loaded, total);
+    return stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller): void {
+            loaded += chunk.byteLength;
+            reportDownloadProgress(config, loaded, total);
+            controller.enqueue(chunk);
+        },
+    }));
 }
 
 function createFetchRequest(url: string, init: FetchInit): Request | undefined {
@@ -182,7 +308,7 @@ function injectXsrfHeader(headers: NeutrxHeaders, config: Parameters<RequestAdap
     if (!shouldInject) return;
 
     const token = readCookie(cookieName);
-    if (token) headers.set(headerName, token);
+    if (token) headers.setIfNotBlocked(headerName, token);
 }
 
 function credentialsFor(withCredentials: boolean | undefined, credentials: FetchCredentials | undefined): FetchCredentials {
@@ -241,6 +367,12 @@ function isNodeReadable(value: unknown): boolean {
         && typeof value === 'object'
         && typeof (value as { readonly pipe?: unknown }).pipe === 'function'
         && typeof (value as { readonly on?: unknown }).on === 'function';
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+    return value !== null
+        && typeof value === 'object'
+        && typeof (value as { readonly [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function';
 }
 
 function isReadableStreamLike(value: unknown): value is ReadableStream<Uint8Array> {

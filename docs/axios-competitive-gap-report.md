@@ -4,7 +4,7 @@ Date: 2026-05-19
 
 ## Executive Verdict
 
-Neutrx already has a sharp product wedge: secure Node.js 22+ backend service-to-service HTTP. It should not try to become a general-purpose Axios clone. Axios is more mature, more widely adopted, and broader across browser, Node.js, React Native, Bun, Deno, ecosystem examples, and compatibility habits.
+Neutrx already has a sharp product wedge: secure Node.js 18+ backend service-to-service HTTP. It should not try to become a general-purpose Axios clone. Axios is more mature, more widely adopted, and broader across browser, Node.js, React Native, Bun, Deno, ecosystem examples, and compatibility habits.
 
 Neutrx can win in a narrower and stronger category:
 
@@ -28,7 +28,7 @@ Neutrx already includes several backend-first features Axios does not provide as
 - Metrics snapshot, Prometheus output, events, and optional OpenTelemetry bridge without runtime dependency.
 - OpenTelemetry HTTP client semantic attributes with query-string-safe defaults and opt-in body size recording.
 - ESM, CJS, browser, and subpath exports.
-- Node 22+ only, zero runtime dependencies, and modern native API posture.
+- Node 18+ support, zero runtime dependencies, and modern native API posture.
 - HTTP, fetch, and HTTP/2 adapters.
 - OAuth2, GraphQL, mock, and dependency-free validation plugins.
 - Idempotency-key helper for retry-safe `POST`/`PATCH` when upstream APIs support duplicate suppression.
@@ -65,7 +65,7 @@ Neutrx has strong primitives, but it needs proof and packaging around them:
 
 | Area | Axios | Neutrx today | Neutrx target |
 | --- | --- | --- | --- |
-| Product scope | General HTTP client for browser and Node.js | Backend-first Node 22+ client, browser secondary | Best secure backend egress client |
+| Product scope | General HTTP client for browser and Node.js | Backend-first Node 18+ client, browser secondary | Best secure backend egress client |
 | Runtime dependencies | Uses runtime deps for redirects, forms, proxies | Zero runtime deps | Keep core zero deps; optional plugins separate |
 | Browser maturity | Strong, primary use case | Supported but secondary | Good enough, not main differentiator |
 | SSRF protection | Not default product feature | Strong default controls | Audited policy engine with fuzz tests |
@@ -526,7 +526,7 @@ Engineering:
 - 90%+ meaningful coverage on core/security/resilience.
 - Fuzz corpus for SSRF/redirect/header injection.
 - ESM/CJS/browser exports smoke-tested.
-- Node 22/24/25 CI green.
+- Node 18/20/22 CI green.
 - Package smoke test validates packed tarball, not only source.
 
 Adoption:

@@ -1,10 +1,12 @@
 import { NeutrxSecurityError } from './NeutrxError.js';
 import { NeutrxHeaders } from './headers.js';
 import { normalizeSecurityProfile } from '../security/profiles.js';
+import { normalizeCacheStrategy } from '../performance/cacheStrategy.js';
 import type {
     ClientConfig,
     Headers,
     HttpMethod,
+    InternalHeaders,
     InternalRequestConfig,
     NormalizedClientConfig,
     ParsedResponseData,
@@ -29,16 +31,19 @@ export interface ServiceDiscoveryState {
 export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
     const securityProfile = normalizeSecurityProfile(custom.security?.profile);
     const securityDefaults = securityProfileDefaults(securityProfile);
+    const cacheTTL = custom.performance?.cacheTTL ?? 300_000;
 
     return {
+        allowAbsoluteUrls: custom.allowAbsoluteUrls ?? true,
         timeout: custom.timeout ?? 30_000,
         connectTimeout: custom.connectTimeout ?? 10_000,
         maxRedirects: custom.maxRedirects ?? 5,
         maxContentLength: custom.maxContentLength ?? 52_428_800,
         maxBodyLength: custom.maxBodyLength ?? (securityProfile === 'legacy' ? Number.POSITIVE_INFINITY : 10_485_760),
+        responseEncoding: custom.responseEncoding ?? 'utf8',
         validateStatus: custom.validateStatus ?? ((status: number): boolean => status >= 200 && status < 300),
         ...(custom.baseURL ? { baseURL: custom.baseURL } : {}),
-        ...(custom.headers ? { headers: NeutrxHeaders.from(custom.headers).toJSON() } : {}),
+        ...(custom.headers ? { headers: NeutrxHeaders.from(custom.headers) } : {}),
         ...(custom.auth ? { auth: custom.auth } : {}),
         ...(custom.idempotencyKey !== undefined ? { idempotencyKey: custom.idempotencyKey } : {}),
         ...(custom.idempotencyKeyHeader ? { idempotencyKeyHeader: custom.idempotencyKeyHeader } : {}),
@@ -46,6 +51,7 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         ...(custom.formSerializer ? { formSerializer: custom.formSerializer } : {}),
         ...(custom.transformRequest ? { transformRequest: normalizeArray(custom.transformRequest) } : {}),
         ...(custom.transformResponse ? { transformResponse: normalizeArray(custom.transformResponse) } : {}),
+        ...(custom.schema !== undefined ? { schema: custom.schema } : {}),
         ...(custom.parseJson ? { parseJson: custom.parseJson } : {}),
         ...(custom.stringifyJson ? { stringifyJson: custom.stringifyJson } : {}),
         throwHttpErrors: custom.throwHttpErrors ?? true,
@@ -68,6 +74,10 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         ...(custom.instrumentation ? { instrumentation: custom.instrumentation } : {}),
         decompress: custom.decompress ?? true,
         ...(custom.tls ? { tls: custom.tls } : {}),
+        ...(custom.beforeRedirect ? { beforeRedirect: custom.beforeRedirect } : {}),
+        transitional: {
+            clarifyTimeoutError: custom.transitional?.clarifyTimeoutError ?? false,
+        },
         security: {
             profile: securityProfile,
             enforceHTTPS: custom.security?.enforceHTTPS ?? securityDefaults.enforceHTTPS,
@@ -116,13 +126,18 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
         performance: {
             enableCaching: custom.performance?.enableCaching ?? true,
             cacheMaxSize: custom.performance?.cacheMaxSize ?? 500,
-            cacheTTL: custom.performance?.cacheTTL ?? 300_000,
+            cacheTTL,
             cacheMaxEntrySize: custom.performance?.cacheMaxEntrySize ?? 1_048_576,
             respectCacheHeaders: custom.performance?.respectCacheHeaders ?? true,
-            deduplicateRequests: custom.performance?.deduplicateRequests ?? false,
-            cacheStrategy: custom.performance?.cacheStrategy ?? 'ttl',
-            cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(custom.performance?.cacheTTL ?? 300_000, 1_500_000),
+            deduplicateRequests: custom.performance?.deduplicateRequests ?? true,
+            ...(custom.performance?.deduplicateRequestKey ? { deduplicateRequestKey: custom.performance.deduplicateRequestKey } : {}),
+            deduplicateMethods: normalizeMethodList(custom.performance?.deduplicateMethods ?? ['GET', 'HEAD']),
+            deduplicateHeaders: normalizeHeaderNameList(custom.performance?.deduplicateHeaders ?? ['accept', 'authorization', 'range']),
+            cacheStrategy: normalizeCacheStrategy(custom.performance?.cacheStrategy),
+            ...(custom.performance?.revalidateAfter !== undefined ? { revalidateAfter: custom.performance.revalidateAfter } : {}),
+            cacheStaleMax: custom.performance?.cacheStaleMax ?? Math.max(cacheTTL, 1_500_000),
             ...(custom.performance?.cacheAdapter ? { cacheAdapter: custom.performance.cacheAdapter } : {}),
+            ...(custom.performance?.onRevalidate ? { onRevalidate: custom.performance.onRevalidate } : {}),
         },
     };
 }
@@ -136,7 +151,7 @@ export function mergeConfig(base: NormalizedClientConfig, override: ClientConfig
         : { ...base.security, ...(override.security ?? {}), ...(overrideProfile ? { profile: overrideProfile } : {}) };
 
     const headers = base.headers || override.headers
-        ? NeutrxHeaders.concat(base.headers, override.headers).toJSON()
+        ? NeutrxHeaders.concat(base.headers, override.headers)
         : undefined;
 
     return {
@@ -145,6 +160,7 @@ export function mergeConfig(base: NormalizedClientConfig, override: ClientConfig
         ...(headers ? { headers } : {}),
         security,
         ...(override.egressPolicy ? { egressPolicy: override.egressPolicy } : {}),
+        transitional: { ...base.transitional, ...(override.transitional ?? {}) },
         resilience: { ...base.resilience, ...(override.resilience ?? {}) },
         performance: { ...base.performance, ...(override.performance ?? {}) },
     };
@@ -156,7 +172,8 @@ export async function resolveServiceEndpoint(
     method: HttpMethod,
     state: ServiceDiscoveryState
 ): Promise<ServiceEndpoint | undefined> {
-    if (/^https?:\/\//i.test(config.url)) return undefined;
+    const allowAbsoluteUrls = config.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls;
+    if (/^https?:\/\//i.test(config.url) && allowAbsoluteUrls !== false) return undefined;
 
     const serviceDiscovery = config.serviceDiscovery ?? defaults.serviceDiscovery;
     if (!serviceDiscovery) return undefined;
@@ -184,18 +201,20 @@ export async function resolveServiceEndpoint(
 
 export function buildURL(config: RequestConfig, defaults: NormalizedClientConfig): string {
     let url = config.url;
-    if (!/^https?:\/\//i.test(url)) {
+    const isAbsoluteURL = /^https?:\/\//i.test(url);
+    const allowAbsoluteUrls = config.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls;
+    if (!isAbsoluteURL || allowAbsoluteUrls === false) {
         const hasSocketPath = Boolean(config.socketPath ?? defaults.socketPath);
         const base = config.baseURL ?? defaults.baseURL ?? (hasSocketPath ? 'http://unix' : '');
-        url = `${base.endsWith('/') ? base.slice(0, -1) : base}${url.startsWith('/') ? url : `/${url}`}`;
+        if (base) {
+            url = `${base.endsWith('/') ? base.slice(0, -1) : base}${url.startsWith('/') ? url : `/${url}`}`;
+        }
     }
 
     if (config.params && Object.keys(config.params).length > 0) {
-        const parsed = new URL(url);
         const serializer = config.paramsSerializer ?? defaults.paramsSerializer;
         const serialized = serializeParams(config.params, serializer);
-        if (serialized) parsed.search = serialized.startsWith('?') ? serialized.slice(1) : serialized;
-        url = parsed.toString();
+        url = appendQueryString(url, serialized);
     }
 
     return url;
@@ -263,6 +282,14 @@ export function normalizeMethod(method: string): HttpMethod {
     throw new NeutrxSecurityError(`Invalid HTTP method: ${method}`, { code: 'INVALID_METHOD' });
 }
 
+function normalizeMethodList(methods: readonly string[]): readonly HttpMethod[] {
+    return [...new Set(methods.map(method => normalizeMethod(method)))];
+}
+
+function normalizeHeaderNameList(names: readonly string[]): readonly string[] {
+    return [...new Set(names.map(name => name.toLowerCase()))].sort();
+}
+
 export function normalizeArray<TValue>(value: TValue | readonly TValue[]): readonly TValue[] {
     return (Array.isArray(value) ? value : [value]) as readonly TValue[];
 }
@@ -285,7 +312,7 @@ export function mergeTransformResponse(
 
 export function applyRequestTransforms(
     data: RequestBody | undefined,
-    headers: Headers,
+    headers: InternalHeaders,
     transforms?: readonly TransformRequest[]
 ): RequestBody | undefined {
     return (transforms ?? []).reduce<RequestBody | undefined>((current, transform) => transform(current, headers), data);
@@ -313,6 +340,20 @@ function serializeParams(params: QueryParams, serializer?: RequestConfig['params
     const encoded = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) appendSearchParam(encoded, key, value, serializer?.encode, serializer?.indexes);
     return encoded.toString();
+}
+
+function appendQueryString(url: string, serializedParams: string): string {
+    const query = serializedParams.startsWith('?') ? serializedParams.slice(1) : serializedParams;
+    if (!query) return url;
+
+    const hashIndex = url.indexOf('#');
+    const hash = hashIndex >= 0 ? url.slice(hashIndex) : '';
+    const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+    const separator = base.includes('?')
+        ? base.endsWith('?') || base.endsWith('&') ? '' : '&'
+        : '?';
+
+    return `${base}${separator}${query}${hash}`;
 }
 
 function appendSearchParam(

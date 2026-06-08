@@ -1,35 +1,52 @@
 import type {
     ClientConfig,
+    HttpMethod,
     NeutrxResponse,
     ParsedResponseData,
     RequestBody,
     RequestConfig,
+    ResponseSchemaOption,
+    SchemaResponseData,
 } from '../types.js';
 import { Cancel, CancelToken, isCancel } from './cancel.js';
-import { NeutrxHeaders } from './headers.js';
+import { createMutableDefaults, mergeDefaults, type NeutrxDefaults } from './defaults.js';
+import { isNeutrxError } from './NeutrxError.js';
 import NeutrxClient from './NeutrxClient.js';
 
-type CallableRequestConfig<TBody extends RequestBody = RequestBody> = Omit<RequestConfig<TBody>, 'url'>;
+export type { NeutrxDefaults } from './defaults.js';
+
+type CallableRequestConfig<
+    TBody extends RequestBody = RequestBody,
+    TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+> = Omit<RequestConfig<TBody, TSchema>, 'url'>;
 
 interface CallableRequest {
-    <TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
-        config: RequestConfig<TBody>
-    ): Promise<NeutrxResponse<TData>>;
-    <TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    <
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
+        config: RequestConfig<TBody, TSchema>
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>>;
+    <
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
-        config?: CallableRequestConfig<TBody>
-    ): Promise<NeutrxResponse<TData>>;
+        config?: CallableRequestConfig<TBody, TSchema>
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>>;
 }
 
 export type NeutrxInstance = Omit<NeutrxClient, 'create'> & CallableRequest & {
     create(config?: ClientConfig): NeutrxInstance;
 };
 
-export type NeutrxDefaults = { -readonly [Key in keyof ClientConfig]?: ClientConfig[Key] };
 export type NeutrxStatic = NeutrxInstance & {
     readonly Cancel: typeof Cancel;
     readonly CancelToken: typeof CancelToken;
     readonly defaults: NeutrxDefaults;
+    readonly isNeutrxError: typeof isNeutrxError;
     readonly isCancel: typeof isCancel;
 };
 
@@ -38,12 +55,16 @@ function createCallableClient(
     defaults?: NeutrxDefaults,
     createInstance?: (config: ClientConfig) => NeutrxClient
 ): NeutrxInstance {
-    const callable = (<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
-        input: string | RequestConfig<TBody>,
-        config: CallableRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> => {
+    const callable = (<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
+        input: string | RequestConfig<TBody, TSchema>,
+        config: CallableRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> => {
         const requestConfig = typeof input === 'string' ? mergeRequestDefaults(defaults, { ...config, url: input }) : mergeRequestDefaults(defaults, input);
-        return getClient().request<TData, TBody>(requestConfig);
+        return getClient().request<TData, TBody, TSchema>(requestConfig);
     }) as unknown as NeutrxInstance;
 
     Object.defineProperty(callable, 'create', {
@@ -94,7 +115,7 @@ function createCallableClient(
     return proxy;
 }
 
-const defaults: NeutrxDefaults = {};
+const defaults = createMutableDefaults();
 const rootClient = new NeutrxClient({});
 const Neutrx: NeutrxStatic = createCallableClient(
     () => rootClient,
@@ -118,30 +139,27 @@ Object.defineProperty(Neutrx, 'isCancel', {
     value: isCancel,
     enumerable: true,
 });
+Object.defineProperty(Neutrx, 'isNeutrxError', {
+    value: isNeutrxError,
+    enumerable: true,
+});
 
 export default Neutrx;
 
-function mergeRequestDefaults<TBody extends RequestBody>(
+function mergeRequestDefaults<TBody extends RequestBody, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
     defaultsConfig: NeutrxDefaults | undefined,
-    config: RequestConfig<TBody>
-): RequestConfig<TBody> {
+    config: RequestConfig<TBody, TSchema>
+): RequestConfig<TBody, TSchema> {
     if (!defaultsConfig) return config;
-    return mergeClientDefaults(defaultsConfig, config) as RequestConfig<TBody>;
+    return mergeClientDefaults(defaultsConfig, config, config.method) as RequestConfig<TBody, TSchema>;
 }
 
-function mergeClientDefaults(defaultsConfig: NeutrxDefaults, config: ClientConfig): ClientConfig {
-    const headers = defaultsConfig.headers || config.headers
-        ? NeutrxHeaders.concat(defaultsConfig.headers, config.headers).toJSON()
-        : undefined;
-    return {
-        ...defaultsConfig,
-        ...config,
-        ...(headers ? { headers } : {}),
-        ...(defaultsConfig.security || config.security ? { security: { ...defaultsConfig.security, ...config.security } } : {}),
-        ...(defaultsConfig.resilience || config.resilience ? { resilience: { ...defaultsConfig.resilience, ...config.resilience } } : {}),
-        ...(defaultsConfig.performance || config.performance ? { performance: { ...defaultsConfig.performance, ...config.performance } } : {}),
-        ...(defaultsConfig.instrumentation || config.instrumentation ? { instrumentation: { ...defaultsConfig.instrumentation, ...config.instrumentation } } : {}),
-    };
+function mergeClientDefaults(
+    defaultsConfig: NeutrxDefaults,
+    config: ClientConfig,
+    method?: HttpMethod | Lowercase<HttpMethod>
+): ClientConfig {
+    return mergeDefaults(defaultsConfig, config, method);
 }
 
 function invokeWithDefaults(
@@ -159,11 +177,14 @@ function invokeWithDefaults(
         const input = typeof args[0] === 'string' ? { url: args[0] } : args[0];
         return isRequestConfig(input) ? client.getUri(mergeRequestDefaults(defaultsConfig, input)) : method.apply(client, args);
     }
+    if (property === 'ws' && typeof args[0] === 'string') {
+        return method.call(client, args[0], mergeClientDefaults(defaultsConfig, configArg(args[1]), 'GET'));
+    }
     if (isBodylessMethod(property) && typeof args[0] === 'string') {
-        return method.call(client, args[0], mergeClientDefaults(defaultsConfig, configArg(args[1])));
+        return method.call(client, args[0], mergeClientDefaults(defaultsConfig, configArg(args[1]), methodForProperty(property)));
     }
     if (isBodyMethod(property) && typeof args[0] === 'string') {
-        return method.call(client, args[0], args[1], mergeClientDefaults(defaultsConfig, configArg(args[2])));
+        return method.call(client, args[0], args[1], mergeClientDefaults(defaultsConfig, configArg(args[2]), methodForProperty(property)));
     }
     return method.apply(client, args);
 }
@@ -195,4 +216,15 @@ function isBodyMethod(property: string | symbol): boolean {
         || property === 'putUrlEncoded'
         || property === 'patchUrlEncoded'
         || property === 'upload';
+}
+
+function methodForProperty(property: string | symbol): HttpMethod | undefined {
+    if (property === 'delete') return 'DELETE';
+    if (property === 'head') return 'HEAD';
+    if (property === 'options') return 'OPTIONS';
+    if (property === 'put' || property === 'putForm' || property === 'putUrlEncoded') return 'PUT';
+    if (property === 'patch' || property === 'patchForm' || property === 'patchUrlEncoded') return 'PATCH';
+    if (property === 'post' || property === 'postForm' || property === 'postUrlEncoded' || property === 'upload') return 'POST';
+    if (property === 'get' || property === 'download') return 'GET';
+    return undefined;
 }

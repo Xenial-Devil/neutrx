@@ -1,8 +1,5 @@
-import http, { type ClientRequest, type IncomingMessage, type RequestOptions } from 'node:http';
-import https from 'node:https';
-import type { PeerCertificate } from 'node:tls';
+import type { IncomingMessage } from 'node:http';
 import { Readable } from 'node:stream';
-import type { Duplex } from 'node:stream';
 import { EventEmitter } from 'node:events';
 
 import SecurityManager from '../security/SecurityManager.js';
@@ -12,22 +9,22 @@ import CircuitBreaker from '../resilience/CircuitBreaker.js';
 import { RetryEngine } from '../resilience/RetryEngine.js';
 import Bulkhead from '../resilience/Bulkhead.js';
 import CacheEngine from '../performance/CacheEngine.js';
+import Deduplicator from '../performance/Deduplicator.js';
 import MetricsCollector from '../monitoring/MetricsCollector.js';
 import type { MetricsSnapshot } from '../monitoring/MetricsCollector.js';
 import { PluginManager, type NeutrxPlugin } from '../plugins/PluginManager.js';
 import { fetchAdapter } from '../adapters/fetch.js';
 import { http2Adapter, closeHttp2Sessions } from '../adapters/http2.js';
+import { createNodeHttpAgents, nodeHttpAdapter, type NodeHttpAdapterAgents } from '../adapters/http.js';
 import { OpenTelemetryInstrumentation } from '../monitoring/OpenTelemetryInstrumentation.js';
 import { VERSION } from '../version.js';
+import { createNodeWebSocketConnection } from './nodeWebSocket.js';
+import { createNativeWebSocketConnection, webSocketRequestConfig, webSocketUrl } from './websocket.js';
 
 import {
-    NeutrxConnectTimeoutError,
-    NeutrxError,
     NeutrxErrorFactory,
-    NeutrxRequestSizeError,
-    NeutrxResponseSizeError,
     NeutrxSecurityError,
-    NeutrxResponseTimeoutError,
+    isNeutrxError,
 } from './NeutrxError.js';
 import {
     applyRequestTransforms,
@@ -42,17 +39,18 @@ import {
     resolveServiceEndpoint,
     type ServiceDiscoveryState,
 } from './config.js';
-import { detectContentType, serializeBody } from './bodySerializer.js';
-import { abortError, mergeCancellationSignal } from './cancel.js';
-import { createHttpsProxyConnection, directRequestTarget, proxyRequestTarget, resolveProxy } from './proxy.js';
-import { createLookup, validateProxyTarget } from './dns.js';
-import { NeutrxHeaders, getContentLength, hasHeader, normalizeIncomingHeaders, setHeader, toOutgoingHeaders } from './headers.js';
-import { attachStreamDownloadProgress, reportDownloadProgress, reportUploadProgress, toUploadBuffer } from './progress.js';
+import { createMutableDefaults, defaultsToConfig, type NeutrxDefaults } from './defaults.js';
+import { detectContentType } from './bodySerializer.js';
+import { mergeCancellationSignal } from './cancel.js';
+import { NeutrxHeaders, hasHeader, normalizeRequestHeaders } from './headers.js';
 import { REDIRECT_CODES, buildRedirectContext, shouldRedirectWithGet, stripRedirectHeaders, withoutBody } from './redirect.js';
 import { decompressResponseData, normalizeNodeResponseData, parseResponseData } from './responseParser.js';
+import { validateResponseData } from './validation.js';
 import type {
     AuthConfig,
     BulkheadStats,
+    CacheRevalidateReason,
+    CacheStrategy,
     CacheStats,
     CertificatePinConfig,
     CircuitStatus,
@@ -61,36 +59,43 @@ import type {
     ConcurrentResult,
     EgressPolicyAudit,
     GraphQLResult,
+    HeaderSource,
     Headers,
+    HttpMethod,
+    InternalHeaders,
+    InstrumentationConfig,
     InternalRequestConfig,
     JsonValue,
-    MaxRate,
     MockController,
+    NeutrxWebSocketData,
+    NeutrxWebSocketMessage,
+    NeutrxLogger,
     NeutrxResponse,
+    NeutrxWebSocketOptions,
+    NeutrxWSConnection,
     NormalizedClientConfig,
     OAuth2Config,
     PaginationOptions,
     PaginationPage,
     ParsedResponseData,
     RawHttpResponse,
+    RequestAdapter,
     RequestBody,
     RequestConfig,
+    ResponseSchemaOption,
     RetryContext,
+    SchemaResponseData,
     SseHandle,
+    TraceContext,
     ValidationPluginConfig,
 } from '../types.js';
 
-const SECURE_CIPHERS = [
-    'TLS_AES_256_GCM_SHA384',
-    'TLS_CHACHA20_POLY1305_SHA256',
-    'TLS_AES_128_GCM_SHA256',
-    'ECDHE-RSA-AES256-GCM-SHA384',
-    'ECDHE-RSA-AES128-GCM-SHA256',
-].join(':');
-
-type BodylessRequestConfig = Omit<RequestConfig, 'url' | 'method' | 'data'>;
-type BodyRequestConfig<TBody extends RequestBody> = Omit<RequestConfig<TBody>, 'url' | 'method' | 'data'>;
-type RuntimeRequestConfig = InternalRequestConfig & { headers: Headers };
+type BodylessRequestConfig<TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined> = Omit<RequestConfig<RequestBody, TSchema>, 'url' | 'method' | 'data'>;
+type BodyRequestConfig<
+    TBody extends RequestBody,
+    TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+> = Omit<RequestConfig<TBody, TSchema>, 'url' | 'method' | 'data'>;
+type BeforeRequestResult = Omit<InternalRequestConfig, 'headers'> & { readonly headers: HeaderSource };
 
 export default class NeutrxClient extends EventEmitter {
     configureOAuth2?: (config: OAuth2Config) => void;
@@ -99,9 +104,11 @@ export default class NeutrxClient extends EventEmitter {
         endpoint: string,
         query: string,
         variables?: Record<string, JsonValue>,
-        options?: { readonly operationName?: string; readonly headers?: Headers }
+        options?: { readonly operationName?: string; readonly headers?: HeaderSource }
     ) => Promise<GraphQLResult<TData>>;
     mock?: MockController;
+    logger: NeutrxLogger | undefined = undefined;
+    readonly defaults: NeutrxDefaults;
     readonly interceptors: NeutrxInterceptors;
 
     #config: NormalizedClientConfig;
@@ -111,18 +118,19 @@ export default class NeutrxClient extends EventEmitter {
     #retryEngine: RetryEngine;
     #bulkhead: Bulkhead;
     #cache: CacheEngine;
+    #deduplicator: Deduplicator;
     #metrics: MetricsCollector;
     #rateLimiter: RateLimiter;
     #plugins: PluginManager;
     #otel: OpenTelemetryInstrumentation;
-    #defaultHeaders: Headers;
-    #agents: { http: http.Agent; https: https.Agent };
-    #inflight = new Map<string, Promise<RawHttpResponse>>();
+    #defaultHeaders: InternalHeaders;
+    #agents: NodeHttpAdapterAgents;
     #serviceDiscovery: ServiceDiscoveryState = { counters: new Map<string, number>() };
 
     constructor(config: ClientConfig = {}) {
         super();
         this.#config = buildConfig(config);
+        this.defaults = createMutableDefaults(this.#config);
         this.#security = new SecurityManager({ ...this.#config.security, ...(this.#config.egressPolicy ? { egressPolicy: this.#config.egressPolicy } : {}) });
         if (this.#config.tls?.certificatePins) this.#security.setCertificatePins(this.#config.tls.certificatePins);
         this.#interceptors = new InterceptorChain();
@@ -130,101 +138,150 @@ export default class NeutrxClient extends EventEmitter {
         this.#retryEngine = new RetryEngine(this.#config.resilience);
         this.#bulkhead = new Bulkhead(this.#config.resilience);
         this.#cache = new CacheEngine(this.#config.performance);
+        this.#deduplicator = new Deduplicator(this.#config.performance);
         this.#metrics = new MetricsCollector();
         this.#rateLimiter = new RateLimiter(this.#config.security.rateLimit ?? {});
         this.#plugins = new PluginManager(this);
         this.#otel = new OpenTelemetryInstrumentation();
         this.#defaultHeaders = this.#buildDefaultHeaders();
-        this.#agents = this.#setupAgents();
+        this.#agents = createNodeHttpAgents();
         this.interceptors = this.#interceptors.managers();
     }
 
-    get<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'GET', url });
+    get<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'GET', url });
     }
 
-    post<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    post<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData, TBody>({ ...config, method: 'POST', url, data });
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, TBody, TSchema>({ ...config, method: 'POST', url, data });
     }
 
-    postForm<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    postForm<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.post<TData, TBody>(url, data, withMultipartHeaders(config));
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.post<TData, TBody, TSchema>(url, data, withMultipartHeaders(config));
     }
 
-    postUrlEncoded<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    postUrlEncoded<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.post<TData, TBody>(url, data, withUrlEncodedHeaders(config));
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.post<TData, TBody, TSchema>(url, data, withUrlEncodedHeaders(config));
     }
 
-    put<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    put<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData, TBody>({ ...config, method: 'PUT', url, data });
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, TBody, TSchema>({ ...config, method: 'PUT', url, data });
     }
 
-    putForm<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    putForm<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.put<TData, TBody>(url, data, withMultipartHeaders(config));
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.put<TData, TBody, TSchema>(url, data, withMultipartHeaders(config));
     }
 
-    putUrlEncoded<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    putUrlEncoded<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.put<TData, TBody>(url, data, withUrlEncodedHeaders(config));
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.put<TData, TBody, TSchema>(url, data, withUrlEncodedHeaders(config));
     }
 
-    patch<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    patch<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData, TBody>({ ...config, method: 'PATCH', url, data });
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, TBody, TSchema>({ ...config, method: 'PATCH', url, data });
     }
 
-    patchForm<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    patchForm<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.patch<TData, TBody>(url, data, withMultipartHeaders(config));
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.patch<TData, TBody, TSchema>(url, data, withMultipartHeaders(config));
     }
 
-    patchUrlEncoded<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    patchUrlEncoded<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.patch<TData, TBody>(url, data, withUrlEncodedHeaders(config));
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.patch<TData, TBody, TSchema>(url, data, withUrlEncodedHeaders(config));
     }
 
-    delete<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'DELETE', url });
+    delete<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'DELETE', url });
     }
 
-    head<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'HEAD', url });
+    head<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'HEAD', url });
     }
 
-    options<TData extends ParsedResponseData = ParsedResponseData>(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<TData>> {
-        return this.request<TData>({ ...config, method: 'OPTIONS', url });
+    options<TData extends ParsedResponseData = ParsedResponseData, TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, RequestBody, TSchema>({ ...config, method: 'OPTIONS', url });
     }
 
     async concurrent<TData extends ParsedResponseData = ParsedResponseData>(
@@ -263,7 +320,16 @@ export default class NeutrxClient extends EventEmitter {
         };
 
         const workers = Array.from({ length: Math.min(limit, requests.length) }, () => worker());
-        await Promise.race([Promise.all(workers), rejectAfter(timeout, 'concurrent timeout')]);
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutHandle = setTimeout(() => reject(new Error('concurrent timeout')), timeout);
+        });
+
+        try {
+            await Promise.race([Promise.all(workers), timeoutPromise]);
+        } finally {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+        }
 
         return { results, errors, completed };
     }
@@ -327,16 +393,23 @@ export default class NeutrxClient extends EventEmitter {
         }
     }
 
-    upload<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
+    upload<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
         url: string,
         data: TBody,
-        config: BodyRequestConfig<TBody> = {}
-    ): Promise<NeutrxResponse<TData>> {
-        return this.request<TData, TBody>({ ...config, method: 'POST', url, data });
+        config: BodyRequestConfig<TBody, TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
+        return this.request<TData, TBody, TSchema>({ ...config, method: 'POST', url, data });
     }
 
-    download(url: string, config: BodylessRequestConfig = {}): Promise<NeutrxResponse<Buffer>> {
-        return this.request<Buffer>({ ...config, method: 'GET', url, responseType: 'buffer' });
+    download<TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined>(
+        url: string,
+        config: BodylessRequestConfig<TSchema> = {}
+    ): Promise<NeutrxResponse<SchemaResponseData<Buffer, TSchema>>> {
+        return this.request<Buffer, RequestBody, TSchema>({ ...config, method: 'GET', url, responseType: 'buffer' });
     }
 
     async sse(url: string, { onMessage, onError, onClose }: {
@@ -369,15 +442,37 @@ export default class NeutrxClient extends EventEmitter {
         return { close: () => response.data.destroy() };
     }
 
-    async request<TData extends ParsedResponseData = ParsedResponseData, TBody extends RequestBody = RequestBody>(
-        config: RequestConfig<TBody>
-    ): Promise<NeutrxResponse<TData>> {
+    async ws<
+        TMessage = NeutrxWebSocketData,
+        TSend extends NeutrxWebSocketMessage = NeutrxWebSocketMessage
+    >(
+        url: string,
+        options: NeutrxWebSocketOptions<TMessage, TSend> = {}
+    ): Promise<NeutrxWSConnection<TMessage, TSend>> {
+        const config = await this.#buildWebSocketRC(url, options);
+        if (options.webSocket) return createNativeWebSocketConnection<TMessage, TSend>(config.url, options);
+        if (config.proxy) {
+            throw new NeutrxSecurityError('WebSocket proxy support is not available without a custom WebSocket implementation', { code: 'WEBSOCKET_PROXY_UNSUPPORTED' });
+        }
+        return createNodeWebSocketConnection(config, options);
+    }
+
+    async request<
+        TData extends ParsedResponseData = ParsedResponseData,
+        TBody extends RequestBody = RequestBody,
+        TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+    >(
+        config: RequestConfig<TBody, TSchema>
+    ): Promise<NeutrxResponse<SchemaResponseData<TData, TSchema>>> {
         const requestId = this.#id();
         const t0 = Date.now();
         let trackedUrl = config.url;
         let circuitChecked = false;
         let cacheConfig: InternalRequestConfig | null = null;
         let span: Awaited<ReturnType<OpenTelemetryInstrumentation['start']>>['span'] = null;
+        let traceContext: TraceContext | undefined;
+        let trackedMethod = typeof config.method === 'string' ? config.method.toUpperCase() : 'GET';
+        let retryCount = 0;
         this.#metrics.recordStart();
 
         try {
@@ -385,27 +480,50 @@ export default class NeutrxClient extends EventEmitter {
             trackedUrl = rc.url;
             const telemetry = await this.#otel.start(rc);
             span = telemetry.span;
+            traceContext = telemetry.traceContext;
+            if (traceContext) rc = { ...rc, traceContext };
             if (Object.keys(telemetry.carrier).length > 0) {
-                rc = { ...rc, headers: NeutrxHeaders.from(rc.headers).concat(telemetry.carrier).toJSON() };
+                rc = { ...rc, headers: mergeCarrierHeaders(rc, telemetry.carrier) };
             }
 
-            rc = await this.#plugins.runHook('beforeRequest', rc);
-            if (rc.mockResponse) return rc.mockResponse as NeutrxResponse<TData>;
+            rc = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', rc));
+            traceContext = rc.traceContext ?? traceContext;
+            trackedMethod = rc.method;
+            if (rc.mockResponse) {
+                const response = withTraceContext(rc.mockResponse as NeutrxResponse<TData>, traceContext);
+                this.#otel.finish(span, response, {
+                    retries: 0,
+                    cacheHit: false,
+                    durationMs: Date.now() - t0,
+                    circuitState: this.#circuitState(rc.url),
+                });
+                return response as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
+            }
+            trackedUrl = rc.url;
 
-            rc = this.#security.validateRequest(rc);
+            rc = toInternalRequestConfig(this.#security.validateRequest(rc));
             this.#rateLimiter.checkLimit(rc.url);
+            trackedUrl = rc.url;
 
-            rc = await this.#interceptors.runRequest(rc);
+            rc = toInternalRequestConfig(await this.#interceptors.runRequest(rc));
+            trackedUrl = rc.url;
 
             if (this.#isCacheEligible(rc)) {
                 cacheConfig = rc;
-                const hit = this.#cache.getWithState(rc);
-                if (hit) {
-                    this.#metrics.recordCacheHit(rc.url);
-                    this.emit('cache:hit', { requestId, url: rc.url, state: hit.state });
-                    if (hit.state === 'stale') this.#revalidateCache(rc);
-                    this.#otel.finish(span, hit.response as NeutrxResponse<TData>, { retries: 0, cacheHit: true });
-                    return hit.response as NeutrxResponse<TData>;
+                if (!this.#cache.usesNetworkFirst()) {
+                    const hit = this.#cache.getWithState(rc);
+                    if (hit) {
+                        this.#metrics.recordCacheHit(rc.url);
+                        this.emit('cache:hit', { requestId, url: rc.url, state: hit.state });
+                        if (hit.state === 'stale') this.#revalidateCache(rc, 'stale');
+                        this.#otel.finish(span, hit.response as NeutrxResponse<TData>, {
+                            retries: 0,
+                            cacheHit: true,
+                            durationMs: Date.now() - t0,
+                            circuitState: this.#circuitState(rc.url),
+                        });
+                        return hit.response as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
+                    }
                 }
             }
 
@@ -422,6 +540,8 @@ export default class NeutrxClient extends EventEmitter {
             };
             const { result: response, attempts } = await this.#retryEngine.execute(
                 async (attempt): Promise<NeutrxResponse<TData>> => {
+                    retryCount = attempt;
+                    this.#otel.recordAttempt(span, attempt);
                     if (attempt > 0) this.#metrics.recordRetry(rc.url, attempt);
                     const raw = await this.#bulkhead.execute(domain, () => this.#dispatchDeduped(rc));
                     return this.#parse<TData>(raw, rc);
@@ -450,32 +570,55 @@ export default class NeutrxClient extends EventEmitter {
                 attempts: attempts.length,
             });
 
-            this.#otel.finish(span, next as NeutrxResponse<TData>, { retries: Math.max(0, attempts.length - 1), cacheHit: false });
-            return next as NeutrxResponse<TData>;
+            this.#otel.finish(span, next as NeutrxResponse<TData>, {
+                retries: Math.max(0, attempts.length - 1),
+                cacheHit: false,
+                durationMs: duration,
+                circuitState: this.#circuitState(rc.url),
+            });
+            return next as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
         } catch (error: unknown) {
             const normalized = normalizeError(error) as Error & { requestId?: string; duration?: number; code?: string };
             normalized.requestId = requestId;
             normalized.duration = Date.now() - t0;
+            if (isNeutrxError(normalized)) {
+                normalized.requestId = requestId;
+                normalized.duration = Date.now() - t0;
+                if (!normalized.traceContext && traceContext) normalized.traceContext = traceContext;
+                normalized.url ??= trackedUrl;
+                normalized.method ??= trackedMethod;
+            }
             if (cacheConfig) {
-                const stale = this.#cache.getStaleIfError(cacheConfig);
+                const stale = this.#cache.usesNetworkFirst()
+                    ? this.#cache.getNetworkFallback(cacheConfig)
+                    : this.#cache.getStaleIfError(cacheConfig);
                 if (stale) {
                     this.#metrics.recordCacheHit(cacheConfig.url);
-                    this.emit('cache:stale-if-error', { requestId, url: cacheConfig.url, error: normalized });
-                    this.#otel.finish(span, stale as NeutrxResponse<TData>, { retries: 0, cacheHit: true });
-                    return stale as NeutrxResponse<TData>;
+                    this.emit(this.#cache.usesNetworkFirst() ? 'cache:fallback' : 'cache:stale-if-error', { requestId, url: cacheConfig.url, error: normalized });
+                    this.#otel.finish(span, stale as NeutrxResponse<TData>, {
+                        retries: retryCount,
+                        cacheHit: true,
+                        durationMs: normalized.duration,
+                        circuitState: this.#circuitState(cacheConfig.url),
+                    });
+                    return stale as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
                 }
             }
-            this.#otel.fail(span, normalized);
 
             this.#metrics.recordError(trackedUrl, normalized);
             if (circuitChecked) await this.#circuitBreaker.recordFailure(trackedUrl);
+            this.#otel.fail(span, normalized, {
+                retries: retryCount,
+                durationMs: normalized.duration,
+                circuitState: this.#circuitState(trackedUrl),
+            });
 
             this.emit('request:error', { requestId, url: trackedUrl, error: normalized, duration: normalized.duration });
             await this.#plugins.runHook('onError', normalized);
 
             const handled = await this.#interceptors.runError(normalized);
             if (handled instanceof Error) throw handled;
-            return handled as NeutrxResponse<TData>;
+            return handled as NeutrxResponse<SchemaResponseData<TData, TSchema>>;
         } finally {
             this.#metrics.recordEnd();
         }
@@ -484,21 +627,34 @@ export default class NeutrxClient extends EventEmitter {
     setBaseURL(url: string): this {
         this.#security.validateURL(url);
         this.#config = { ...this.#config, baseURL: url };
+        this.defaults.baseURL = url;
         return this;
     }
 
     setTimeout(ms: number): this {
         this.#config = { ...this.#config, timeout: ms };
+        this.defaults.timeout = ms;
         return this;
     }
 
     clearAuth(): this {
-        this.#defaultHeaders = NeutrxHeaders.from(this.#defaultHeaders).removeAuthorization().toJSON();
+        this.#defaultHeaders = normalizeRequestHeaders(NeutrxHeaders.from(this.#defaultHeaders).removeAuthorization());
         return this;
     }
 
-    clearCache(pattern?: string): this {
+    clearCache(pattern?: string | RegExp): this {
         this.#cache.clear(pattern);
+        return this;
+    }
+
+    invalidateCache(pattern?: string | RegExp): this {
+        this.#cache.invalidate(pattern);
+        return this;
+    }
+
+    deleteCacheEntry(config: string | RequestConfig): this {
+        const url = this.getUri(typeof config === 'string' ? { url: config } : config);
+        this.#cache.deleteByUrl(url);
         return this;
     }
 
@@ -509,14 +665,14 @@ export default class NeutrxClient extends EventEmitter {
 
     setHeader(key: string, value: Headers[string]): this {
         this.#security.validateHeader(key, value);
-        this.#defaultHeaders = NeutrxHeaders.from(this.#defaultHeaders).set(key, value).toJSON();
+        this.#defaultHeaders = normalizeRequestHeaders(NeutrxHeaders.from(this.#defaultHeaders).set(key, value));
         return this;
     }
 
     removeHeader(key: string): this {
         const headers = NeutrxHeaders.from(this.#defaultHeaders);
         headers.delete(key);
-        this.#defaultHeaders = headers.toJSON();
+        this.#defaultHeaders = normalizeRequestHeaders(headers);
         return this;
     }
 
@@ -529,7 +685,7 @@ export default class NeutrxClient extends EventEmitter {
         } else if (auth.apiKey) {
             headers.set(auth.apiKey.header ?? 'X-Api-Key', auth.apiKey.key);
         }
-        this.#defaultHeaders = headers.toJSON();
+        this.#defaultHeaders = normalizeRequestHeaders(headers);
         return this;
     }
 
@@ -565,18 +721,38 @@ export default class NeutrxClient extends EventEmitter {
         return this;
     }
 
+    setLogger(logger: NeutrxLogger | undefined): this {
+        this.logger = logger;
+        return this;
+    }
+
+    enableOpenTelemetry(config: InstrumentationConfig = {}): this {
+        const instrumentation = {
+            ...this.#config.instrumentation,
+            openTelemetry: true,
+            propagateTraceHeaders: true,
+            ...config,
+        };
+        this.#config = {
+            ...this.#config,
+            instrumentation,
+        };
+        this.defaults.instrumentation = instrumentation;
+        return this;
+    }
+
     use(plugin: NeutrxPlugin): this {
         this.#plugins.use(plugin);
         return this;
     }
 
-    addPluginHook(name: 'beforeRequest', hook: (context: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>): void;
+    addPluginHook(name: 'beforeRequest', hook: (context: InternalRequestConfig) => BeforeRequestResult | Promise<BeforeRequestResult>): void;
     addPluginHook(name: 'afterRequest', hook: (context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>): void;
     addPluginHook(name: 'onError', hook: (context: Error) => Error | Promise<Error>): void;
     addPluginHook(
         name: 'beforeRequest' | 'afterRequest' | 'onError',
         hook:
-            | ((context: InternalRequestConfig) => InternalRequestConfig | Promise<InternalRequestConfig>)
+            | ((context: InternalRequestConfig) => BeforeRequestResult | Promise<BeforeRequestResult>)
             | ((context: NeutrxResponse) => NeutrxResponse | Promise<NeutrxResponse>)
             | ((context: Error) => Error | Promise<Error>)
     ): void {
@@ -608,17 +784,19 @@ export default class NeutrxClient extends EventEmitter {
     }
 
     getUri(config: string | RequestConfig): string {
-        return buildURL(typeof config === 'string' ? { url: config } : config, this.#config);
+        const requestConfig = typeof config === 'string' ? { url: config } : config;
+        return buildURL(requestConfig, this.#configWithDefaults(requestConfig.method));
     }
 
     create(config: ClientConfig = {}): NeutrxClient {
-        return new NeutrxClient(mergeConfig(this.#config, config));
+        return new NeutrxClient(mergeConfig(this.#configWithDefaults(), config));
     }
 
     destroy(): void {
         this.#agents.http.destroy();
         this.#agents.https.destroy();
-        closeHttp2Sessions();
+        closeHttp2Sessions(this.#security);
+        this.#deduplicator.clear();
         this.#cache.destroy();
         this.#metrics.destroy();
         this.removeAllListeners();
@@ -627,40 +805,99 @@ export default class NeutrxClient extends EventEmitter {
     async #dispatch(config: InternalRequestConfig): Promise<RawHttpResponse> {
         const adapter = config.adapter ?? this.#config.adapter ?? detectAdapter(config);
         const selectedAdapter: unknown = adapter;
-        if (typeof adapter === 'function') return adapter(config);
-        if (adapter === 'fetch') return fetchAdapter(config);
-        if (adapter === 'http2') return this.#http2(config);
-        if (adapter !== 'http') throw new NeutrxSecurityError(`Unknown adapter: ${String(selectedAdapter)}`, { code: 'UNKNOWN_ADAPTER' });
-        return this.#http(config);
+        let dispatch: RequestAdapter;
+        if (typeof adapter === 'function') {
+            dispatch = adapter;
+        } else if (adapter === 'fetch') {
+            dispatch = fetchAdapter;
+        } else if (adapter === 'http2') {
+            dispatch = requestConfig => http2Adapter(requestConfig, {
+                security: this.#security,
+                defaults: this.#configWithDefaults(requestConfig.method),
+            });
+        } else if (adapter === 'http') {
+            dispatch = requestConfig => nodeHttpAdapter(requestConfig, {
+                security: this.#security,
+                defaults: this.#configWithDefaults(requestConfig.method),
+                agents: this.#agents,
+            });
+        } else {
+            throw new NeutrxSecurityError(`Unknown adapter: ${String(selectedAdapter)}`, { code: 'UNKNOWN_ADAPTER' });
+        }
+
+        return this.#dispatchWithRedirects(config, dispatch);
+    }
+
+    async #dispatchWithRedirects(config: InternalRequestConfig, adapter: RequestAdapter): Promise<RawHttpResponse> {
+        const raw = await adapter(config);
+        if (!REDIRECT_CODES.has(raw.status) || !config.followRedirects) return raw;
+
+        const hops = config.hops + 1;
+        if (hops > config.maxRedirects) throw new Error('Max redirects exceeded');
+
+        const location = singleHeaderValue(headerValue(raw.headers, 'location'));
+        if (!location) throw new Error('Redirect response missing Location header');
+        const redirectUrl = new URL(location, config.url).href;
+        if (config.socketPath) {
+            this.#security.validateSocketURL(redirectUrl);
+        } else {
+            this.#security.validateURL(redirectUrl);
+            this.#security.validateRedirect(config.url, redirectUrl);
+        }
+        discardRedirectBody(raw.data);
+
+        const redirectedMethod = shouldRedirectWithGet(raw.status, config.method) ? 'GET' : config.method;
+        const headers = stripRedirectHeaders(config.headers, config.url, redirectUrl, redirectedMethod !== config.method);
+        const redirectedConfig = redirectedMethod === 'GET'
+            ? withoutBody({ ...config, url: redirectUrl, method: redirectedMethod, headers, hops })
+            : { ...config, url: redirectUrl, method: redirectedMethod, headers, hops };
+
+        await config.beforeRedirect?.(buildRedirectContext(raw.status, location, config.url, redirectUrl, redirectedConfig.headers));
+        const securedHeaders = stripRedirectHeaders(
+            redirectedConfig.headers,
+            config.url,
+            redirectUrl,
+            redirectedMethod !== config.method
+        );
+        for (const [key, value] of NeutrxHeaders.from(securedHeaders)) {
+            this.#security.validateHeader(key, value);
+        }
+        return this.#dispatchWithRedirects({ ...redirectedConfig, headers: securedHeaders }, adapter);
     }
 
     async #dispatchDeduped(config: InternalRequestConfig): Promise<RawHttpResponse> {
-        if (!this.#isDeduplicationEligible(config)) return this.#dispatch(config);
-
-        const key = this.#dedupeKey(config);
-        const existing = this.#inflight.get(key);
-        if (existing) {
-            this.emit('request:deduplicated', { requestId: config.requestId, url: config.url, method: config.method });
-            const raw = await existing;
-            return { ...raw, config, data: cloneRawData(raw.data), deduplicated: true };
-        }
-
-        const pending = this.#dispatch(config);
-        this.#inflight.set(key, pending);
-        try {
-            const raw = await pending;
-            return { ...raw, data: cloneRawData(raw.data) };
-        } finally {
-            this.#inflight.delete(key);
-        }
+        const adapter = config.adapter ?? this.#config.adapter ?? detectAdapter(config);
+        return this.#deduplicator.dispatch(config, () => this.#dispatch(config), {
+            adapterKey: typeof adapter === 'function' ? 'custom' : adapter,
+            canUseDefaultKey: typeof adapter !== 'function',
+            onHit: hit => {
+                this.#metrics.recordDeduplicationHit(hit.url);
+                this.emit('request:deduplicated', {
+                    requestId: hit.requestId,
+                    url: hit.url,
+                    method: hit.method,
+                });
+            },
+        });
     }
 
-    #revalidateCache(config: InternalRequestConfig): void {
-        if (!this.#cache.markRevalidating(config)) return;
+    #revalidateCache(config: InternalRequestConfig, reason: CacheRevalidateReason): void {
+        const strategy = this.#cache.strategy();
+        if (!this.#cache.markRevalidating(config)) {
+            this.#notifyRevalidate({
+                requestId: config.requestId,
+                url: config.url,
+                strategy,
+                reason,
+                updated: false,
+                skipped: true,
+            });
+            return;
+        }
         const conditionalHeaders = this.#cache.revalidationHeaders(config);
         const revalidationConfig = withoutSignal({
             ...config,
-            headers: NeutrxHeaders.concat(config.headers, conditionalHeaders).toJSON(),
+            headers: normalizeRequestHeaders(NeutrxHeaders.concat(config.headers, conditionalHeaders)),
             requestId: this.#id(),
             startTime: Date.now(),
             cache: false,
@@ -672,6 +909,14 @@ export default class NeutrxClient extends EventEmitter {
                 if (raw.status === 304) {
                     this.#cache.refresh(config, raw.headers);
                     this.emit('cache:revalidated', { requestId: revalidationConfig.requestId, url: config.url, status: 304 });
+                    this.#notifyRevalidate({
+                        requestId: revalidationConfig.requestId,
+                        url: config.url,
+                        strategy,
+                        reason,
+                        status: 304,
+                        updated: true,
+                    });
                     return;
                 }
                 const parsed = await this.#parse(raw, revalidationConfig);
@@ -680,251 +925,49 @@ export default class NeutrxClient extends EventEmitter {
                 next = await this.#plugins.runHook('afterRequest', next);
                 this.#cache.set(config, next);
                 this.emit('cache:revalidated', { requestId: revalidationConfig.requestId, url: config.url });
+                this.#notifyRevalidate({
+                    requestId: revalidationConfig.requestId,
+                    url: config.url,
+                    strategy,
+                    reason,
+                    status: next.status,
+                    updated: true,
+                });
             } catch (error: unknown) {
-                this.emit('cache:revalidate:error', { requestId: revalidationConfig.requestId, url: config.url, error: normalizeError(error) });
+                const normalized = normalizeError(error);
+                this.emit('cache:revalidate:error', { requestId: revalidationConfig.requestId, url: config.url, error: normalized });
+                this.#notifyRevalidate({
+                    requestId: revalidationConfig.requestId,
+                    url: config.url,
+                    strategy,
+                    reason,
+                    updated: false,
+                    error: normalized,
+                });
             } finally {
                 this.#cache.finishRevalidating(config);
             }
         })();
     }
 
-    async #http2(config: InternalRequestConfig): Promise<RawHttpResponse> {
-        const raw = await http2Adapter(config);
-        if (raw.status && REDIRECT_CODES.has(raw.status) && config.followRedirects) {
-            const hops = config.hops + 1;
-            if (hops > config.maxRedirects) throw new Error('Max redirects exceeded');
-
-            const location = singleHeaderValue(raw.headers.location);
-            if (!location) throw new Error('Redirect response missing Location header');
-            const redirectUrl = new URL(location, config.url).href;
-            this.#security.validateURL(redirectUrl);
-            this.#security.validateRedirect(config.url, redirectUrl);
-
-            const redirectedMethod = shouldRedirectWithGet(raw.status, config.method) ? 'GET' : config.method;
-            const headers = stripRedirectHeaders(config.headers, config.url, redirectUrl, redirectedMethod !== config.method);
-            const redirectedConfig = redirectedMethod === 'GET'
-                ? withoutBody({ ...config, url: redirectUrl, method: redirectedMethod, headers, hops })
-                : { ...config, url: redirectUrl, method: redirectedMethod, headers, hops };
-
-            await config.beforeRedirect?.(buildRedirectContext(raw.status, location, config.url, redirectUrl, redirectedConfig.headers));
-            return this.#http2(redirectedConfig);
-        }
-
-        return raw;
-    }
-
-    async #http(config: InternalRequestConfig): Promise<RawHttpResponse> {
-        const runtimeConfig: RuntimeRequestConfig = { ...config, headers: { ...config.headers } };
-        const url = new URL(runtimeConfig.url);
-        if (runtimeConfig.tls?.certificatePins) this.#security.setCertificatePins(runtimeConfig.tls.certificatePins);
-        const body = runtimeConfig.data === undefined ? null : await serializeBody(runtimeConfig);
-        if (body !== null && !(body instanceof Readable) && !hasHeader(runtimeConfig.headers, 'Content-Length')) {
-            setHeader(runtimeConfig.headers, 'Content-Length', Buffer.byteLength(body));
-        }
-
-        const proxy = resolveProxy(runtimeConfig.proxy ?? this.#config.proxy, url);
-        if (runtimeConfig.socketPath && proxy) {
-            throw new NeutrxSecurityError('socketPath cannot be combined with proxy', { code: 'SOCKET_PROXY_CONFLICT' });
-        }
-        if (proxy) await validateProxyTarget(url, runtimeConfig, this.#security);
-        const requestTarget = proxy ? proxyRequestTarget(url, runtimeConfig.headers, proxy) : directRequestTarget(url, runtimeConfig.headers);
-        for (const [key, value] of Object.entries(requestTarget.headers)) {
-            this.#security.validateHeader(key, value);
-        }
-        const lookup = runtimeConfig.socketPath
-            ? undefined
-            : await createLookup(requestTarget.url, runtimeConfig, this.#security, this.#config.lookup, requestTarget.isProxied && !requestTarget.tunnel);
-
-        return new Promise((resolve, reject) => {
-            const isHTTPS = requestTarget.url.protocol === 'https:';
-            const maxSize = runtimeConfig.maxContentLength;
-            const rate = parseMaxRate(runtimeConfig.maxRate);
-            const tlsConfig = runtimeConfig.tls ?? this.#config.tls;
-            let settled = false;
-            const fail = (error: Error): void => {
-                if (settled) return;
-                settled = true;
-                reject(error);
-            };
-
-            if (runtimeConfig.socketPath && isHTTPS) {
-                fail(new NeutrxSecurityError('socketPath supports HTTP only', { code: 'SOCKET_HTTPS_UNSUPPORTED' }));
-                return;
-            }
-
-            if (runtimeConfig.signal?.aborted) {
-                fail(abortError(runtimeConfig.signal));
-                return;
-            }
-
-            const options: RequestOptions = {
-                path: requestTarget.path,
-                method: runtimeConfig.method,
-                headers: toOutgoingHeaders(requestTarget.headers),
-                ...(runtimeConfig.socketPath
-                    ? { socketPath: runtimeConfig.socketPath }
-                    : {
-                        hostname: requestTarget.url.hostname,
-                        port: requestTarget.url.port || (isHTTPS ? 443 : 80),
-                        agent: requestTarget.tunnel
-                            ? false
-                            : isHTTPS
-                            ? runtimeConfig.httpsAgent ?? this.#config.httpsAgent ?? this.#agents.https
-                            : runtimeConfig.httpAgent ?? this.#config.httpAgent ?? this.#agents.http,
-                    }),
-                ...(lookup ? { lookup } : {}),
-                ...(requestTarget.tunnel
-                    ? {
-                        createConnection: (_options: RequestOptions, callback: (error: Error | null, socket: Duplex) => void): Duplex | null | undefined => createHttpsProxyConnection(
-                            requestTarget.tunnel!,
-                            runtimeConfig.connectTimeout,
-                            this.#config.security.validateCertificate,
-                            callback
-                        ),
-                    }
-                    : {}),
-                ...(isHTTPS
-                    ? {
-                        rejectUnauthorized: tlsConfig?.rejectUnauthorized ?? this.#config.security.validateCertificate,
-                        minVersion: 'TLSv1.2',
-                        ciphers: SECURE_CIPHERS,
-                        ...(tlsConfig?.ca !== undefined ? { ca: tlsConfig.ca } : {}),
-                        ...(tlsConfig?.cert !== undefined ? { cert: tlsConfig.cert } : {}),
-                        ...(tlsConfig?.key !== undefined ? { key: tlsConfig.key } : {}),
-                        ...(tlsConfig?.pfx !== undefined ? { pfx: tlsConfig.pfx } : {}),
-                        ...(tlsConfig?.passphrase !== undefined ? { passphrase: tlsConfig.passphrase } : {}),
-                        ...(tlsConfig?.servername !== undefined ? { servername: tlsConfig.servername } : {}),
-                        checkServerIdentity: (host: string, cert: PeerCertificate): Error | undefined => this.#security.checkServerIdentity(host, cert),
-                    }
-                    : {}),
-            };
-
-            const transport = isHTTPS ? https : http;
-            const req = transport.request(options, response => {
-                void this.#handleHttpResponse(response, runtimeConfig, maxSize, req, rate.download).then(result => {
-                    if (settled) return;
-                    settled = true;
-                    resolve(result);
-                }, fail);
+    #notifyRevalidate(event: {
+        readonly requestId: string;
+        readonly url: string;
+        readonly strategy: CacheStrategy;
+        readonly reason: CacheRevalidateReason;
+        readonly updated: boolean;
+        readonly status?: number;
+        readonly error?: Error;
+        readonly skipped?: boolean;
+    }): void {
+        const callback = this.#config.performance.onRevalidate;
+        if (!callback) return;
+        void Promise.resolve(callback(event)).catch(error => {
+            this.emit('cache:revalidate:error', {
+                requestId: event.requestId,
+                url: event.url,
+                error: normalizeError(error),
             });
-
-            const connectTimer = setTimeout(() => {
-                req.destroy();
-                fail(new NeutrxConnectTimeoutError(runtimeConfig.url, runtimeConfig.connectTimeout));
-            }, runtimeConfig.connectTimeout);
-
-            req.on('socket', socket => {
-                clearTimeout(connectTimer);
-                const onTimeout = (): void => {
-                    req.destroy();
-                    fail(new NeutrxResponseTimeoutError(runtimeConfig.url, runtimeConfig.timeout));
-                };
-                socket.setTimeout(runtimeConfig.timeout);
-                socket.once('timeout', onTimeout);
-                req.once('close', () => {
-                    socket.off('timeout', onTimeout);
-                });
-            });
-
-            req.on('error', error => {
-                clearTimeout(connectTimer);
-                const normalized = normalizeError(error);
-                fail(normalized instanceof NeutrxError ? normalized : NeutrxErrorFactory.fromNodeError(normalized, runtimeConfig));
-            });
-
-            runtimeConfig.signal?.addEventListener('abort', () => {
-                req.destroy();
-                fail(abortError(runtimeConfig.signal));
-            }, { once: true });
-
-            if (runtimeConfig.data !== undefined) {
-                if (body instanceof Readable) {
-                    this.#writeStreamBody(req, body, runtimeConfig, fail, rate.upload);
-                    return;
-                }
-
-                if (body !== null) {
-                    const payload = Buffer.isBuffer(body) ? body : Buffer.from(body);
-                    const total = payload.length;
-                    if (total > runtimeConfig.maxBodyLength) {
-                        req.destroy();
-                        fail(new NeutrxRequestSizeError(total, runtimeConfig.maxBodyLength));
-                        return;
-                    }
-                    this.#writeBufferBody(req, payload, runtimeConfig, total, rate.upload);
-                    return;
-                }
-            }
-
-            req.end();
-        });
-    }
-
-    async #handleHttpResponse(
-        response: IncomingMessage,
-        config: InternalRequestConfig,
-        maxSize: number,
-        request: ClientRequest,
-        downloadRate?: number
-    ): Promise<RawHttpResponse> {
-        if (response.statusCode && REDIRECT_CODES.has(response.statusCode) && config.followRedirects) {
-            const hops = config.hops + 1;
-            if (hops > config.maxRedirects) throw new Error('Max redirects exceeded');
-
-            const location = response.headers.location;
-            if (!location) throw new Error('Redirect response missing Location header');
-            const redirectUrl = new URL(location, config.url).href;
-            this.#security.validateURL(redirectUrl);
-            this.#security.validateRedirect(config.url, redirectUrl);
-
-            response.resume();
-
-            const redirectedMethod = shouldRedirectWithGet(response.statusCode, config.method) ? 'GET' : config.method;
-            const headers = stripRedirectHeaders(config.headers, config.url, redirectUrl, redirectedMethod !== config.method);
-            const redirectedConfig = redirectedMethod === 'GET'
-                ? withoutBody({ ...config, url: redirectUrl, method: redirectedMethod, headers, hops })
-                : { ...config, url: redirectUrl, method: redirectedMethod, headers, hops };
-
-            await config.beforeRedirect?.(buildRedirectContext(response.statusCode, location, config.url, redirectUrl, redirectedConfig.headers));
-
-            return this.#http(redirectedConfig);
-        }
-
-        const rawHeaders = normalizeIncomingHeaders(response.headers);
-        const status = response.statusCode ?? 0;
-        const statusText = response.statusMessage ?? '';
-
-        if (config.responseType === 'stream') {
-            throttleReadable(response, downloadRate);
-            attachStreamDownloadProgress(response, config);
-            return { status, statusText, headers: rawHeaders, data: response, config, request };
-        }
-
-        const chunks: Buffer[] = [];
-        let received = 0;
-        const downloadStartedAt = Date.now();
-
-        return new Promise((resolve, reject) => {
-            const total = getContentLength(rawHeaders);
-            reportDownloadProgress(config, received, total);
-
-            response.on('data', chunk => {
-                const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-                received += buffer.length;
-                if (received > maxSize) {
-                    response.destroy();
-                    reject(new NeutrxResponseSizeError(received, maxSize));
-                    return;
-                }
-                chunks.push(buffer);
-                reportDownloadProgress(config, received, total);
-                throttleReadable(response, downloadRate, throttleDelay(received, downloadRate, downloadStartedAt));
-            });
-
-            response.on('end', () => {
-                resolve({ status, statusText, headers: rawHeaders, data: Buffer.concat(chunks), config, request });
-            });
-            response.on('error', error => reject(normalizeError(error)));
         });
     }
 
@@ -935,15 +978,17 @@ export default class NeutrxClient extends EventEmitter {
         }
 
         const parsed = parseResponseData(data, config.responseType, raw.headers, config.responseEncoding, config.parseJson) as TData;
+        const transformed = applyResponseTransforms(parsed, raw.headers, raw.status, config.transformResponse) as TData;
         const response: NeutrxResponse<TData> = {
             status: raw.status,
             statusText: raw.statusText,
             headers: raw.headers,
-            data: applyResponseTransforms(parsed, raw.headers, raw.status, config.transformResponse) as TData,
+            data: transformed,
             config,
             ...(raw.request ? { request: raw.request } : {}),
             timing: { duration: Date.now() - config.startTime },
             requestId: config.requestId,
+            ...(config.traceContext ? { traceContext: config.traceContext } : {}),
             ...(raw.deduplicated ? { deduplicated: true } : {}),
         };
 
@@ -951,74 +996,80 @@ export default class NeutrxClient extends EventEmitter {
             throw NeutrxErrorFactory.fromHTTPStatus(response);
         }
 
+        response.data = await validateResponseData(response.data, config);
         return response;
     }
 
     async #buildRC<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): Promise<InternalRequestConfig<TBody>> {
         const method = normalizeMethod(config.method ?? 'GET');
-        const idempotencyKey = this.#resolveIdempotencyKey(config, requestId);
-        const idempotencyKeyHeader = config.idempotencyKeyHeader ?? this.#config.idempotencyKeyHeader ?? 'Idempotency-Key';
-        const headers = this.#buildHeaders(config, requestId, idempotencyKey, idempotencyKeyHeader);
-        const serviceEndpoint = await resolveServiceEndpoint(config, this.#config, method, this.#serviceDiscovery);
+        const defaults = this.#configWithDefaults(method);
+        const idempotencyKey = this.#resolveIdempotencyKey(config, requestId, defaults);
+        const idempotencyKeyHeader = config.idempotencyKeyHeader ?? defaults.idempotencyKeyHeader ?? 'Idempotency-Key';
+        const headers = this.#buildHeaders(config, defaults, requestId, idempotencyKey, idempotencyKeyHeader);
+        const serviceEndpoint = await resolveServiceEndpoint(config, defaults, method, this.#serviceDiscovery);
         const urlConfig = serviceEndpoint ? { ...config, baseURL: serviceEndpoint.url } : config;
         const xsrfCookieName = config.xsrfCookieName !== undefined
             ? config.xsrfCookieName
-            : this.#config.xsrfCookieName !== undefined ? this.#config.xsrfCookieName : 'XSRF-TOKEN';
+            : defaults.xsrfCookieName !== undefined ? defaults.xsrfCookieName : 'XSRF-TOKEN';
         const xsrfHeaderName = config.xsrfHeaderName !== undefined
             ? config.xsrfHeaderName
-            : this.#config.xsrfHeaderName !== undefined ? this.#config.xsrfHeaderName : 'X-XSRF-TOKEN';
+            : defaults.xsrfHeaderName !== undefined ? defaults.xsrfHeaderName : 'X-XSRF-TOKEN';
         const transformedData = applyRequestTransforms(
             config.data,
             headers,
-            mergeTransformRequest(this.#config.transformRequest, config.transformRequest)
+            mergeTransformRequest(defaults.transformRequest, config.transformRequest)
         );
         const signal = mergeCancellationSignal(config.signal, config.cancelToken);
 
         if (transformedData !== undefined && !hasHeader(headers, 'Content-Type')) {
             const contentType = detectContentType(transformedData);
-            if (contentType) headers['Content-Type'] = contentType;
+            if (contentType) headers.setContentType(contentType);
         }
 
         const requestConfig = {
             ...config,
-            url: buildURL(urlConfig, this.#config),
+            url: buildURL(urlConfig, defaults),
             method,
             headers,
-            timeout: config.timeout ?? this.#config.timeout,
-            connectTimeout: config.connectTimeout ?? this.#config.connectTimeout,
-            maxRedirects: config.maxRedirects ?? this.#config.maxRedirects,
-            maxContentLength: config.maxContentLength ?? this.#config.maxContentLength,
-            maxBodyLength: config.maxBodyLength ?? this.#config.maxBodyLength,
+            allowAbsoluteUrls: config.allowAbsoluteUrls ?? defaults.allowAbsoluteUrls,
+            timeout: config.timeout ?? defaults.timeout,
+            connectTimeout: config.connectTimeout ?? defaults.connectTimeout,
+            maxRedirects: config.maxRedirects ?? defaults.maxRedirects,
+            maxContentLength: config.maxContentLength ?? defaults.maxContentLength,
+            maxBodyLength: config.maxBodyLength ?? defaults.maxBodyLength,
             responseType: config.responseType ?? 'json',
-            responseEncoding: config.responseEncoding ?? 'utf8',
-            validateStatus: config.validateStatus ?? this.#config.validateStatus,
-            paramsSerializer: config.paramsSerializer ?? this.#config.paramsSerializer,
-            formSerializer: config.formSerializer ?? this.#config.formSerializer,
-            transformRequest: mergeTransformRequest(this.#config.transformRequest, config.transformRequest),
-            transformResponse: mergeTransformResponse(this.#config.transformResponse, config.transformResponse),
-            parseJson: config.parseJson ?? this.#config.parseJson,
-            stringifyJson: config.stringifyJson ?? this.#config.stringifyJson,
-            throwHttpErrors: config.throwHttpErrors ?? this.#config.throwHttpErrors,
-            adapter: config.adapter ?? this.#config.adapter,
-            fetch: config.fetch ?? this.#config.fetch,
-            httpVersion: config.httpVersion ?? this.#config.httpVersion,
-            http2Options: config.http2Options ?? this.#config.http2Options,
-            serviceDiscovery: config.serviceDiscovery ?? this.#config.serviceDiscovery,
+            responseEncoding: config.responseEncoding ?? defaults.responseEncoding,
+            validateStatus: config.validateStatus ?? defaults.validateStatus,
+            paramsSerializer: config.paramsSerializer ?? defaults.paramsSerializer,
+            formSerializer: config.formSerializer ?? defaults.formSerializer,
+            transformRequest: mergeTransformRequest(defaults.transformRequest, config.transformRequest),
+            transformResponse: mergeTransformResponse(defaults.transformResponse, config.transformResponse),
+            schema: config.schema === false ? false : config.schema ?? defaults.schema,
+            parseJson: config.parseJson ?? defaults.parseJson,
+            stringifyJson: config.stringifyJson ?? defaults.stringifyJson,
+            throwHttpErrors: config.throwHttpErrors ?? defaults.throwHttpErrors,
+            adapter: config.adapter ?? defaults.adapter,
+            fetch: config.fetch ?? defaults.fetch,
+            httpVersion: config.httpVersion ?? defaults.httpVersion,
+            http2Options: config.http2Options ?? defaults.http2Options,
+            serviceDiscovery: config.serviceDiscovery ?? defaults.serviceDiscovery,
             ...(serviceEndpoint ? { serviceEndpoint } : {}),
-            withCredentials: config.withCredentials ?? this.#config.withCredentials,
-            credentials: config.credentials ?? this.#config.credentials,
+            withCredentials: config.withCredentials ?? defaults.withCredentials,
+            credentials: config.credentials ?? defaults.credentials,
             xsrfCookieName,
             xsrfHeaderName,
-            withXSRFToken: config.withXSRFToken ?? this.#config.withXSRFToken,
-            instrumentation: config.instrumentation ?? this.#config.instrumentation,
-            proxy: config.proxy ?? this.#config.proxy,
-            tls: config.tls ?? this.#config.tls,
-            httpAgent: config.httpAgent ?? this.#config.httpAgent,
-            httpsAgent: config.httpsAgent ?? this.#config.httpsAgent,
-            lookup: config.lookup ?? this.#config.lookup,
-            socketPath: config.socketPath ?? this.#config.socketPath,
-            decompress: config.decompress ?? this.#config.decompress,
-            maxRate: config.maxRate ?? this.#config.maxRate,
+            withXSRFToken: config.withXSRFToken ?? defaults.withXSRFToken,
+            instrumentation: config.instrumentation ?? defaults.instrumentation,
+            proxy: config.proxy ?? defaults.proxy,
+            tls: config.tls ?? defaults.tls,
+            beforeRedirect: config.beforeRedirect ?? defaults.beforeRedirect,
+            httpAgent: config.httpAgent ?? defaults.httpAgent,
+            httpsAgent: config.httpsAgent ?? defaults.httpsAgent,
+            lookup: config.lookup ?? defaults.lookup,
+            socketPath: config.socketPath ?? defaults.socketPath,
+            decompress: config.decompress ?? defaults.decompress,
+            maxRate: config.maxRate ?? defaults.maxRate,
+            transitional: { ...defaults.transitional, ...(config.transitional ?? {}) },
             followRedirects: config.followRedirects !== false,
             ...(signal ? { signal } : {}),
             requestId,
@@ -1034,30 +1085,52 @@ export default class NeutrxClient extends EventEmitter {
         } else {
             (requestConfig as { data?: RequestBody }).data = transformedData;
         }
+        validateSocketPath(requestConfig.socketPath);
 
         return requestConfig as InternalRequestConfig<TBody>;
     }
 
+    async #buildWebSocketRC<TMessage, TSend extends NeutrxWebSocketMessage>(
+        url: string,
+        options: NeutrxWebSocketOptions<TMessage, TSend>
+    ): Promise<InternalRequestConfig> {
+        const defaults = this.#configWithDefaults('GET');
+        let config = await this.#buildRC(webSocketRequestConfig(url, options, defaults.baseURL), this.#id());
+        config = toInternalRequestConfig(await this.#plugins.runHook('beforeRequest', config));
+        config = toInternalRequestConfig(this.#security.validateRequest(config));
+        config = toInternalRequestConfig(await this.#interceptors.runRequest(config));
+        config = toInternalRequestConfig(this.#security.validateRequest(config));
+        this.#rateLimiter.checkLimit(config.url);
+        return {
+            ...config,
+            url: webSocketUrl(config.url),
+            headers: normalizeRequestHeaders(config.headers),
+        };
+    }
+
     #buildHeaders<TBody extends RequestBody>(
         config: RequestConfig<TBody>,
+        defaults: NormalizedClientConfig,
         requestId: string,
         idempotencyKey?: string,
         idempotencyKeyHeader = 'Idempotency-Key'
-    ): Headers {
-        const headers = NeutrxHeaders
-            .concat(this.#defaultHeaders, this.#config.headers, config.headers, { 'X-Request-ID': requestId })
-            .toJSON();
-        if (idempotencyKey) headers[idempotencyKeyHeader] = idempotencyKey;
-        const auth = config.auth ?? this.#config.auth;
-        if (!auth) return headers;
-        return NeutrxHeaders
-            .from(headers)
-            .setAuthorization(`Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`)
-            .toJSON();
+    ): InternalHeaders {
+        const headers = NeutrxHeaders.concat(this.#defaultHeaders, defaults.headers, normalizeRequestHeaders(config.headers));
+        headers.setIfNotBlocked('X-Request-ID', requestId);
+        if (idempotencyKey) headers.setIfNotBlocked(idempotencyKeyHeader, idempotencyKey);
+        const auth = config.auth ?? defaults.auth;
+        if (auth) {
+            headers.setIfNotBlocked('Authorization', `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`);
+        }
+        return normalizeRequestHeaders(headers);
     }
 
-    #resolveIdempotencyKey<TBody extends RequestBody>(config: RequestConfig<TBody>, requestId: string): string | undefined {
-        const key = config.idempotencyKey ?? this.#config.idempotencyKey;
+    #resolveIdempotencyKey<TBody extends RequestBody>(
+        config: RequestConfig<TBody>,
+        requestId: string,
+        defaults: NormalizedClientConfig
+    ): string | undefined {
+        const key = config.idempotencyKey ?? defaults.idempotencyKey;
         if (key === undefined) return undefined;
         const resolved = key === true ? requestId : typeof key === 'function' ? key() : key;
         if (!resolved || /[\r\n]/.test(resolved)) {
@@ -1066,133 +1139,21 @@ export default class NeutrxClient extends EventEmitter {
         return resolved;
     }
 
-    #buildDefaultHeaders(): Headers {
-        return {
+    #configWithDefaults(method?: HttpMethod | Lowercase<HttpMethod>): NormalizedClientConfig {
+        return buildConfig(mergeConfig(this.#config, defaultsToConfig(this.defaults, method, { rejectUnsafe: true })));
+    }
+
+    #buildDefaultHeaders(): InternalHeaders {
+        return normalizeRequestHeaders({
             'User-Agent': `neutrx/${VERSION} Node.js/${process.version}`,
             Accept: 'application/json, text/plain, */*',
             'Accept-Encoding': 'gzip, deflate, br',
             Connection: 'keep-alive',
-        };
-    }
-
-    #writeBufferBody(req: ClientRequest, body: Buffer, config: InternalRequestConfig, total: number, uploadRate?: number): void {
-        if (!uploadRate) {
-            req.write(body, () => {
-                reportUploadProgress(config, total, total);
-                req.end();
-            });
-            return;
-        }
-
-        const startedAt = Date.now();
-        const chunkSize = Math.max(1, Math.floor(uploadRate / 10));
-        let offset = 0;
-        reportUploadProgress(config, offset, total);
-
-        const writeNext = (): void => {
-            if (offset >= body.length) {
-                req.end();
-                return;
-            }
-            const end = Math.min(body.length, offset + chunkSize);
-            const chunk = body.subarray(offset, end);
-            const nextLoaded = end;
-            const delay = throttleDelay(nextLoaded, uploadRate, startedAt);
-            setTimeout(() => {
-                req.write(chunk, () => {
-                    offset = nextLoaded;
-                    reportUploadProgress(config, offset, total);
-                    writeNext();
-                });
-            }, delay);
-        };
-
-        writeNext();
-    }
-
-    #writeStreamBody(req: ClientRequest, body: Readable, config: InternalRequestConfig, fail: (error: Error) => void, uploadRate?: number): void {
-        const total = getContentLength(config.headers);
-        let loaded = 0;
-        const startedAt = Date.now();
-        let ended = false;
-        let pendingWrites = 0;
-
-        if (total !== undefined && total > config.maxBodyLength) {
-            req.destroy();
-            fail(new NeutrxRequestSizeError(total, config.maxBodyLength));
-            return;
-        }
-
-        reportUploadProgress(config, loaded, total);
-
-        body.on('data', (chunk: unknown) => {
-            body.pause();
-            const buffer = toUploadBuffer(chunk);
-            if (loaded + buffer.length > config.maxBodyLength) {
-                req.destroy();
-                fail(new NeutrxRequestSizeError(loaded + buffer.length, config.maxBodyLength));
-                return;
-            }
-            const nextLoaded = loaded + buffer.length;
-            const delay = throttleDelay(nextLoaded, uploadRate, startedAt);
-            const write = (): void => {
-                pendingWrites += 1;
-                req.write(buffer, () => {
-                    pendingWrites -= 1;
-                    loaded = nextLoaded;
-                    reportUploadProgress(config, loaded, total);
-                    if (ended && pendingWrites === 0) {
-                        req.end();
-                        return;
-                    }
-                    body.resume();
-                });
-            };
-            if (delay > 0) {
-                setTimeout(write, delay);
-            } else {
-                write();
-            }
-        });
-
-        body.on('end', () => {
-            ended = true;
-            if (pendingWrites === 0) req.end();
-        });
-
-        body.on('error', error => {
-            req.destroy();
-            fail(normalizeError(error));
         });
     }
 
     #isCacheEligible(config: InternalRequestConfig): boolean {
         return (config.method === 'GET' || config.method === 'HEAD') && config.cache !== false && config.responseType !== 'stream';
-    }
-
-    #isDeduplicationEligible(config: InternalRequestConfig): boolean {
-        return this.#config.performance.deduplicateRequests
-            && this.#isCacheEligible(config)
-            && typeof (config.adapter ?? this.#config.adapter) !== 'function';
-    }
-
-    #dedupeKey(config: InternalRequestConfig): string {
-        return JSON.stringify({
-            method: config.method,
-            url: config.url,
-            responseType: config.responseType,
-            accept: config.headers.Accept ?? config.headers.accept ?? '',
-            authorization: config.headers.Authorization ?? config.headers.authorization ?? '',
-            adapter: config.adapter ?? this.#config.adapter ?? detectAdapter(config),
-        });
-    }
-
-    #setupAgents(): { readonly http: http.Agent; readonly https: https.Agent } {
-        const options = { keepAlive: true, keepAliveMsecs: 1000, maxSockets: 50, maxFreeSockets: 10 };
-        return {
-            http: new http.Agent(options),
-            https: new https.Agent({ ...options, minVersion: 'TLSv1.2', ciphers: SECURE_CIPHERS }),
-        };
     }
 
     #id(): string {
@@ -1206,19 +1167,17 @@ export default class NeutrxClient extends EventEmitter {
             return url;
         }
     }
+
+    #circuitState(url: string): CircuitStatus['state'] {
+        const status = this.#circuitBreaker.getStatus(url);
+        return 'state' in status && typeof status.state === 'string' ? status.state : 'CLOSED';
+    }
 }
 
 function isIncomingMessageLike(data: unknown): data is IncomingMessage {
     return data !== null
         && typeof data === 'object'
         && 'pipe' in data;
-}
-
-function cloneRawData(data: RawHttpResponse['data']): RawHttpResponse['data'] {
-    if (Buffer.isBuffer(data)) return Buffer.from(data);
-    if (data instanceof ArrayBuffer) return data.slice(0);
-    if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-    return data;
 }
 
 function withoutSignal(config: InternalRequestConfig): InternalRequestConfig {
@@ -1243,45 +1202,54 @@ function normalizeError(error: unknown): Error {
     return new Error(String(error));
 }
 
-function withMultipartHeaders<TBody extends RequestBody>(config: BodyRequestConfig<TBody>): BodyRequestConfig<TBody> {
+function withMultipartHeaders<TBody extends RequestBody, TSchema extends ResponseSchemaOption | undefined>(
+    config: BodyRequestConfig<TBody, TSchema>
+): BodyRequestConfig<TBody, TSchema> {
     return {
         ...config,
-        headers: NeutrxHeaders.concat({ 'Content-Type': 'multipart/form-data' }, config.headers).toJSON(),
+        headers: NeutrxHeaders.concat({ 'Content-Type': 'multipart/form-data' }, config.headers),
     };
 }
 
-function withUrlEncodedHeaders<TBody extends RequestBody>(config: BodyRequestConfig<TBody>): BodyRequestConfig<TBody> {
+function withUrlEncodedHeaders<TBody extends RequestBody, TSchema extends ResponseSchemaOption | undefined>(
+    config: BodyRequestConfig<TBody, TSchema>
+): BodyRequestConfig<TBody, TSchema> {
     return {
         ...config,
-        headers: NeutrxHeaders.concat({ 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }, config.headers).toJSON(),
+        headers: NeutrxHeaders.concat({ 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }, config.headers),
     };
 }
 
-function parseMaxRate(maxRate: MaxRate | undefined): { readonly upload?: number; readonly download?: number } {
-    if (maxRate === undefined) return {};
-    if (typeof maxRate === 'number') return positiveRate(maxRate) === undefined ? {} : { upload: maxRate, download: maxRate };
-    const [upload, download] = maxRate;
+function mergeCarrierHeaders(config: InternalRequestConfig, carrier: Record<string, string>): InternalHeaders {
+    const headers = NeutrxHeaders.from(config.headers);
+    for (const [name, value] of Object.entries(carrier)) {
+        if (config.instrumentation?.overwriteTraceHeaders === true) headers.set(name, value);
+        else headers.setIfUnset(name, value);
+    }
+    return normalizeRequestHeaders(headers);
+}
+
+function withTraceContext<TData extends ParsedResponseData>(
+    response: NeutrxResponse<TData>,
+    traceContext: TraceContext | undefined
+): NeutrxResponse<TData> {
+    return traceContext ? { ...response, traceContext } : response;
+}
+
+function toInternalRequestConfig<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {
     return {
-        ...(positiveRate(upload) !== undefined ? { upload } : {}),
-        ...(positiveRate(download) !== undefined ? { download } : {}),
+        ...config,
+        headers: normalizeRequestHeaders(config.headers),
     };
 }
 
-function positiveRate(value: number | undefined): number | undefined {
-    return value !== undefined && Number.isFinite(value) && value > 0 ? value : undefined;
-}
-
-function throttleDelay(loaded: number, rate: number | undefined, startedAt: number): number {
-    if (!rate) return 0;
-    const expectedElapsed = (loaded / rate) * 1000;
-    return Math.max(0, expectedElapsed - (Date.now() - startedAt));
-}
-
-function throttleReadable(stream: Readable, rate: number | undefined, delay?: number): void {
-    const wait = delay ?? 0;
-    if (!rate || wait <= 0) return;
-    stream.pause();
-    setTimeout(() => stream.resume(), wait);
+function validateSocketPath(socketPath: string | undefined): void {
+    if (socketPath === undefined) return;
+    if (/[\0\r\n]/u.test(socketPath)) {
+        throw new NeutrxSecurityError('socketPath contains unsafe characters', { code: 'INVALID_SOCKET_PATH' });
+    }
+    if (socketPath.startsWith('/') || socketPath.startsWith('\\\\.\\pipe\\') || socketPath.startsWith('\\\\?\\pipe\\')) return;
+    throw new NeutrxSecurityError('socketPath must be an absolute local path', { code: 'INVALID_SOCKET_PATH' });
 }
 
 function singleHeaderValue(value: Headers[string] | undefined): string | undefined {
@@ -1294,15 +1262,27 @@ function singleHeaderValue(value: Headers[string] | undefined): string | undefin
     return String(value);
 }
 
+function headerValue(headers: Headers, name: string): Headers[string] | undefined {
+    const lowerName = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+        if (key.toLowerCase() === lowerName) return value;
+    }
+    return undefined;
+}
+
+function discardRedirectBody(data: RawHttpResponse['data']): void {
+    if (isIncomingMessageLike(data)) {
+        data.resume();
+        return;
+    }
+    if (typeof ReadableStream !== 'undefined' && data instanceof ReadableStream) {
+        void data.cancel().catch(() => undefined);
+    }
+}
+
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => {
         setTimeout(resolve, ms);
-    });
-}
-
-function rejectAfter(ms: number, message: string): Promise<never> {
-    return new Promise((_, reject) => {
-        setTimeout(() => reject(new Error(message)), ms);
     });
 }
 

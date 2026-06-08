@@ -25,27 +25,34 @@ export {
     NeutrxTimeoutError,
     NeutrxValidationError,
     isNeutrxError,
+    toStructuredError,
 } from './core/NeutrxError.js';
 export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
 export { Cancel, CancelToken, isCancel } from './core/cancel.js';
 export { fetchAdapter } from './adapters/fetch.js';
-export { http2Adapter, getHttp2SessionStats } from './adapters/http2.js';
+export { createNodeHttpAdapter, createNodeHttpAgents, nodeHttpAdapter, type NodeHttpAdapterAgents, type NodeHttpAdapterOptions } from './adapters/http.js';
+export { createNodeHttp2Adapter, http2Adapter, getHttp2SessionStats, type NodeHttp2AdapterOptions } from './adapters/http2.js';
 export { FetchAdapter, Http2Adapter, HttpAdapter, createSecureAdapter, type SecureAdapterOptions } from './adapters/index.js';
 export { NeutrxHeaders } from './core/headers.js';
 export { OpenTelemetryInstrumentation } from './monitoring/OpenTelemetryInstrumentation.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
-export type { NeutrxInterceptorManager, NeutrxInterceptors, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
-export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, type NeutrxPlugin } from './plugins/PluginManager.js';
+export type { NeutrxInterceptorManager, NeutrxInterceptors, NeutrxRequestInterceptorManager, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
+export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, TraceContextPlugin, createOtelPlugin, createTraceContextPlugin, type NeutrxPlugin, type OtelPluginOptions, type TraceContextPluginOptions, type TracePropagationFormat } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export { ALGORITHMS } from './security/RateLimiter.js';
 export type {
     AdaptiveConcurrencyConfig,
     AuthConfig,
     BasicAuthConfig,
+    CacheRevalidateEvent,
+    CacheRevalidateReason,
     Canceler,
     CacheRecord,
+    CacheStrategy,
+    CacheStrategyInput,
     CacheStore,
+    DeprecatedCacheStrategy,
     BulkheadStats,
     CacheStats,
     CancelTokenSource,
@@ -57,6 +64,7 @@ export type {
     ClientConfig,
     ConcurrentOptions,
     ConcurrentResult,
+    DeduplicateRequestKey,
     FetchCredentials,
     FetchImplementation,
     FormSerializerOptions,
@@ -65,6 +73,9 @@ export type {
     EgressPolicyMode,
     GraphQLResult,
     Headers,
+    HeaderSource,
+    InferValidationSchema,
+    InternalHeaders,
     Http2Options,
     Http2SessionStats,
     HttpMethod,
@@ -78,7 +89,21 @@ export type {
     MockResponse,
     MaxRate,
     MaybePromise,
+    NeutrxLogger,
+    NeutrxLogValue,
+    NeutrxErrorCategory,
+    NeutrxAdapter,
+    NeutrxRequestConfig,
     NeutrxResponse,
+    NeutrxWebSocketCloseEvent,
+    NeutrxWebSocketData,
+    NeutrxWebSocketErrorEvent,
+    NeutrxWebSocketMessageEvent,
+    NeutrxWebSocketOpenEvent,
+    NeutrxWebSocketMessage,
+    NeutrxWebSocketOptions,
+    NeutrxWebSocketReconnectOptions,
+    NeutrxWSConnection,
     OAuth2Config,
     ParseJson,
     PaginationOptions,
@@ -88,6 +113,7 @@ export type {
     ProgressEvent,
     ProxyConfig,
     QueryParams,
+    RawHttpResponse,
     RequestBody,
     RequestConfig,
     RequestAdapter,
@@ -95,6 +121,8 @@ export type {
     RequestAdapterName,
     RedirectContext,
     ResilienceConfig,
+    ResponseSchemaOption,
+    ResponseValidationSchema,
     RetryBudgetConfig,
     RetryBudgetScope,
     RetryBudgetSnapshot,
@@ -108,11 +136,14 @@ export type {
     ServiceEndpoint,
     ServiceResolver,
     ServiceResolverContext,
+    SchemaResponseData,
     SseHandle,
     StringifyJson,
     TlsConfig,
+    TransitionalConfig,
     TransformRequest,
     TransformResponse,
+    TraceContext,
     ValidationFailure,
     ValidationFunction,
     ValidationIssue,

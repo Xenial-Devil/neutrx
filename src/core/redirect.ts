@@ -1,4 +1,5 @@
-import type { Headers, HttpMethod, InternalRequestConfig, RedirectContext } from '../types.js';
+import { NeutrxHeaders } from './headers.js';
+import type { Headers, HttpMethod, InternalHeaders, InternalRequestConfig, RedirectContext } from '../types.js';
 
 export const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
 const REDIRECT_SENSITIVE_HEADER_RE = /(?:^|[-_])(authorization|cookie|proxy-authorization|token|access-token|refresh-token|secret|password|passwd|api-key|apikey|client-secret)(?:$|[-_])/i;
@@ -8,7 +9,7 @@ export function shouldRedirectWithGet(statusCode: number, method: HttpMethod): b
     return (statusCode === 301 || statusCode === 302) && method === 'POST';
 }
 
-export function stripRedirectHeaders(headers: Headers, fromURL: string, toURL: string, bodyDropped: boolean): Headers {
+export function stripRedirectHeaders(headers: Headers | NeutrxHeaders, fromURL: string, toURL: string, bodyDropped: boolean): InternalHeaders {
     const from = new URL(fromURL);
     const to = new URL(toURL);
     const crossOrigin = from.origin !== to.origin;
@@ -22,15 +23,15 @@ export function stripRedirectHeaders(headers: Headers, fromURL: string, toURL: s
         stripped.add('transfer-encoding');
     }
 
-    const next: Headers = {};
-    for (const [key, value] of Object.entries(headers)) {
+    const next = new NeutrxHeaders();
+    for (const [key, value] of Object.entries(NeutrxHeaders.from(headers).toJSON({ includeBlocked: true }))) {
         const normalized = key.toLowerCase();
         if ((crossOrigin || protocolDowngrade) && REDIRECT_SENSITIVE_HEADER_RE.test(normalized)) continue;
         if ((crossOrigin || protocolDowngrade) && stripped.has(normalized)) continue;
         if (bodyDropped && stripped.has(normalized)) continue;
-        next[key] = value;
+        next.set(key, value);
     }
-    return next;
+    return next as unknown as InternalHeaders;
 }
 
 export function withoutBody(config: InternalRequestConfig): InternalRequestConfig {

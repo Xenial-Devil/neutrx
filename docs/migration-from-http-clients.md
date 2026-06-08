@@ -1,6 +1,6 @@
 # Migrating From Other HTTP Clients
 
-This document provides a short migration reference for users moving to Neutrx from another HTTP client or from legacy request libraries. For the full guide, see [../MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md).
+This document provides a short migration reference for users moving to Neutrx from another HTTP client or from legacy request libraries. For the full docs-site guide, see [axios-migration.md](axios-migration.md).
 
 ## Common Replacements
 
@@ -29,6 +29,7 @@ const id = api.interceptors.request.use(config => ({
 });
 
 api.interceptors.request.eject(id);
+api.interceptors.request.clear();
 api.interceptors.response.clear();
 ```
 
@@ -53,13 +54,13 @@ const api = neutrx.create({
 
 | Previous pattern | Neutrx behavior |
 | --- | --- |
-| Broad runtime compatibility | Node.js >=22 only; browser entry is secondary |
+| Broad runtime compatibility | Node.js >=18; browser entry is secondary |
 | Retrying unsafe methods by default | Retries idempotent methods by default |
 | Local addresses allowed by default | Blocked by stronger SSRF profiles |
 | Raw error serialization | `NeutrxError.toJSON()` redacts secrets |
 | Client-managed backend safeguards | Backend security defaults |
 | `throwHttpErrors: false` in Fetch-style clients | Supported per instance or request |
-| Duplicate concurrent `GET`s | Optional `performance.deduplicateRequests` shares inflight dispatches |
+| Duplicate concurrent `GET`s | Shared inflight dispatches by default; set `performance.deduplicateRequests: false` to disable |
 
 ## Migration Profile
 

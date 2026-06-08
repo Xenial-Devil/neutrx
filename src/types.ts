@@ -1,7 +1,9 @@
 import type { Agent as HttpAgent, ClientRequest, IncomingMessage, RequestOptions } from 'node:http';
+import type { ClientHttp2Stream } from 'node:http2';
 import type { Agent as HttpsAgent } from 'node:https';
 import type { Readable } from 'node:stream';
 import type { SecureContextOptions } from 'node:tls';
+import type { NeutrxHeaders } from './core/headers.js';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -9,7 +11,14 @@ export type JsonArray = readonly JsonValue[];
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
 
 export type HeaderValue = string | number | boolean | readonly string[];
+export type HeaderRecord = Record<string, HeaderValue | null | undefined>;
+export type HeaderTuple = readonly [string, HeaderValue | null | undefined];
+export interface HeaderMapLike {
+    forEach(callback: (value: string, key: string) => void): void;
+}
 export type Headers = Record<string, HeaderValue>;
+export type HeaderSource = HeaderRecord | NeutrxHeaders | HeaderMapLike | Iterable<HeaderTuple>;
+export type InternalHeaders = Headers & NeutrxHeaders;
 export type QueryScalar = string | number | boolean;
 export type QueryObject = { readonly [key: string]: QueryValue };
 export type QueryValue = QueryScalar | readonly (QueryScalar | QueryObject)[] | QueryObject | null | undefined;
@@ -20,11 +29,12 @@ export type ResponseType = 'json' | 'text' | 'buffer' | 'arrayBuffer' | 'blob' |
 export type RequestObjectBody = Record<string, unknown>;
 export type ResponseObjectData = Record<string, unknown>;
 export type RequestBody = JsonValue | RequestObjectBody | string | Buffer | Uint8Array | ArrayBuffer | URLSearchParams | Readable | Blob | FormData;
-export type ParsedResponseData = JsonValue | ResponseObjectData | string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | ReadableStream<Uint8Array> | null;
+export type ParsedResponseData = JsonValue | ResponseObjectData | string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | Readable | ReadableStream<Uint8Array> | null;
 export type ProgressEvent = {
     readonly loaded: number;
     readonly total?: number;
     readonly percent?: number;
+    readonly progress?: number;
     readonly bytes: number;
     readonly rate: number;
     readonly estimated?: number;
@@ -33,9 +43,9 @@ export type ProgressEvent = {
 };
 export type FetchCredentials = 'include' | 'omit' | 'same-origin';
 export type FetchImplementation = typeof fetch;
-export type MaxRate = number | readonly [number, number];
+export type MaxRate = number | readonly [uploadBytesPerSecond: number, downloadBytesPerSecond: number];
 export type IdempotencyKey = string | (() => string) | true;
-export type TransportRequest = ClientRequest | Request;
+export type TransportRequest = ClientRequest | ClientHttp2Stream | Request;
 export type ParamsSerializer =
     | ((params: QueryParams) => string)
     | {
@@ -49,17 +59,22 @@ export interface FormSerializerOptions {
     readonly metaTokens?: boolean;
     readonly maxDepth?: number;
 }
-export type TransformRequest = (data: RequestBody | undefined, headers: Headers) => RequestBody | undefined;
+export type TransformRequest = (data: RequestBody | undefined, headers: InternalHeaders) => RequestBody | undefined;
 export type TransformResponse = (data: ParsedResponseData, headers: Headers, status: number) => ParsedResponseData;
 export type ParseJson = (text: string) => ParsedResponseData;
 export type StringifyJson = (value: unknown) => string;
 export type LookupFunction = NonNullable<RequestOptions['lookup']>;
-export type RequestAdapter = (config: InternalRequestConfig) => RawHttpResponse | Promise<RawHttpResponse>;
+export type NeutrxRequestConfig = InternalRequestConfig;
+export interface NeutrxAdapter {
+    (config: NeutrxRequestConfig): RawHttpResponse | Promise<RawHttpResponse>;
+}
+export type RequestAdapter = NeutrxAdapter;
 export type RequestAdapterName = 'http' | 'fetch' | 'http2';
 export type RequestAdapterConfig = RequestAdapterName | RequestAdapter;
 export type MaybePromise<T> = T | Promise<T>;
 export type Canceler = (message?: string) => void;
 export type ValidationPath = readonly (string | number)[];
+export type NeutrxErrorCategory = 'network' | 'timeout' | 'security' | 'http' | 'resilience' | 'validation' | 'limits' | 'unknown';
 
 export interface ValidationIssue {
     readonly path?: ValidationPath;
@@ -87,33 +102,150 @@ export type ValidationResult<TData = unknown> =
     | ValidationFailure
     | TData;
 
-export type ValidationFunction<TData = unknown> = ((value: TData) => ValidationResult<TData> | Promise<ValidationResult<TData>>) & {
+export type ValidationFunction<TData = unknown, TInput = unknown> = ((value: TInput) => ValidationResult<TData> | Promise<ValidationResult<TData>>) & {
     readonly errors?: unknown;
 };
 
-export type ValidationSchema<TData = unknown> =
-    | ValidationFunction<TData>
+export type ValidationSchema<TData = unknown, TInput = unknown> =
+    | ValidationFunction<TData, TInput>
     | {
-        readonly parse: (value: TData) => TData | Promise<TData>;
+        readonly parse: (value: TInput) => TData | Promise<TData>;
     }
     | {
-        readonly safeParse: (value: TData) => ValidationSuccess<TData> | ValidationFailure | Promise<ValidationSuccess<TData> | ValidationFailure>;
+        readonly safeParse: (value: TInput) => ValidationSuccess<TData> | ValidationFailure | Promise<ValidationSuccess<TData> | ValidationFailure>;
     }
     | {
-        readonly validate: (value: TData) => ValidationResult<TData> | Promise<ValidationResult<TData>>;
+        readonly validate: (value: TInput) => ValidationResult<TData> | Promise<ValidationResult<TData>>;
         readonly errors?: unknown;
     }
     | {
-        readonly Check: (value: TData) => boolean;
-        readonly Errors?: (value: TData) => Iterable<unknown>;
+        readonly Check: (value: TInput) => boolean;
+        readonly Errors?: (value: TInput) => Iterable<unknown>;
     };
 
+type InferValidationResult<TResult> =
+    TResult extends PromiseLike<infer TAwaited> ? InferValidationResult<TAwaited>
+    : TResult extends ValidationSuccess<infer TData> ? TData
+    : TResult extends ValidationFailure ? never
+    : TResult extends boolean | void | ValidationIssue | readonly ValidationIssue[] ? unknown
+    : TResult;
+
+type IsUnknown<TValue> = unknown extends TValue
+    ? [TValue] extends [unknown] ? true : false
+    : false;
+
+export type InferValidationSchema<TSchema> =
+    TSchema extends { readonly parse: (...args: readonly unknown[]) => infer TResult } ? Awaited<TResult>
+    : TSchema extends { readonly safeParse: (...args: readonly unknown[]) => infer TResult } ? InferValidationResult<TResult>
+    : TSchema extends { readonly validate: (...args: readonly unknown[]) => infer TResult } ? InferValidationResult<TResult>
+    : TSchema extends (...args: readonly unknown[]) => infer TResult ? InferValidationResult<TResult>
+    : TSchema extends { readonly Check: (...args: readonly unknown[]) => boolean } ? unknown
+    : unknown;
+
+export type ResponseValidationSchema<TData = unknown> = ValidationSchema<TData, ParsedResponseData>;
+export type ResponseSchemaOption<TData = unknown> = ResponseValidationSchema<TData> | false;
+export type SchemaResponseData<TFallback extends ParsedResponseData, TSchema> =
+    [TSchema] extends [false | undefined] ? TFallback
+    : InferValidationSchema<Exclude<TSchema, false | undefined>> extends infer TInferred
+        ? IsUnknown<TInferred> extends true
+            ? TFallback
+            : TInferred extends ParsedResponseData ? TInferred : ParsedResponseData
+        : TFallback;
+
 export interface RequestValidationConfig {
-    readonly request?: ValidationSchema;
-    readonly response?: ValidationSchema;
+    readonly request?: ValidationSchema | false;
+    readonly response?: ResponseValidationSchema | false;
 }
 
 export type ValidationPluginConfig = RequestValidationConfig;
+
+export type NeutrxLogValue = string | number | boolean | null | undefined | readonly NeutrxLogValue[] | { readonly [key: string]: NeutrxLogValue };
+
+export interface NeutrxLogger {
+    info?(entry: Record<string, NeutrxLogValue>): void;
+    error?(entry: Record<string, NeutrxLogValue>): void;
+    warn?(entry: Record<string, NeutrxLogValue>): void;
+    debug?(entry: Record<string, NeutrxLogValue>): void;
+}
+
+export interface NeutrxWebSocketReconnectOptions {
+    readonly attempts?: number;
+    readonly delay?: number;
+    readonly backoff?: 'fixed' | 'linear' | 'exponential' | ((attempt: number) => number);
+    /** @deprecated Use delay instead. */
+    readonly minDelay?: number;
+    /** @deprecated Use backoff instead. */
+    readonly factor?: number;
+    readonly maxDelay?: number;
+}
+
+export type NeutrxWebSocketData = string | ArrayBuffer | Uint8Array | Blob;
+export type NeutrxWebSocketMessage = NeutrxWebSocketData;
+
+export interface NeutrxWebSocketOpenEvent {
+    readonly type: 'open';
+    readonly url: string;
+    readonly nativeEvent?: unknown;
+}
+
+export interface NeutrxWebSocketMessageEvent<TMessage = NeutrxWebSocketData> {
+    readonly type: 'message';
+    readonly data: TMessage;
+    readonly raw: NeutrxWebSocketData;
+    readonly nativeEvent?: unknown;
+}
+
+export interface NeutrxWebSocketErrorEvent {
+    readonly type: 'error';
+    readonly error?: Error;
+    readonly nativeEvent?: unknown;
+}
+
+export interface NeutrxWebSocketCloseEvent {
+    readonly type: 'close';
+    readonly code: number;
+    readonly reason: string;
+    readonly wasClean: boolean;
+    readonly nativeEvent?: unknown;
+}
+
+export interface NeutrxWebSocketOptions<
+    TMessage = NeutrxWebSocketData,
+    TSend extends NeutrxWebSocketMessage = NeutrxWebSocketMessage
+> {
+    readonly protocols?: string | readonly string[];
+    readonly reconnect?: boolean | NeutrxWebSocketReconnectOptions;
+    readonly webSocket?: typeof WebSocket;
+    readonly headers?: HeaderSource;
+    readonly auth?: BasicAuthConfig;
+    readonly params?: QueryParams;
+    readonly paramsSerializer?: ParamsSerializer;
+    readonly baseURL?: string;
+    readonly allowAbsoluteUrls?: boolean;
+    readonly timeout?: number;
+    readonly connectTimeout?: number;
+    readonly signal?: AbortSignal;
+    readonly serviceDiscovery?: ServiceDiscoveryConfig;
+    readonly parseMessage?: (data: NeutrxWebSocketData) => TMessage;
+    readonly serializeMessage?: (data: TSend) => NeutrxWebSocketMessage;
+    readonly onOpen?: (event: NeutrxWebSocketOpenEvent) => void;
+    readonly onMessage?: (data: TMessage, event: NeutrxWebSocketMessageEvent<TMessage>) => void;
+    readonly onError?: (event: NeutrxWebSocketErrorEvent) => void;
+    readonly onClose?: (event: NeutrxWebSocketCloseEvent) => void;
+}
+
+declare const neutrxWebSocketMessageType: unique symbol;
+
+export interface NeutrxWSConnection<
+    TMessage = NeutrxWebSocketData,
+    TSend extends NeutrxWebSocketMessage = NeutrxWebSocketMessage
+> {
+    readonly url: string;
+    readonly readyState: number | undefined;
+    readonly [neutrxWebSocketMessageType]?: TMessage;
+    send(data: TSend): void;
+    close(code?: number, reason?: string): void;
+}
 
 export interface Cancel {
     readonly __CANCEL__: true;
@@ -160,7 +292,7 @@ export interface ProxyConfig {
     readonly host: string;
     readonly port?: number;
     readonly auth?: BasicAuthConfig | string;
-    readonly headers?: Headers;
+    readonly headers?: HeaderSource;
 }
 
 export interface BasicAuthConfig {
@@ -219,6 +351,10 @@ export interface RedirectContext {
     readonly fromURL: string;
     readonly toURL: string;
     readonly headers: Headers;
+}
+
+export interface TransitionalConfig {
+    readonly clarifyTimeoutError?: boolean;
 }
 
 export type SecurityProfile = 'strict' | 'standard' | 'legacy';
@@ -349,6 +485,23 @@ export interface CacheStore {
     destroy?(): void;
 }
 
+export type DeduplicateRequestKey = (config: InternalRequestConfig) => string | null | undefined;
+export type CacheStrategy = 'max-age' | 'swr' | 'network-first';
+export type DeprecatedCacheStrategy = 'ttl' | 'stale-while-revalidate';
+export type CacheStrategyInput = CacheStrategy | DeprecatedCacheStrategy;
+export type CacheRevalidateReason = 'stale' | 'network-first';
+
+export interface CacheRevalidateEvent {
+    readonly requestId: string;
+    readonly url: string;
+    readonly strategy: CacheStrategy;
+    readonly reason: CacheRevalidateReason;
+    readonly updated: boolean;
+    readonly status?: number;
+    readonly error?: Error;
+    readonly skipped?: boolean;
+}
+
 export interface PerformanceConfig {
     readonly enableCaching?: boolean;
     readonly cacheMaxSize?: number;
@@ -356,9 +509,14 @@ export interface PerformanceConfig {
     readonly cacheMaxEntrySize?: number;
     readonly respectCacheHeaders?: boolean;
     readonly deduplicateRequests?: boolean;
-    readonly cacheStrategy?: 'ttl' | 'stale-while-revalidate';
+    readonly deduplicateRequestKey?: DeduplicateRequestKey;
+    readonly deduplicateMethods?: readonly HttpMethod[];
+    readonly deduplicateHeaders?: readonly string[];
+    readonly cacheStrategy?: CacheStrategyInput;
+    readonly revalidateAfter?: number;
     readonly cacheStaleMax?: number;
     readonly cacheAdapter?: CacheStore;
+    readonly onRevalidate?: (event: CacheRevalidateEvent) => void | Promise<void>;
 }
 
 export interface Http2Options {
@@ -374,6 +532,7 @@ export interface Http2SessionStats {
         readonly activeStreams: number;
         readonly closed: boolean;
         readonly destroyed: boolean;
+        readonly sessionCount?: number;
         readonly remoteMaxConcurrentStreams?: number;
     }>;
 }
@@ -382,129 +541,48 @@ export interface InstrumentationConfig {
     readonly openTelemetry?: boolean;
     readonly tracerName?: string;
     readonly propagateTraceHeaders?: boolean;
+    readonly overwriteTraceHeaders?: boolean;
     readonly recordRequestBodySize?: boolean;
     readonly recordResponseBodySize?: boolean;
 }
 
+export type TracePropagationFormat = 'w3c' | 'b3' | 'b3multi' | 'b3single' | 'b3-multi' | 'b3-single';
+
+export interface TraceContext {
+    readonly traceId?: string;
+    readonly spanId?: string;
+    readonly parentSpanId?: string;
+    readonly sampled?: boolean;
+    readonly tracestate?: string;
+}
+
+export interface TraceContextPluginOptions {
+    readonly formats?: TracePropagationFormat | readonly TracePropagationFormat[];
+    readonly context?: TraceContext | ((config: InternalRequestConfig) => TraceContext | undefined);
+    readonly sampled?: boolean;
+    readonly tracestate?: string | ((config: InternalRequestConfig) => string | undefined);
+    readonly overwrite?: boolean;
+}
+
 export interface ClientConfig {
     readonly baseURL?: string;
+    readonly allowAbsoluteUrls?: boolean;
     readonly timeout?: number;
     readonly connectTimeout?: number;
     readonly maxRedirects?: number;
     readonly maxContentLength?: number;
     readonly maxBodyLength?: number;
-    readonly headers?: Headers;
-    readonly auth?: BasicAuthConfig;
-    readonly idempotencyKey?: IdempotencyKey;
-    readonly idempotencyKeyHeader?: string;
-    readonly validateStatus?: (status: number) => boolean;
-    readonly paramsSerializer?: ParamsSerializer;
-    readonly formSerializer?: FormSerializerOptions;
-    readonly transformRequest?: TransformRequest | readonly TransformRequest[];
-    readonly transformResponse?: TransformResponse | readonly TransformResponse[];
-    readonly parseJson?: ParseJson;
-    readonly stringifyJson?: StringifyJson;
-    readonly throwHttpErrors?: boolean;
-    readonly adapter?: RequestAdapterConfig;
-    readonly fetch?: FetchImplementation;
-    readonly httpVersion?: 1 | 2 | '1.1' | '2';
-    readonly http2Options?: Http2Options;
-    readonly serviceDiscovery?: ServiceDiscoveryConfig;
-    readonly withCredentials?: boolean;
-    readonly credentials?: FetchCredentials;
-    readonly xsrfCookieName?: string | null;
-    readonly xsrfHeaderName?: string | null;
-    readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
-    readonly instrumentation?: InstrumentationConfig;
-    readonly proxy?: ProxyConfig | false;
-    readonly tls?: TlsConfig;
-    readonly httpAgent?: HttpAgent;
-    readonly httpsAgent?: HttpsAgent;
-    readonly lookup?: LookupFunction;
-    readonly socketPath?: string;
-    readonly decompress?: boolean;
-    readonly maxRate?: MaxRate;
-    readonly security?: SecurityConfig;
-    readonly egressPolicy?: EgressPolicyConfig;
-    readonly resilience?: ResilienceConfig;
-    readonly performance?: PerformanceConfig;
-}
-
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'auth' | 'idempotencyKey' | 'idempotencyKeyHeader' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'parseJson' | 'stringifyJson' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'serviceDiscovery' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'tls' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'egressPolicy' | 'resilience' | 'performance'>> {
-    readonly baseURL?: string;
-    readonly headers?: Headers;
-    readonly auth?: BasicAuthConfig;
-    readonly idempotencyKey?: IdempotencyKey;
-    readonly idempotencyKeyHeader?: string;
-    readonly paramsSerializer?: ParamsSerializer;
-    readonly formSerializer?: FormSerializerOptions;
-    readonly transformRequest?: readonly TransformRequest[];
-    readonly transformResponse?: readonly TransformResponse[];
-    readonly parseJson?: ParseJson;
-    readonly stringifyJson?: StringifyJson;
-    readonly adapter?: RequestAdapterConfig;
-    readonly fetch?: FetchImplementation;
-    readonly httpVersion?: 1 | 2 | '1.1' | '2';
-    readonly http2Options?: Http2Options;
-    readonly serviceDiscovery?: ServiceDiscoveryConfig;
-    readonly withCredentials?: boolean;
-    readonly credentials?: FetchCredentials;
-    readonly xsrfCookieName?: string | null;
-    readonly xsrfHeaderName?: string | null;
-    readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
-    readonly instrumentation?: InstrumentationConfig;
-    readonly proxy?: ProxyConfig | false;
-    readonly tls?: TlsConfig;
-    readonly httpAgent?: HttpAgent;
-    readonly httpsAgent?: HttpsAgent;
-    readonly lookup?: LookupFunction;
-    readonly socketPath?: string;
-    readonly maxRate?: MaxRate;
-    readonly egressPolicy?: EgressPolicyConfig;
-    readonly security: Required<Omit<SecurityConfig, 'profile' | 'rateLimit' | 'allowedHosts' | 'deniedHosts' | 'allowedProtocols'>> & {
-        readonly profile: SecurityProfile;
-        readonly allowedHosts?: readonly string[];
-        readonly deniedHosts?: readonly string[];
-        readonly allowedProtocols?: readonly string[];
-        readonly rateLimit?: RateLimitConfig;
-    };
-    readonly resilience: Required<Omit<ResilienceConfig, 'shouldRetry' | 'onRetry' | 'retryableStatuses' | 'retryableCodes' | 'retryBudget' | 'adaptiveConcurrency' | 'circuitBreakerStorage'>> & {
-        readonly retryableStatuses: readonly number[];
-        readonly retryableCodes: readonly string[];
-        readonly retryMethods: readonly HttpMethod[];
-        readonly retryBudget?: RetryBudgetConfig;
-        readonly adaptiveConcurrency?: AdaptiveConcurrencyConfig;
-        readonly circuitBreakerStorage?: CircuitBreakerStorageConfig;
-        readonly shouldRetry?: (error: Error) => boolean;
-        readonly onRetry?: (event: RetryEvent) => void | Promise<void>;
-    };
-    readonly performance: Required<Omit<PerformanceConfig, 'cacheAdapter'>> & {
-        readonly cacheAdapter?: CacheStore;
-    };
-}
-
-export interface RequestConfig<TBody extends RequestBody = RequestBody> {
-    readonly url: string;
-    readonly method?: HttpMethod | Lowercase<HttpMethod>;
-    readonly data?: TBody;
-    readonly params?: QueryParams;
-    readonly headers?: Headers;
-    readonly auth?: BasicAuthConfig;
-    readonly idempotencyKey?: IdempotencyKey;
-    readonly idempotencyKeyHeader?: string;
-    readonly baseURL?: string;
-    readonly timeout?: number;
-    readonly connectTimeout?: number;
-    readonly maxRedirects?: number;
-    readonly maxContentLength?: number;
-    readonly maxBodyLength?: number;
-    readonly responseType?: ResponseType;
     readonly responseEncoding?: BufferEncoding;
+    readonly headers?: HeaderSource;
+    readonly auth?: BasicAuthConfig;
+    readonly idempotencyKey?: IdempotencyKey;
+    readonly idempotencyKeyHeader?: string;
     readonly validateStatus?: (status: number) => boolean;
     readonly paramsSerializer?: ParamsSerializer;
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: TransformRequest | readonly TransformRequest[];
     readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly schema?: ResponseSchemaOption | undefined;
     readonly parseJson?: ParseJson;
     readonly stringifyJson?: StringifyJson;
     readonly throwHttpErrors?: boolean;
@@ -528,6 +606,124 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
     readonly socketPath?: string;
     readonly decompress?: boolean;
     readonly maxRate?: MaxRate;
+    readonly transitional?: TransitionalConfig;
+    readonly security?: SecurityConfig;
+    readonly egressPolicy?: EgressPolicyConfig;
+    readonly resilience?: ResilienceConfig;
+    readonly performance?: PerformanceConfig;
+}
+
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'auth' | 'idempotencyKey' | 'idempotencyKeyHeader' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'schema' | 'parseJson' | 'stringifyJson' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'serviceDiscovery' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'tls' | 'beforeRedirect' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'egressPolicy' | 'resilience' | 'performance' | 'transitional'>> {
+    readonly baseURL?: string;
+    readonly headers?: HeaderSource;
+    readonly auth?: BasicAuthConfig;
+    readonly idempotencyKey?: IdempotencyKey;
+    readonly idempotencyKeyHeader?: string;
+    readonly paramsSerializer?: ParamsSerializer;
+    readonly formSerializer?: FormSerializerOptions;
+    readonly transformRequest?: readonly TransformRequest[];
+    readonly transformResponse?: readonly TransformResponse[];
+    readonly schema?: ResponseSchemaOption | undefined;
+    readonly parseJson?: ParseJson;
+    readonly stringifyJson?: StringifyJson;
+    readonly adapter?: RequestAdapterConfig;
+    readonly fetch?: FetchImplementation;
+    readonly httpVersion?: 1 | 2 | '1.1' | '2';
+    readonly http2Options?: Http2Options;
+    readonly serviceDiscovery?: ServiceDiscoveryConfig;
+    readonly withCredentials?: boolean;
+    readonly credentials?: FetchCredentials;
+    readonly xsrfCookieName?: string | null;
+    readonly xsrfHeaderName?: string | null;
+    readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
+    readonly instrumentation?: InstrumentationConfig;
+    readonly proxy?: ProxyConfig | false;
+    readonly tls?: TlsConfig;
+    readonly beforeRedirect?: (context: RedirectContext) => void | Promise<void>;
+    readonly httpAgent?: HttpAgent;
+    readonly httpsAgent?: HttpsAgent;
+    readonly lookup?: LookupFunction;
+    readonly socketPath?: string;
+    readonly maxRate?: MaxRate;
+    readonly egressPolicy?: EgressPolicyConfig;
+    readonly transitional: Required<TransitionalConfig>;
+    readonly security: Required<Omit<SecurityConfig, 'profile' | 'rateLimit' | 'allowedHosts' | 'deniedHosts' | 'allowedProtocols'>> & {
+        readonly profile: SecurityProfile;
+        readonly allowedHosts?: readonly string[];
+        readonly deniedHosts?: readonly string[];
+        readonly allowedProtocols?: readonly string[];
+        readonly rateLimit?: RateLimitConfig;
+    };
+    readonly resilience: Required<Omit<ResilienceConfig, 'shouldRetry' | 'onRetry' | 'retryableStatuses' | 'retryableCodes' | 'retryBudget' | 'adaptiveConcurrency' | 'circuitBreakerStorage'>> & {
+        readonly retryableStatuses: readonly number[];
+        readonly retryableCodes: readonly string[];
+        readonly retryMethods: readonly HttpMethod[];
+        readonly retryBudget?: RetryBudgetConfig;
+        readonly adaptiveConcurrency?: AdaptiveConcurrencyConfig;
+        readonly circuitBreakerStorage?: CircuitBreakerStorageConfig;
+        readonly shouldRetry?: (error: Error) => boolean;
+        readonly onRetry?: (event: RetryEvent) => void | Promise<void>;
+    };
+    readonly performance: Required<Omit<PerformanceConfig, 'cacheAdapter' | 'deduplicateRequestKey' | 'cacheStrategy' | 'revalidateAfter' | 'onRevalidate'>> & {
+        readonly cacheStrategy: CacheStrategy;
+        readonly revalidateAfter?: number;
+        readonly cacheAdapter?: CacheStore;
+        readonly deduplicateRequestKey?: DeduplicateRequestKey;
+        readonly onRevalidate?: (event: CacheRevalidateEvent) => void | Promise<void>;
+    };
+}
+
+export interface RequestConfig<
+    TBody extends RequestBody = RequestBody,
+    TSchema extends ResponseSchemaOption | undefined = ResponseSchemaOption | undefined
+> {
+    readonly url: string;
+    readonly method?: HttpMethod | Lowercase<HttpMethod>;
+    readonly data?: TBody;
+    readonly params?: QueryParams;
+    readonly headers?: HeaderSource;
+    readonly auth?: BasicAuthConfig;
+    readonly idempotencyKey?: IdempotencyKey;
+    readonly idempotencyKeyHeader?: string;
+    readonly baseURL?: string;
+    readonly allowAbsoluteUrls?: boolean;
+    readonly timeout?: number;
+    readonly connectTimeout?: number;
+    readonly maxRedirects?: number;
+    readonly maxContentLength?: number;
+    readonly maxBodyLength?: number;
+    readonly responseType?: ResponseType;
+    readonly responseEncoding?: BufferEncoding;
+    readonly validateStatus?: (status: number) => boolean;
+    readonly paramsSerializer?: ParamsSerializer;
+    readonly formSerializer?: FormSerializerOptions;
+    readonly transformRequest?: TransformRequest | readonly TransformRequest[];
+    readonly transformResponse?: TransformResponse | readonly TransformResponse[];
+    readonly schema?: TSchema;
+    readonly parseJson?: ParseJson;
+    readonly stringifyJson?: StringifyJson;
+    readonly throwHttpErrors?: boolean;
+    readonly adapter?: RequestAdapterConfig;
+    readonly fetch?: FetchImplementation;
+    readonly httpVersion?: 1 | 2 | '1.1' | '2';
+    readonly http2Options?: Http2Options;
+    readonly serviceDiscovery?: ServiceDiscoveryConfig;
+    readonly withCredentials?: boolean;
+    readonly credentials?: FetchCredentials;
+    readonly xsrfCookieName?: string | null;
+    readonly xsrfHeaderName?: string | null;
+    readonly withXSRFToken?: boolean | ((config: InternalRequestConfig) => boolean);
+    readonly instrumentation?: InstrumentationConfig;
+    readonly proxy?: ProxyConfig | false;
+    readonly tls?: TlsConfig;
+    readonly beforeRedirect?: (context: RedirectContext) => void | Promise<void>;
+    readonly httpAgent?: HttpAgent;
+    readonly httpsAgent?: HttpsAgent;
+    readonly lookup?: LookupFunction;
+    readonly socketPath?: string;
+    readonly decompress?: boolean;
+    readonly maxRate?: MaxRate;
+    readonly transitional?: TransitionalConfig;
     readonly followRedirects?: boolean;
     readonly cache?: boolean;
     readonly signal?: AbortSignal;
@@ -541,7 +737,8 @@ export interface RequestConfig<TBody extends RequestBody = RequestBody> {
 export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> extends RequestConfig<TBody> {
     readonly url: string;
     readonly method: HttpMethod;
-    readonly headers: Headers;
+    readonly headers: InternalHeaders;
+    readonly allowAbsoluteUrls: boolean;
     readonly timeout: number;
     readonly connectTimeout: number;
     readonly maxRedirects: number;
@@ -553,6 +750,7 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly formSerializer?: FormSerializerOptions;
     readonly transformRequest?: readonly TransformRequest[];
     readonly transformResponse?: readonly TransformResponse[];
+    readonly schema?: ResponseSchemaOption | undefined;
     readonly parseJson?: ParseJson;
     readonly stringifyJson?: StringifyJson;
     readonly throwHttpErrors: boolean;
@@ -572,10 +770,12 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly socketPath?: string;
     readonly decompress: boolean;
     readonly maxRate?: MaxRate;
+    readonly transitional: Required<TransitionalConfig>;
     readonly followRedirects: boolean;
     readonly requestId: string;
     readonly startTime: number;
     readonly hops: number;
+    readonly traceContext?: TraceContext;
     readonly mockResponse?: NeutrxResponse;
     readonly idempotencyKey?: string;
     readonly idempotencyKeyHeader?: string;
@@ -585,7 +785,7 @@ export interface RawHttpResponse {
     readonly status: number;
     readonly statusText: string;
     readonly headers: Headers;
-    readonly data: string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | ReadableStream<Uint8Array> | null;
+    readonly data: string | Buffer | Uint8Array | ArrayBuffer | Blob | FormData | IncomingMessage | Readable | ReadableStream<Uint8Array> | null;
     readonly config: InternalRequestConfig;
     readonly request?: TransportRequest;
     readonly deduplicated?: boolean;
@@ -600,6 +800,7 @@ export interface NeutrxResponse<TData extends ParsedResponseData = ParsedRespons
     readonly request?: TransportRequest;
     readonly timing: { readonly duration: number };
     readonly requestId: string;
+    readonly traceContext?: TraceContext;
     attempts?: readonly RetryAttempt[];
     cached?: boolean;
     cacheAge?: number;

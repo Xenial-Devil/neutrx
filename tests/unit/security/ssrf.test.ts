@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import type { PeerCertificate } from 'node:tls';
 import test from 'node:test';
 import type * as SecurityModule from '../../../src/security/SecurityManager.js';
+import type { InternalRequestConfig } from '../../../src/types.js';
 
-const securityEntry = '../../../../dist/esm/security/SecurityManager.js';
+const securityEntry = '../../../../dist/security/SecurityManager.mjs';
 
 void test('SecurityManager blocks private and metadata hosts in standard profile', async () => {
     const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
@@ -67,6 +68,24 @@ void test('SecurityManager blocks URL credential confusion in standard and stric
     assert.throws(() => new SecurityManager({ enforceHTTPS: false }).validateURL('http://user:pass@example.com/'), /Credentials/u);
     assert.throws(() => new SecurityManager({ profile: 'strict' }).validateURL('https://127.0.0.1@example.com/'), /Credentials/u);
     assert.equal(new SecurityManager({ profile: 'legacy' }).validateURL('http://user:pass@example.com/').hostname, 'example.com');
+});
+
+void test('SecurityManager treats socketPath requests as local HTTP transport', async () => {
+    const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
+    const security = new SecurityManager({
+        profile: 'strict',
+        egressPolicy: { mode: 'public-api', allowedHosts: ['api.example.com'] },
+    });
+    const config = {
+        url: 'http://127.0.0.1/v1/version',
+        method: 'GET',
+        headers: {},
+        socketPath: '/var/run/docker.sock',
+        requestId: 'socket-test',
+    } as unknown as InternalRequestConfig;
+
+    assert.equal(security.validateRequest(config).url, 'http://127.0.0.1/v1/version');
+    assert.throws(() => security.validateSocketURL('https://docker/v1/version'), /HTTP URLs only/u);
 });
 
 void test('SecurityManager normalizes IDN allow-list entries to punycode', async () => {
@@ -138,4 +157,19 @@ void test('SecurityManager certificate pins support rotation windows and fail cl
         /Certificate pin mismatch/u
     );
     assert.throws(() => security.pinCertificate('api.example.com', 'not-a-fingerprint'), /Invalid SHA-256/u);
+});
+
+void test('SecurityManager rejects prototype pollution keys in request bodies', async () => {
+    const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
+    const security = new SecurityManager();
+    const config = {
+        url: 'https://api.example.com/users',
+        method: 'POST',
+        headers: {},
+        data: JSON.parse('{"safe":true,"__proto__":{"polluted":true}}') as unknown,
+        requestId: 'prototype-pollution-test',
+    } as unknown as InternalRequestConfig;
+
+    assert.throws(() => security.validateRequest(config), /Prototype pollution attempt/u);
+    assert.equal((Object.prototype as { polluted?: unknown }).polluted, undefined);
 });

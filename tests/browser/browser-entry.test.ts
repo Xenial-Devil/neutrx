@@ -6,8 +6,8 @@ import type { FetchCredentials } from '../../src/browser.js';
 import type * as BrowserEntry from '../../src/browser.js';
 import type { InternalRequestConfig } from '../../src/types.js';
 
-const browserEntry = '../../../dist/esm/browser.js';
-const browserAdapterEntry = '../../../dist/esm/adapters/browser.js';
+const browserEntry = '../../../dist/browser.mjs';
+const browserAdapterEntry = '../../../dist/adapters/browser.mjs';
 
 void test('browser entry supports fetch, credentials, and postForm', async () => {
     const originalFetch = globalThis.fetch;
@@ -37,6 +37,114 @@ void test('browser entry supports fetch, credentials, and postForm', async () =>
         assert.equal(seen.method, 'POST');
         assert.equal(seen.credentials, 'include');
         assert.equal(seen.isFormData, true);
+    } finally {
+        globalWithFetch.fetch = originalFetch;
+    }
+});
+
+void test('browser entry supports axios-like full-stack migration workflow', async () => {
+    const originalFetch = globalThis.fetch;
+    const globalWithFetch = globalThis as typeof globalThis & { fetch: typeof fetch };
+    const requests: Array<{
+        readonly url: string;
+        readonly method: string | undefined;
+        readonly credentials: FetchCredentials | undefined;
+        readonly headers: Record<string, string>;
+        readonly bodyType: string;
+    }> = [];
+    const uploadEvents: BrowserEntry.ProgressEvent[] = [];
+    const downloadEvents: BrowserEntry.ProgressEvent[] = [];
+    const requestInterceptors: string[] = [];
+
+    globalWithFetch.fetch = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const headers = new Headers(init?.headers);
+        requests.push({
+            url: typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url,
+            method: init?.method,
+            credentials: init?.credentials,
+            headers: Object.fromEntries(headers.entries()),
+            bodyType: init?.body instanceof FormData ? 'form' : typeof init?.body,
+        });
+
+        const payload = JSON.stringify({ ok: true, request: requests.length });
+        return Promise.resolve(new Response(payload, {
+            status: 200,
+            statusText: 'OK',
+            headers: {
+                'content-length': String(new TextEncoder().encode(payload).byteLength),
+                'content-type': 'application/json',
+            },
+        }));
+    };
+
+    try {
+        const mod = await import(browserEntry) as typeof BrowserEntry;
+        const api = mod.default.create({
+            baseURL: 'https://initial.example/api',
+            adapter: 'fetch',
+            headers: new mod.NeutrxHeaders({ 'X-Client': 'web' }),
+            withCredentials: true,
+        });
+
+        api.defaults.baseURL = 'https://tenant.example/v1';
+        api.defaults.timeout = 10_000;
+        api.defaults.headers.common.Authorization = 'Bearer default-token';
+        api.defaults.headers.get['X-Mode'] = 'read';
+
+        api.interceptors.request.use(
+            config => {
+                requestInterceptors.push('get');
+                config.headers.set('X-Request', 'sync');
+                return config;
+            },
+            undefined,
+            {
+                synchronous: true,
+                runWhen: config => config.method === 'GET',
+            }
+        );
+        api.interceptors.request.use(
+            config => {
+                requestInterceptors.push('post');
+                config.headers.set('X-Upload', 'tracked');
+                return config;
+            },
+            undefined,
+            {
+                runWhen: config => config.method === 'POST',
+            }
+        );
+        api.interceptors.response.use(response => {
+            if (isRecord(response.data)) response.data = { ...response.data, responseIntercepted: true };
+            return response;
+        });
+
+        const getResponse = await api.get('/users', {
+            onDownloadProgress: event => downloadEvents.push(event),
+        });
+        const postResponse = await api.post('/users', { name: 'Ada' }, {
+            headers: { Authorization: 'Bearer request-token' },
+            onUploadProgress: event => uploadEvents.push(event),
+        });
+
+        assert.deepEqual(requestInterceptors, ['get', 'post']);
+        assert.deepEqual(getResponse.data, { ok: true, request: 1, responseIntercepted: true });
+        assert.deepEqual(postResponse.data, { ok: true, request: 2, responseIntercepted: true });
+        assert.equal(requests[0]?.url, 'https://tenant.example/v1/users');
+        assert.equal(requests[0]?.method, 'GET');
+        assert.equal(requests[0]?.credentials, 'include');
+        assert.equal(requests[0]?.headers['authorization'], 'Bearer default-token');
+        assert.equal(requests[0]?.headers['x-client'], 'web');
+        assert.equal(requests[0]?.headers['x-mode'], 'read');
+        assert.equal(requests[0]?.headers['x-request'], 'sync');
+        assert.equal(requests[1]?.method, 'POST');
+        assert.equal(requests[1]?.headers['authorization'], 'Bearer request-token');
+        assert.equal(requests[1]?.headers['x-upload'], 'tracked');
+        assert.equal(requests[1]?.bodyType, 'string');
+        assert.ok(uploadEvents.some(event => event.upload === true && event.loaded === 0 && event.progress === 0));
+        assert.ok(uploadEvents.some(event => event.upload === true && event.progress === 1 && event.total !== undefined));
+        assert.ok(downloadEvents.some(event => event.download === true && event.loaded === 0 && event.progress === 0));
+        assert.ok(downloadEvents.some(event => event.download === true && event.progress === 1 && event.total !== undefined));
     } finally {
         globalWithFetch.fetch = originalFetch;
     }
@@ -106,6 +214,44 @@ void test('browser entry runs ValidationPlugin without Node APIs', async () => {
     }
 });
 
+void test('browser entry supports first-class response schema validation', async () => {
+    const originalFetch = globalThis.fetch;
+    const globalWithFetch = globalThis as typeof globalThis & { fetch: typeof fetch };
+
+    globalWithFetch.fetch = (input): Promise<Response> => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        return Promise.resolve(new Response(JSON.stringify(url.endsWith('/ok')
+            ? { ok: true, id: 7 }
+            : { ok: false }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+    };
+
+    try {
+        const mod = await import(browserEntry) as typeof BrowserEntry;
+        const schema = {
+            parse(value: unknown) {
+                if (isRecord(value) && value.ok === true && typeof value.id === 'number') {
+                    return { id: String(value.id) };
+                }
+                throw Object.assign(new Error('invalid response'), {
+                    issues: [{ path: ['ok'], message: 'ok must be true' }],
+                });
+            },
+        } satisfies BrowserEntry.ResponseValidationSchema<{ readonly id: string }>;
+        const api = mod.default.create({ baseURL: 'https://browser.example', schema });
+
+        const response = await api.get('/ok', { schema });
+        const typedId: string = response.data.id;
+        assert.equal(typedId, '7');
+        await assert.rejects(api.get('/bad'), error => error instanceof mod.NeutrxValidationError);
+        assert.deepEqual((await api.get('/bad', { schema: false })).data, { ok: false });
+    } finally {
+        globalWithFetch.fetch = originalFetch;
+    }
+});
+
 void test('browser adapter is safe in edge-like runtimes without document or window', async () => {
     const { fetchAdapter } = await import(browserAdapterEntry) as typeof BrowserAdapter;
     const browserGlobal = globalThis as MutableBrowserGlobal;
@@ -126,7 +272,7 @@ void test('browser adapter is safe in edge-like runtimes without document or win
     try {
         const raw = await fetchAdapter(adapterConfig({
             data: new URLSearchParams({ q: 'neutrx' }),
-            headers: { 'Content-Length': 100, 'Content-Type': 'application/x-www-form-urlencoded' },
+            headers: { 'Content-Length': 100, 'Content-Type': 'application/x-www-form-urlencoded' } as unknown as InternalRequestConfig['headers'],
             method: 'POST',
             url: 'https://edge.example/search',
         }));
@@ -181,6 +327,8 @@ void test('browser adapter enforces timeout, abort, progress, and maxContentLeng
     const previous = snapshotBrowserGlobal(browserGlobal);
     const downloads: number[] = [];
     const uploads: number[] = [];
+    const downloadProgress: number[] = [];
+    const uploadProgress: number[] = [];
 
     try {
         browserGlobal.fetch = (_input: string | URL | Request, init?: RequestInit): Promise<Response> => new Promise((_resolve, reject) => {
@@ -208,14 +356,22 @@ void test('browser adapter enforces timeout, abort, progress, and maxContentLeng
         const raw = await fetchAdapter(adapterConfig({
             data: 'hello',
             method: 'POST',
-            onDownloadProgress: event => downloads.push(event.loaded),
-            onUploadProgress: event => uploads.push(event.loaded),
+            onDownloadProgress: event => {
+                downloads.push(event.loaded);
+                if (event.progress !== undefined) downloadProgress.push(event.progress);
+            },
+            onUploadProgress: event => {
+                uploads.push(event.loaded);
+                if (event.progress !== undefined) uploadProgress.push(event.progress);
+            },
             responseType: 'text',
         }));
 
         assert.equal(raw.data, 'payload');
-        assert.deepEqual(uploads, [5]);
+        assert.deepEqual(uploads, [0, 5]);
         assert.deepEqual(downloads, [0, 7]);
+        assert.deepEqual(uploadProgress, [0, 1]);
+        assert.deepEqual(downloadProgress, [0, 1]);
     } finally {
         restoreBrowserGlobal(browserGlobal, previous);
     }
@@ -226,7 +382,7 @@ void test('package browser condition resolves browser client in Node condition s
         '--conditions=browser',
         '--input-type=module',
         '--eval',
-        "import { NeutrxClient } from 'neutrx'; const client = new NeutrxClient(); try { client.pinCertificate('api.example.com', 'a'.repeat(64)); throw new Error('node entry selected'); } catch (error) { if (!String(error.message).includes('Node-only')) throw error; }",
+        "globalThis.fetch = (_input, init) => Promise.resolve(new Response(JSON.stringify({ ok: true, method: init?.method ?? 'GET' }), { status: 200, headers: { 'content-type': 'application/json' } })); const { default: neutrx } = await import('neutrx'); const api = neutrx.create({ baseURL: 'https://browser.example', adapter: 'fetch' }); const response = await api.get('/health'); if (response.data.ok !== true || response.data.method !== 'GET') throw new Error('fetch adapter request failed'); try { api.pinCertificate('api.example.com', 'a'.repeat(64)); throw new Error('pinning unexpectedly allowed'); } catch (error) { if (!String(error.message).includes('Node-only')) throw error; }",
     ], {
         cwd: process.cwd(),
         encoding: 'utf8',
@@ -286,7 +442,8 @@ function adapterConfig(overrides: Partial<InternalRequestConfig> = {}): Internal
     return {
         url: 'https://app.example/api',
         method: 'GET',
-        headers: {},
+        headers: {} as InternalRequestConfig['headers'],
+        allowAbsoluteUrls: true,
         timeout: 5000,
         connectTimeout: 5000,
         maxRedirects: 0,
@@ -297,6 +454,7 @@ function adapterConfig(overrides: Partial<InternalRequestConfig> = {}): Internal
         validateStatus: status => status >= 200 && status < 300,
         throwHttpErrors: true,
         decompress: false,
+        transitional: { clarifyTimeoutError: false },
         followRedirects: true,
         requestId: 'browser-test',
         startTime: Date.now(),

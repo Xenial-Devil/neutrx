@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import zlib from 'node:zlib';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
@@ -9,8 +11,8 @@ import test from 'node:test';
 import type * as PackageEntry from '../src/index.js';
 import type { LookupFunction } from '../src/index.js';
 
-const builtEntry = '../../dist/esm/index.js';
-const browserEntry = '../../dist/esm/browser.js';
+const builtEntry = '../../dist/index.mjs';
+const browserEntry = '../../dist/browser.mjs';
 const require = createRequire(import.meta.url);
 const packageJson = require('../../package.json') as { readonly version: string };
 
@@ -23,7 +25,8 @@ void test('package exports load from built output', async () => {
 });
 
 void test('CommonJS build can be required', () => {
-    const mod = require('../../dist/cjs/index.js') as typeof PackageEntry;
+    const mod = require('../../dist/index.cjs') as typeof PackageEntry & { readonly default: typeof PackageEntry.default };
+    assert.equal(typeof mod, 'function');
     assert.equal(typeof mod.default, 'function');
     assert.equal(typeof mod.default.create, 'function');
     assert.equal(mod.VERSION, packageJson.version);
@@ -31,10 +34,8 @@ void test('CommonJS build can be required', () => {
 
 void test('browser build uses fetch without Node core imports', async () => {
     for (const file of [
-        'dist/esm/browser.js',
-        'dist/esm/core/BrowserClient.js',
-        'dist/esm/core/BrowserNeutrx.js',
-        'dist/esm/adapters/browser.js',
+        'dist/browser.mjs',
+        'dist/adapters/browser.mjs',
     ]) {
         assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /node:/);
     }
@@ -84,6 +85,7 @@ void test('stream upload reports progress with percent when content length is kn
         payload.subarray(48 * 1024),
     ];
     const progress: number[] = [];
+    const ratios: number[] = [];
     const events: PackageEntry.ProgressEvent[] = [];
 
     const server = http.createServer((request, response) => {
@@ -121,11 +123,13 @@ void test('stream upload reports progress with percent when content length is kn
             onUploadProgress(event) {
                 events.push(event);
                 if (event.percent !== undefined) progress.push(event.percent);
+                if (event.progress !== undefined) ratios.push(event.progress);
             },
         });
 
         assert.equal(response.data.received, payload.length);
         assert.deepEqual(progress, [0, 25, 50, 75, 100]);
+        assert.deepEqual(ratios, [0, 0.25, 0.5, 0.75, 1]);
         assert.equal(events.at(-1)?.bytes, 16 * 1024);
         assert.equal(events.at(-1)?.upload, true);
         assert.equal(typeof events.at(-1)?.rate, 'number');
@@ -333,7 +337,7 @@ void test('named fetch adapter works through native fetch', async () => {
     }
 });
 
-void test('global defaults merge into root requests and new instances', async () => {
+void test('config precedence is global defaults, instance defaults, then per-request config', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const previousDefaults = { ...Neutrx.defaults };
     Neutrx.defaults.baseURL = 'https://defaults.example';
@@ -362,6 +366,8 @@ void test('global defaults merge into root requests and new instances', async ()
         assert.equal(Neutrx.getUri('/uri'), 'https://defaults.example/uri');
 
         const api = Neutrx.create({
+            baseURL: 'https://instance.example',
+            timeout: 2345,
             headers: { 'X-Default': 'override' },
             adapter: config => ({
                 status: 200,
@@ -377,9 +383,20 @@ void test('global defaults merge into root requests and new instances', async ()
         });
         const response = await api.get('/instance');
         assert.deepEqual(response.data, {
-            url: 'https://defaults.example/instance',
-            timeout: 1234,
+            url: 'https://instance.example/instance',
+            timeout: 2345,
             header: 'override',
+        });
+
+        const requestResponse = await api.get('/request', {
+            baseURL: 'https://request.example',
+            timeout: 3456,
+            headers: { 'X-Default': 'request' },
+        });
+        assert.deepEqual(requestResponse.data, {
+            url: 'https://request.example/request',
+            timeout: 3456,
+            header: 'request',
         });
     } finally {
         for (const key of Object.keys(Neutrx.defaults) as Array<keyof typeof Neutrx.defaults>) delete Neutrx.defaults[key];
@@ -419,6 +436,47 @@ void test('node http adapter exposes response request reference and honors maxRa
     }
 });
 
+void test('socketPath sends HTTP over Unix socket without DNS/SSRF blocking and rejects unsafe paths', { skip: process.platform === 'win32' }, async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    const socketPath = path.join(os.tmpdir(), `neutrx-${process.pid}-${Date.now()}.sock`);
+    fs.rmSync(socketPath, { force: true });
+    let lookupCalls = 0;
+    const lookup = ((hostname: string, options: unknown, callback?: unknown): void => {
+        lookupCalls += 1;
+        const done = (typeof options === 'function' ? options : callback) as (error: Error | null, address?: string, family?: number) => void;
+        done(null, hostname === 'docker' ? '127.0.0.1' : '169.254.169.254', 4);
+    }) as LookupFunction;
+    const server = http.createServer((request, response) => {
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ url: request.url, host: request.headers.host }));
+    });
+
+    await new Promise<void>(resolve => {
+        server.listen(socketPath, resolve);
+    });
+
+    try {
+        const api = Neutrx.create({
+            baseURL: 'http://docker',
+            socketPath,
+            proxy: false,
+            lookup,
+            security: { profile: 'strict' },
+        });
+
+        const response = await api.get<{ readonly url: string; readonly host?: string }>('/v1/version');
+        assert.deepEqual(response.data, { url: '/v1/version', host: 'docker' });
+        assert.equal(lookupCalls, 0);
+        await assert.rejects(
+            api.get('/bad', { socketPath: 'relative.sock' }),
+            /socketPath must be an absolute local path/u
+        );
+    } finally {
+        await close(server);
+        fs.rmSync(socketPath, { force: true });
+    }
+});
+
 void test('isNeutrxError narrows Neutrx errors', async () => {
     const { default: Neutrx, isNeutrxError } = await import(builtEntry) as typeof PackageEntry;
     const api = Neutrx.create({ security: { enforceHTTPS: false, enableSSRFProtection: false } });
@@ -428,18 +486,33 @@ void test('isNeutrxError narrows Neutrx errors', async () => {
         assert.fail('request should throw');
     } catch (error: unknown) {
         assert.equal(isNeutrxError(error), true);
+        assert.equal(Neutrx.isNeutrxError(error), true);
         assert.equal(Object.keys(error as object).includes('__isNeutrxError'), false);
     }
 });
 
 void test('getUri builds final URL without dispatching', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    let dispatched = false;
     const api = Neutrx.create({
         baseURL: 'https://api.example.com/v1',
         paramsSerializer: params => `page=${paramToString(params.page)}`,
+        adapter: config => {
+            dispatched = true;
+            return {
+                status: 200,
+                statusText: 'OK',
+                headers: {},
+                data: Buffer.from('{}'),
+                config,
+            };
+        },
     });
+    const relative = Neutrx.create();
 
     assert.equal(api.getUri({ url: '/users', params: { page: 2 } }), 'https://api.example.com/v1/users?page=2');
+    assert.equal(relative.getUri({ url: '/users?active=true#team', params: { page: 2 } }), '/users?active=true&page=2#team');
+    assert.equal(dispatched, false);
 });
 
 void test('decompress false keeps compressed response bytes', async () => {
@@ -627,15 +700,19 @@ void test('FormData bodies serialize as multipart with boundary and length', asy
     }
 });
 
-void test('postForm serializes plain objects as multipart form data', async () => {
+void test('form helpers serialize plain objects as multipart form data', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
-    const captured: { contentType: string | undefined; body?: string } = { contentType: undefined };
+    const captured: Array<{ readonly method: string | undefined; readonly contentType: string | undefined; readonly body: string }> = [];
     const server = http.createServer((request, response) => {
-        captured.contentType = headerValue(request.headers['content-type']);
+        const contentType = headerValue(request.headers['content-type']);
         const chunks: Buffer[] = [];
         request.on('data', (chunk: Buffer) => chunks.push(chunk));
         request.on('end', () => {
-            captured.body = Buffer.concat(chunks).toString('utf8');
+            captured.push({
+                method: request.method,
+                contentType,
+                body: Buffer.concat(chunks).toString('utf8'),
+            });
             response.setHeader('content-type', 'application/json');
             response.end(JSON.stringify({ ok: true }));
         });
@@ -651,10 +728,15 @@ void test('postForm serializes plain objects as multipart form data', async () =
         });
 
         await api.postForm('/form', { name: 'Ada', role: 'admin' });
+        await api.putForm('/form', { name: 'Grace' });
+        await api.patchForm('/form', { role: 'operator' });
 
-        assert.match(captured.contentType ?? '', /^multipart\/form-data; boundary=----neutrx-/);
-        assert.match(captured.body ?? '', /name="name"\r\n\r\nAda/);
-        assert.match(captured.body ?? '', /name="role"\r\n\r\nadmin/);
+        assert.deepEqual(captured.map(item => item.method), ['POST', 'PUT', 'PATCH']);
+        assert.ok(captured.every(item => /^multipart\/form-data; boundary=----neutrx-/.test(item.contentType ?? '')));
+        assert.match(captured[0]?.body ?? '', /name="name"\r\n\r\nAda/);
+        assert.match(captured[0]?.body ?? '', /name="role"\r\n\r\nadmin/);
+        assert.match(captured[1]?.body ?? '', /name="name"\r\n\r\nGrace/);
+        assert.match(captured[2]?.body ?? '', /name="role"\r\n\r\noperator/);
     } finally {
         await close(server);
     }
