@@ -83,7 +83,7 @@ Core goal: remove adoption blockers first, close useful Axios migration gaps sec
 - [x] Add production service client example.
 - [x] Add package contents validation.
 - [ ] Add reproducible benchmark protocol with environment, Node version, commit, and commands.
-- [ ] Add docs-site generation or TypeDoc plan.
+- [x] Add VitePress docs-site generation and GitHub Pages deployment; keep TypeDoc as an optional future enhancement.
 - [ ] Add OpenAPI typed client generator design doc.
 - [x] Add sponsorship metadata, GitHub funding profile, and support policy.
 

@@ -187,6 +187,8 @@ const config: ClientConfig = {
   schema: firstClassUserSchema,
   maxRate: [1024, 2048],
 };
+const plainHeaderConfig: ClientConfig = { headers: { Authorization: 'Bearer plain' } };
+const collectionHeaderConfig: ClientConfig = { headers: new NeutrxHeaders({ Authorization: 'Bearer collection' }) };
 neutrx.defaults.baseURL = 'https://defaults.example';
 neutrx.defaults.headers = { 'X-Default': 'yes' };
 const request: RequestConfig<FormData> = {
@@ -216,6 +218,14 @@ const request: RequestConfig<FormData> = {
   validation,
   schema: false,
   serviceDiscovery: { resolver: ['https://uploads.example.com'], strategy: 'sticky-origin' },
+};
+const plainHeaderRequest: RequestConfig = {
+  url: '/plain-headers',
+  headers: { Authorization: 'Bearer plain' },
+};
+const collectionHeaderRequest: RequestConfig = {
+  url: '/collection-headers',
+  headers: new NeutrxHeaders({ Authorization: 'Bearer collection' }),
 };
 cancelSource.cancel('typed cancel');
 const rootCancelSource = neutrx.CancelToken.source();
@@ -312,6 +322,10 @@ const adapterResponse = typedAdapter({
   hops: 0,
 });
 void request;
+void plainHeaderConfig;
+void collectionHeaderConfig;
+void plainHeaderRequest;
+void collectionHeaderRequest;
 void authHeader;
 void wasCancel;
 void validationError;

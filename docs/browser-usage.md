@@ -31,18 +31,38 @@ In browser bundlers, `import neutrx from 'neutrx'` can resolve to the browser bu
 - XSRF header helpers using browser cookies where available.
 - Download progress when fetch exposes readable response streams and content length.
 
-## Platform Limits
+## Runtime Security Boundary
 
-Browsers do not expose the same controls as Node:
+The browser build delegates network transport to platform `fetch`. The browser chooses DNS resolution, TLS verification, connection reuse, proxy behavior, and some redirect behavior. Normal browser JavaScript cannot inspect or replace those decisions.
 
-- No raw socket access or Unix sockets.
-- No custom DNS resolution or DNS rebinding pinning.
-- No custom CA, mTLS client certificate, or certificate pinning control from normal JavaScript.
-- No direct private IP inspection before browser fetch dispatch.
-- No proxy tunneling, custom HTTP agents, or socket-level bandwidth rate limiting.
-- No custom WebSocket handshake headers from the platform `WebSocket` constructor.
+| Control | Node HTTP and HTTP/2 adapters | Browser and edge fetch runtimes |
+| --- | --- | --- |
+| DNS and SSRF checks | Resolve targets, reject unsafe private or metadata addresses, and pin validated DNS answers. | Cannot inspect DNS answers or determine whether a hostname resolves to a private, metadata, or rebound address. |
+| TLS policy | Can configure custom CA, mTLS, SNI policy, and certificate pins. | Uses the platform trust store and TLS policy; normal JavaScript cannot configure certificate pins, custom CA, or mTLS client certificates. |
+| Redirect policy | Neutrx observes and validates each hop, blocks configured downgrades, and strips sensitive headers before the next request. | The platform may follow redirects internally or hide cross-origin redirect details, so Neutrx cannot guarantee Node-equivalent per-hop validation, downgrade blocking, header stripping, `maxRedirects`, or `beforeRedirect` behavior. |
+| Transport control | Can use agents, proxies, Unix sockets, raw socket details, and socket-level bandwidth limits. | Does not expose raw sockets, Unix sockets, custom agents, proxy tunneling, or socket-level bandwidth control. |
+| WebSocket handshake | Node can send prepared custom headers during the upgrade. | The platform `WebSocket` constructor does not allow custom handshake headers. |
 
-Neutrx remains backend-focused. Use the browser build for shared ergonomics, not for Node-level SSRF guarantees.
+A `strict` security profile does not turn a browser client into a Node-equivalent egress boundary. Network policy options that depend on DNS, CIDRs, SNI, certificate pins, or observed redirect hops cannot provide the same guarantees in browsers. Do not treat browser `allowedHosts`, `deniedHosts`, `egressPolicy`, `followRedirects`, `maxRedirects`, or `beforeRedirect` settings as an equivalent server-side egress firewall.
+
+## Protections That Still Apply
+
+The browser build still provides application-level protections and behavior where platform APIs expose the required information:
+
+- Initial URL parsing and HTTP/HTTPS protocol checks.
+- Unsafe header validation, input/output sanitization, and typed redacted errors.
+- Abort signals, timeouts, and response size checks for observable response bodies.
+- Retries, circuit breaking, bulkheads, cache behavior, metrics, tracing, and schema validation.
+
+Browser CORS, Content Security Policy, mixed-content blocking, and credential rules may add platform protections, but they are browser controls rather than Neutrx security guarantees.
+
+## Deployment Guidance
+
+- Do not fetch user-controlled webhook or callback URLs directly from the browser and rely on Neutrx for SSRF protection.
+- Send untrusted target requests through a trusted Node.js service using `security.profile: 'strict'` and an explicit `egressPolicy`.
+- Prefer fixed or same-origin API endpoints in frontend code, and use server-side allow-lists for sensitive outbound access.
+
+Neutrx remains backend-focused. Use the browser build for shared request ergonomics while accepting these runtime-specific limits.
 
 ## Browser File Request
 

@@ -1,6 +1,6 @@
 # Security Features
 
-Neutrx treats outbound HTTP as a backend security boundary. The defaults are designed to reduce SSRF risk, redirect credential leaks, unsafe logging, and unbounded request or response bodies.
+Neutrx treats outbound HTTP from Node.js backends as a security boundary. The built-in Node adapters provide the strongest SSRF, redirect, TLS, and egress controls. Browser and edge fetch runtimes retain application-level protections but cannot provide equivalent network enforcement.
 
 ## Security Profiles
 
@@ -50,7 +50,7 @@ See [Secure egress policy](secure-egress.md) for presets and fields.
 
 ## Redirect Safety
 
-Neutrx validates every redirect target before following it. Cross-origin redirects strip:
+The built-in Node HTTP and HTTP/2 adapters validate every redirect target before following it. Cross-origin redirects strip:
 
 - `Authorization`
 - `Cookie`
@@ -59,6 +59,8 @@ Neutrx validates every redirect target before following it. Cross-origin redirec
 - sensitive custom headers containing token, secret, password, cookie, or API key names
 
 Strict mode blocks HTTPS to HTTP downgrade redirects unless HTTPS enforcement is explicitly disabled.
+
+Browser and edge fetch platforms may follow redirects internally or hide cross-origin redirect details, so the browser build cannot guarantee the same per-hop validation, downgrade blocking, or sensitive-header stripping.
 
 ## Error Redaction
 
@@ -101,6 +103,10 @@ const docker = neutrx.create({
 ```
 
 When a socket path is used, there is no DNS or TCP egress target to inspect. Neutrx validates the local socket path and rejects unsafe proxy/socket combinations, but you should never derive `socketPath` from user input.
+
+## Browser Runtime Boundary
+
+Normal browser JavaScript cannot inspect DNS answers or resolved private IPs, configure certificate pins, use raw sockets, or guarantee visibility into every redirect hop. A browser `strict` profile is not equivalent to Node `strict` enforcement. Put untrusted outbound targets behind a trusted Node.js service and see [Browser usage](browser-usage.md) for the full runtime capability matrix.
 
 ## More Detail
 

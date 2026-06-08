@@ -17,7 +17,7 @@ import {
 import { abortError, abortReason, mergeCancellationSignal } from './cancel.js';
 import { resolveServiceEndpoint, type ServiceDiscoveryState } from './config.js';
 import { createMutableDefaults, defaultsToConfig, type NeutrxDefaults } from './defaults.js';
-import { NeutrxHeaders, assertHeadersSafe, getHeader, hasHeader, headerToString } from './headers.js';
+import { NeutrxHeaders, assertHeadersSafe, getHeader, hasHeader, headerToString, normalizeRequestHeaders } from './headers.js';
 import { validateResponseData } from './validation.js';
 import { createNativeWebSocketConnection, webSocketRequestConfig, webSocketUrl } from './websocket.js';
 import type {
@@ -135,7 +135,7 @@ export default class BrowserClient extends TinyEmitter {
         endpoint: string,
         query: string,
         variables?: Record<string, JsonValue>,
-        options?: { readonly operationName?: string; readonly headers?: Headers }
+        options?: { readonly operationName?: string; readonly headers?: HeaderSource }
     ) => Promise<GraphQLResult<TData>>;
     mock?: MockController;
     logger: NeutrxLogger | undefined = undefined;
@@ -835,7 +835,7 @@ export default class BrowserClient extends TinyEmitter {
             throw new NeutrxSecurityError('Fetch adapter requires globalThis.fetch', { code: 'FETCH_UNAVAILABLE' });
         }
 
-        const runtimeConfig: RuntimeRequestConfig = { ...config, headers: toInternalHeaders(config.headers) };
+        const runtimeConfig: RuntimeRequestConfig = { ...config, headers: normalizeRequestHeaders(config.headers) };
         const body = bodyless(runtimeConfig.method) ? undefined : toFetchBody(runtimeConfig);
         injectXsrfHeader(runtimeConfig);
         const headers = toFetchHeaders(runtimeConfig.headers);
@@ -1003,7 +1003,7 @@ export default class BrowserClient extends TinyEmitter {
         return {
             ...config,
             url: webSocketUrl(config.url),
-            headers: toInternalHeaders(config.headers),
+            headers: normalizeRequestHeaders(config.headers),
         };
     }
 
@@ -1034,12 +1034,12 @@ export default class BrowserClient extends TinyEmitter {
         idempotencyKey?: string,
         idempotencyKeyHeader = 'Idempotency-Key'
     ): InternalHeaders {
-        const headers = NeutrxHeaders.concat(this.#defaultHeaders, defaults.headers, config.headers);
+        const headers = NeutrxHeaders.concat(this.#defaultHeaders, defaults.headers, normalizeRequestHeaders(config.headers));
         headers.setIfNotBlocked('X-Request-ID', requestId);
         if (idempotencyKey) headers.setIfNotBlocked(idempotencyKeyHeader, idempotencyKey);
         const auth = config.auth ?? defaults.auth;
         if (auth) headers.setIfNotBlocked('Authorization', `Basic ${base64(`${auth.username}:${auth.password}`)}`);
-        return toInternalHeaders(headers);
+        return normalizeRequestHeaders(headers);
     }
 
     #resolveIdempotencyKey<TBody extends RequestBody>(
@@ -1061,7 +1061,7 @@ export default class BrowserClient extends TinyEmitter {
     }
 
     #buildDefaultHeaders(): InternalHeaders {
-        return toInternalHeaders({
+        return normalizeRequestHeaders({
             Accept: 'application/json, text/plain, */*',
         });
     }
@@ -1205,7 +1205,7 @@ export default class BrowserClient extends TinyEmitter {
                 cacheTTL,
                 cacheMaxEntrySize: custom.performance?.cacheMaxEntrySize ?? 1_048_576,
                 respectCacheHeaders: custom.performance?.respectCacheHeaders ?? true,
-                deduplicateRequests: custom.performance?.deduplicateRequests ?? false,
+                deduplicateRequests: custom.performance?.deduplicateRequests ?? true,
                 ...(custom.performance?.deduplicateRequestKey ? { deduplicateRequestKey: custom.performance.deduplicateRequestKey } : {}),
                 deduplicateMethods: normalizeMethodList(custom.performance?.deduplicateMethods ?? ['GET', 'HEAD']),
                 deduplicateHeaders: normalizeHeaderNameList(custom.performance?.deduplicateHeaders ?? ['accept', 'authorization', 'range']),
@@ -2255,14 +2255,10 @@ function normalizeError(error: unknown): Error {
     return new Error(String(error));
 }
 
-function toInternalHeaders(headers: Headers | NeutrxHeaders): InternalHeaders {
-    return NeutrxHeaders.from(headers) as unknown as InternalHeaders;
-}
-
 function toInternalRequestConfig<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {
     return {
         ...config,
-        headers: toInternalHeaders(config.headers),
+        headers: normalizeRequestHeaders(config.headers),
     };
 }
 

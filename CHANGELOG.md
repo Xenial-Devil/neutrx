@@ -18,6 +18,7 @@ This project uses Conventional Commits. Maintainers can preview generated releas
 
 ### Changed
 
+- Declared `@opentelemetry/api` as an optional peer dependency so standard Neutrx installs do not pull in OpenTelemetry.
 - Documented the release process so future GitHub releases include changelog updates, package validation, and release notes.
 - Expanded browser and Axios migration docs so frontend and full-stack users can compare Neutrx directly with common Axios workflows.
 - Expanded Node docs and examples for Docker, local proxy, infrastructure, and enterprise adoption workflows.

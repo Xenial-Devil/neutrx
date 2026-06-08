@@ -189,6 +189,39 @@ void test('node client keeps NeutrxHeaders through interceptors and deduplicates
     }
 });
 
+void test('node requests normalize plain objects and NeutrxHeaders before hooks and adapters', async () => {
+    const { default: Neutrx, NeutrxHeaders } = await import(builtEntry) as typeof PackageEntry;
+    const seenByInterceptor: boolean[] = [];
+    const authorizations: unknown[] = [];
+    const collection = new NeutrxHeaders({ Authorization: 'Bearer collection' });
+    const api = Neutrx.create({
+        baseURL: 'https://headers.example',
+        adapter: config => {
+            assert.ok(config.headers instanceof NeutrxHeaders);
+            authorizations.push(config.headers.get('Authorization'));
+            return jsonRaw(config, { ok: true });
+        },
+        performance: { enableCaching: false },
+        resilience: { enableRetry: false, enableCircuitBreaker: false, enableBulkhead: false },
+    });
+
+    try {
+        api.interceptors.request.use(config => {
+            seenByInterceptor.push(config.headers instanceof NeutrxHeaders);
+            return config;
+        });
+
+        await api.get('/plain', { headers: { Authorization: 'Bearer plain' } });
+        await api.get('/collection', { headers: collection });
+
+        assert.deepEqual(seenByInterceptor, [true, true]);
+        assert.deepEqual(authorizations, ['Bearer plain', 'Bearer collection']);
+        assert.equal(collection.get('Authorization'), 'Bearer collection');
+    } finally {
+        api.destroy();
+    }
+});
+
 void test('node client false header sentinel blocks automatic content-type', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     let capturedEntries: Array<[string, unknown]> = [];

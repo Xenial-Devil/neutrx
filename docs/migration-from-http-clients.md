@@ -60,7 +60,7 @@ const api = neutrx.create({
 | Raw error serialization | `NeutrxError.toJSON()` redacts secrets |
 | Client-managed backend safeguards | Backend security defaults |
 | `throwHttpErrors: false` in Fetch-style clients | Supported per instance or request |
-| Duplicate concurrent `GET`s | Optional `performance.deduplicateRequests` shares inflight dispatches |
+| Duplicate concurrent `GET`s | Shared inflight dispatches by default; set `performance.deduplicateRequests: false` to disable |
 
 ## Migration Profile
 

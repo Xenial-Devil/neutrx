@@ -62,6 +62,8 @@ export default defineConfig({
           { text: 'Observability', link: '/observability' },
           { text: 'Secure Egress', link: '/secure-egress' },
           { text: 'Adapter Security Contract', link: '/adapter-security-contract' },
+          { text: 'Release Testing', link: '/release-testing' },
+          { text: 'Release Security', link: '/release-security' },
           { text: 'Backend Recipes', link: '/recipes/backend-recipes' },
         ],
       },

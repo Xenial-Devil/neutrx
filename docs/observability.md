@@ -78,6 +78,12 @@ The resolved identity is exposed as `response.traceContext`. Typed Neutrx errors
 
 OpenTelemetry is optional. If `@opentelemetry/api` is installed by the application, Neutrx can use it. Tests can also inject `globalThis.__NEUTRX_OTEL_API__`.
 
+```bash
+npm install @opentelemetry/api
+```
+
+`@opentelemetry/api` is declared as an optional peer dependency. A normal Neutrx install does not install it, and enabling the bridge without it remains a no-op.
+
 ```ts
 const api = neutrx.create({
   instrumentation: {

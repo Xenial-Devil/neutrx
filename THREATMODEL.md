@@ -2,7 +2,7 @@
 
 ## Scope
 
-Neutrx protects Node.js backend services making outbound HTTP requests, especially when request URLs, redirect targets, headers, or payloads may be influenced by external input.
+Neutrx protects Node.js backend services making outbound HTTP requests, especially when request URLs, redirect targets, headers, or payloads may be influenced by external input. The browser build is a compatibility surface and is not a trusted SSRF, DNS, TLS, socket, or redirect-hop enforcement boundary.
 
 ## Protected Assets
 
@@ -46,7 +46,7 @@ Many service instances retrying a failing upstream can amplify an outage. Use id
 
 ## Out Of Scope
 
-- Browser-side SSRF prevention.
+- Browser-side SSRF, DNS, TLS, raw-socket, and redirect-hop enforcement. See [Browser usage](docs/browser-usage.md) for runtime-specific limits.
 - Full WAF behavior or payload malware detection.
 - Distributed cache implementation such as Redis.
 - Guaranteed protection when callers disable SSRF checks or use `legacy` for untrusted URLs.
@@ -62,7 +62,7 @@ Many service instances retrying a failing upstream can amplify an outage. Use id
 
 ## Review Checklist
 
-- Keep Node.js minimum at `>=22.0.0`.
+- Keep Node.js minimum at `>=18.0.0`.
 - Keep URL, DNS, and redirect checks covered by tests.
 - Add tests before relaxing any default security behavior.
 - Never log raw `error.response`, request headers, or URLs with credentials; use `error.toJSON()`.

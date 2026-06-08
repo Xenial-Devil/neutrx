@@ -2,6 +2,8 @@
 
 `egressPolicy` makes outbound network intent reviewable in one object. It adds policy checks on top of security profiles. It does not weaken SSRF defaults unless you explicitly allow a CIDR.
 
+The built-in Node HTTP and HTTP/2 adapters are the enforcement boundary for DNS, CIDR, SNI, private-IP, metadata, and redirect-hop policy. Browser and edge fetch runtimes do not expose enough network detail to provide equivalent enforcement. Route untrusted outbound targets through a trusted Node.js service rather than relying on browser `egressPolicy`.
+
 ## Webhook Or User-Controlled URLs
 
 ```ts

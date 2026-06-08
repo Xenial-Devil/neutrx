@@ -76,6 +76,25 @@ void test('NeutrxHeaders supports iterable and Headers-like sources', async () =
     assert.equal(Object.hasOwn(toOutgoingHeaders(headers), 'Authorization'), false);
 });
 
+void test('request header normalization accepts plain objects and NeutrxHeaders without mutating inputs', async () => {
+    const { NeutrxHeaders, normalizeRequestHeaders } = await import(headersEntry) as typeof HeadersModule;
+    const plain = { Authorization: 'Bearer plain' };
+    const collection = new NeutrxHeaders({ Authorization: 'Bearer collection' });
+
+    const normalizedPlain = normalizeRequestHeaders(plain);
+    const normalizedCollection = normalizeRequestHeaders(collection);
+
+    assert.ok(normalizedPlain instanceof NeutrxHeaders);
+    assert.ok(normalizedCollection instanceof NeutrxHeaders);
+    assert.equal(normalizedPlain.get('authorization'), 'Bearer plain');
+    assert.equal(normalizedCollection.get('authorization'), 'Bearer collection');
+
+    normalizedPlain.set('Authorization', 'Bearer normalized-plain');
+    normalizedCollection.set('Authorization', 'Bearer normalized-collection');
+    assert.equal(plain.Authorization, 'Bearer plain');
+    assert.equal(collection.get('Authorization'), 'Bearer collection');
+});
+
 void test('NeutrxHeaders rejects invalid names and CRLF values', async () => {
     const { NeutrxHeaders } = await import(headersEntry) as typeof HeadersModule;
 

@@ -291,6 +291,8 @@ performance: {
 
 Cache strategies are `max-age`, `swr`, and `network-first`. SWR marks stale hits with `response.cached = true` and `response.stale = true`, returns them immediately, and refreshes the entry in the background. `ttl` and `stale-while-revalidate` remain compatibility aliases.
 
+Request deduplication defaults to enabled for identical inflight `GET` and `HEAD` requests only. Set `deduplicateRequests: false` to disable it. Other methods require explicit `deduplicateMethods` opt-in and an application-safe custom key.
+
 ## HTTP/2
 
 Use `httpVersion: 2` or `adapter: 'http2'` to send requests through Node's `node:http2` transport:
@@ -374,7 +376,13 @@ Built-in plugins:
 
 ## Headers
 
+Request and client configs accept either a plain header object or `NeutrxHeaders`. Neutrx converts both to an internal `NeutrxHeaders` instance at request start, before request hooks and interceptors run.
+
 ```ts
+await api.get('/plain', {
+  headers: { Authorization: 'Bearer secret' },
+});
+
 const headers = new NeutrxHeaders({ Authorization: 'Bearer secret' });
 headers.setContentType('application/json');
 headers.setAuthorization(false);
@@ -382,6 +390,8 @@ headers.setUserAgent('billing-service/1.0');
 headers.normalize();
 for (const [name, value] of headers) console.log(name, value);
 headers.redactSensitive();
+
+await api.get('/class', { headers });
 ```
 
 Header names are case-insensitive. Calling `set(name, false)` stores a non-emitted sentinel that blocks automatic overwrites such as inferred `Content-Type`; calling `set(name, null)` deletes the header.

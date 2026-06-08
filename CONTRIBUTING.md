@@ -123,7 +123,7 @@ Use `BREAKING CHANGE:` in the commit body for incompatible public API changes.
 Releases are maintainer-driven and automated from `main`.
 
 1. Land changes with Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, and `BREAKING CHANGE:` when needed).
-2. Before merging a release-bound change, run `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run coverage`, `npm run build`, and `npm run package:validate` when practical.
+2. Before merging a release-bound change, run `npm ci` and `npm run release:validate`, then complete the [release testing checklist](docs/release-testing.md).
 3. Preview release notes locally with `npm run changelog:preview`.
 4. Merge to `main`. The release workflow runs validation, updates `CHANGELOG.md`, creates the semver tag, publishes the npm package, and creates or updates the GitHub release notes.
 5. Confirm the GitHub release is visible at `https://github.com/Xenial-Devil/neutrx/releases/tag/vX.Y.Z` and that `CHANGELOG.md` includes the released version.

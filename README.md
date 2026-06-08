@@ -9,9 +9,25 @@
 [![Runtime deps: 0](https://img.shields.io/badge/runtime_deps-0-brightgreen.svg)](package.json)
 [![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-fafbfc?logo=githubsponsors)](https://github.com/sponsors/Xenial-Devil)
 
-Neutrx is a security-first HTTP client for Node.js 18+ backends. It keeps an ergonomic request API, then adds production concerns that backend services usually need: SSRF protection, secure redirects, retries, circuit breaking, service discovery, in-memory caching, metrics hooks, OpenTelemetry-friendly instrumentation, typed errors, and zero required runtime dependencies.
+Neutrx is a security-first TypeScript HTTP client for Node.js backend services, with a browser build for browsers and fetch-compatible edge runtimes. It combines an ergonomic request API with built-in SSRF protection, redirect safety, circuit breaking, bulkhead isolation, retries, metrics, tracing, schema validation, typed redacted errors, and zero required runtime dependencies.
+
+Node.js is the primary runtime and provides Neutrx's strongest security controls. The browser build shares the request API, resilience features, metrics, tracing, and validation behavior where platform fetch APIs allow it, but it cannot provide Node-level network controls.
 
 Full documentation: [https://xenial-devil.github.io/neutrx/](https://xenial-devil.github.io/neutrx/).
+
+## Why Neutrx?
+
+Neutrx is designed for secure service-to-service HTTP and controlled backend egress. Axios is more mature and more general-purpose; Neutrx focuses on making backend security, resilience, and observability available without assembling several runtime dependencies.
+
+| Area | Neutrx posture |
+| --- | --- |
+| Runtime target | Node.js >=18 backend-first, with a browser build usable in fetch-compatible edge runtimes |
+| Dependencies | No required runtime dependencies |
+| Security posture | SSRF protection, redirect validation, secret stripping, size limits, typed redacted errors |
+| Resilience | Retries, retry budgets, circuit breaking, bulkhead isolation, and adaptive concurrency |
+| Observability | Metrics snapshots, Prometheus output, lifecycle events, and optional OpenTelemetry integration |
+| Validation | First-class response schemas and a request/response validation plugin |
+| Types and modules | Strict TypeScript declarations, ESM, CommonJS, and explicit runtime entry points |
 
 ## Installation
 
@@ -19,11 +35,23 @@ Full documentation: [https://xenial-devil.github.io/neutrx/](https://xenial-devi
 npm install neutrx
 ```
 
-## Node Version Support
+```bash
+pnpm add neutrx
+yarn add neutrx
+```
 
-Neutrx supports **Node.js >=18.0.0** for backend runtimes.
+Neutrx requires Node.js `>=18.0.0` for backend usage and has no required runtime dependencies.
 
-CI tests Node 18, 20, and 22. The library targets modern Node APIs available across that range: native `fetch`, `AbortController`, Web Streams, `Blob`, `FormData`, `URL`, `URLSearchParams`, and `node:test`.
+## Supported Runtimes
+
+| Runtime | Support |
+| --- | --- |
+| Node.js 18, 20, and 22 | Supported and tested in CI. Node.js `>=18.0.0` is required. |
+| Modern browsers | A dedicated `neutrx/browser` build and package `browser` condition use native fetch APIs. |
+| Fetch-compatible edge or worker runtimes | Use `neutrx/browser` when the runtime provides the required web APIs; verify behavior in the target platform. |
+| Node.js <18 | Unsupported. |
+
+Node.js is the tested, backend-first runtime. Browser and edge runtimes cannot provide Node-level DNS validation, private-IP inspection, certificate pinning, custom CA/mTLS controls, Unix sockets, or raw proxy and agent controls. React Native, Bun, and Deno are not currently claimed as supported runtimes.
 
 ## Quick Start
 
@@ -36,19 +64,84 @@ const api = neutrx.create({
   security: { profile: 'standard' },
 });
 
-const users = await api.get('/users', { params: { page: 1 } });
-const created = await api.post('/users', { name: 'Ada Lovelace' });
+const usersResponse = await api.get('/users', { params: { page: 1 } });
+const createdResponse = await api.post('/users', { name: 'Ada Lovelace' });
 const direct = await neutrx('https://api.example.com/health');
+
+console.log(usersResponse.data, createdResponse.status, direct.status);
 ```
 
-CommonJS is supported too:
+Create one shared client per upstream service when possible. Put service-wide security, resilience, and timeout policy on the client, then use request config for request-specific values.
+
+## Node Usage
+
+The default Node entry uses the built-in Node HTTP adapter and enables Neutrx's strongest backend security and transport feature set:
+
+```ts
+import neutrx from 'neutrx/node';
+
+const billing = neutrx.create({
+  baseURL: 'https://billing.example.com',
+  timeout: 8_000,
+  security: {
+    profile: 'standard',
+    allowedHosts: ['billing.example.com'],
+  },
+  resilience: {
+    enableRetry: true,
+    maxRetries: 3,
+    enableCircuitBreaker: true,
+    enableBulkhead: true,
+    maxConcurrent: 20,
+  },
+});
+
+const invoices = await billing.get('/v1/invoices');
+```
+
+The root `neutrx` import resolves to the Node build in Node.js. Use the explicit `neutrx/node` entry when you want the runtime choice to be visible in shared code. See [Node usage](docs/node-usage.md) and [Node infrastructure](docs/node-infrastructure.md) for HTTP/2, TLS, proxies, Unix sockets, agents, and bandwidth limits.
+
+## Browser Usage
+
+Use the browser entry for frontend and fetch-compatible edge code:
+
+```ts
+import neutrx from 'neutrx/browser';
+
+const api = neutrx.create({
+  baseURL: 'https://api.example.com',
+  adapter: 'fetch',
+  credentials: 'include',
+});
+
+const users = await api.get('/users', {
+  signal: AbortSignal.timeout(5_000),
+});
+```
+
+Browser bundlers can also resolve `import neutrx from 'neutrx'` through the package `browser` condition. Browser and edge builds do not provide Node-level SSRF or DNS-rebinding guarantees; enforce outbound policy on a trusted server boundary. See [Browser usage](docs/browser-usage.md) and [full-stack migration](docs/full-stack-frontend-migration.md).
+
+## CommonJS Usage
+
+CommonJS is supported too. The CommonJS export is callable and exposes the same client factory and named helpers:
 
 ```js
 const neutrx = require('neutrx');
 const { isNeutrxError } = neutrx;
+
+const api = neutrx.create({
+  baseURL: 'https://api.example.com',
+  security: { profile: 'standard' },
+});
+
+api.get('/health').catch(error => {
+  if (isNeutrxError(error)) console.error(error.toJSON());
+});
 ```
 
-## Migration From Other HTTP Clients
+CommonJS subpaths such as `require('neutrx/plugins')` and `require('neutrx/errors')` are also exported.
+
+## Axios Migration Guide
 
 Most common HTTP client patterns map cleanly:
 
@@ -81,26 +174,21 @@ await api.get('/me', {
 });
 ```
 
-Request config still overrides instance defaults. Live `instance.defaults` mutation is shallow by design, with mutable `headers.common` and method header buckets. Security, resilience, and performance profiles should be set when creating a client so constructed SSRF, redirect, retry, circuit breaker, and cache behavior stays consistent.
+Config is merged in this order, with each later layer overriding earlier values:
+
+1. library defaults from `neutrx.defaults`
+2. instance defaults from `neutrx.create()` and later `api.defaults` mutations
+3. per-request config
+
+Per-request config always wins, including request headers over matching default headers. Mutable defaults are shared state: changing `neutrx.defaults` affects later root requests and new instances, while changing `api.defaults` affects later requests made through that instance. Prefer per-request config for request-specific values to avoid cross-request state bugs.
+
+Live `instance.defaults` mutation is shallow by design, with mutable `headers.common` and method header buckets. Security, resilience, and performance profiles should be set when creating a client so constructed SSRF, redirect, retry, circuit breaker, and cache behavior stays consistent.
 
 See the full [Axios migration guide](https://xenial-devil.github.io/neutrx/axios-migration.html), [docs/axios-migration-matrix.md](docs/axios-migration-matrix.md), and [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for behavior differences.
 
 For frontend, edge, and shared full-stack code, see [docs/full-stack-frontend-migration.md](docs/full-stack-frontend-migration.md). It maps adapter selection, the fetch adapter, browser builds, `NeutrxHeaders`, `instance.defaults`, interceptor options, richer progress events, and common Axios workflows.
 
 For Docker sockets, local proxies, enterprise egress gateways, timeout diagnostics, bandwidth caps, and operational utility methods, see [docs/node-infrastructure.md](docs/node-infrastructure.md).
-
-## Why Neutrx
-
-| Area | Neutrx posture |
-| --- | --- |
-| Runtime target | Node.js >=18, backend-first |
-| Dependencies | No required runtime dependencies |
-| Security posture | SSRF protection, redirect stripping, size limits, redacted errors |
-| Retry/circuit/cache | Built in |
-| Service discovery | Resolver interface with round-robin, random, and sticky-origin selection |
-| Types | TypeScript source and declarations |
-| Observability | Metrics snapshot, events, optional OpenTelemetry bridge |
-| Browser support | Separate browser entry, secondary |
 
 ## Request API
 
@@ -266,7 +354,9 @@ await docker.get('/v1/version');
 
 HTTP/2 can be selected with `httpVersion: 2` or `adapter: 'http2'` in Node.js. The adapter uses `node:http2`, reuses sessions by origin and compatible TLS settings, retires idle sessions with `http2Options.sessionTimeout`, and respects Neutrx redirect, TLS, body-size, response-size, timeout, progress, retry, circuit-breaker, cache, and metrics behavior around the transport. HTTP/2 does not support `proxy`, `socketPath`, custom `httpAgent`/`httpsAgent`, or `maxRate`; use the HTTP/1.1 adapter for those transport controls. Neutrx does not silently fall back to HTTP/1.1 when an HTTP/2 connection fails or a server does not negotiate HTTP/2. Pick `adapter: 'http'` or `httpVersion: 1` for explicit HTTP/1.1 behavior.
 
-## Security Defaults
+## Security Features
+
+Neutrx treats outbound HTTP as a security boundary. Its security profiles combine redirect validation, sensitive-header stripping, HTTPS downgrade protection, request and response size limits, typed errors, and secret redaction.
 
 Security profiles:
 
@@ -286,6 +376,12 @@ neutrx.create({ security: { profile: 'legacy' } });
 - Enforces request and response size limits.
 
 `standard` is for normal production service-to-service traffic. `legacy` relaxes selected network checks for trusted migrations or local testing; do not use it for untrusted user-controlled URLs.
+
+## SSRF Protection
+
+The Node HTTP and HTTP/2 adapters validate targets before dispatch and validate every redirect target. Depending on the selected profile and egress policy, Neutrx can block localhost, private and link-local IPs, cloud metadata targets, denied hosts and CIDRs, unsafe protocols, ports, and redirect destinations. Validated DNS records are pinned into Node requests to reduce DNS-rebinding exposure.
+
+Browser and edge fetch runtimes do not expose DNS resolution or direct private-IP inspection, so they cannot provide the same SSRF guarantees. Enforce browser and edge outbound policy at a trusted server boundary.
 
 SSRF allow-list example:
 
@@ -317,9 +413,8 @@ const local = neutrx.create({
 
 See [docs/secure-egress.md](docs/secure-egress.md), [docs/security-model.md](docs/security-model.md), [docs/security.md](docs/security.md), and [THREATMODEL.md](THREATMODEL.md).
 
-## Security And Community
+## Community
 
-- Report suspected vulnerabilities privately through [SECURITY.md](SECURITY.md). Do not include exploit details in public issues, pull requests, discussions, or social posts.
 - Open issues and pull requests using [CONTRIBUTING.md](CONTRIBUTING.md), including a minimal reproduction and security impact notes when relevant.
 - Keep project spaces professional and respectful under the [Code of Conduct](CODE_OF_CONDUCT.md).
 - See [SUPPORT.md](SUPPORT.md) for public support expectations, maintainer response priorities, and sponsorship details.
@@ -352,7 +447,7 @@ await billing.get('/v1/invoices');
 
 Resolvers can be static arrays or async functions. Discovery applies to relative URLs, and the selected endpoint still goes through SSRF, redirect, TLS, and egress policy checks.
 
-## Retry
+## Retries
 
 Retries use exponential backoff with jitter by default. Only idempotent methods (`GET`, `HEAD`, `OPTIONS`, `PUT`, `DELETE`) retry by default.
 
@@ -410,6 +505,33 @@ console.log(api.getCircuitStatus());
 
 States are `CLOSED`, `OPEN`, and `HALF_OPEN`.
 
+## Bulkhead Isolation
+
+Bulkheads cap active and queued work per target so one slow upstream cannot consume all outbound request capacity:
+
+```ts
+const api = neutrx.create({
+  baseURL: 'https://catalog.example.com',
+  resilience: {
+    enableBulkhead: true,
+    maxConcurrent: 20,
+    maxQueue: 50,
+    bulkheadQueueTimeout: 5_000,
+    adaptiveConcurrency: {
+      enabled: true,
+      initialLimit: 10,
+      minLimit: 2,
+      maxLimit: 30,
+      targetLatency: 500,
+    },
+  },
+});
+
+console.log(api.getBulkheadStats());
+```
+
+Each target domain receives an independent pool. Requests beyond `maxConcurrent` wait up to `maxQueue`; queued requests that exceed `bulkheadQueueTimeout` fail with `NeutrxBulkheadError`. See [bulkhead isolation](docs/bulkhead-isolation.md).
+
 ## Cache
 
 GET caching is in-memory and respects common cache headers where practical.
@@ -438,7 +560,26 @@ api.invalidateCache(/\/users/u);
 api.deleteCacheEntry('/users');
 ```
 
-With `deduplicateRequests`, identical inflight `GET`/`HEAD` requests share one dispatch and joined responses set `response.deduplicated = true`. The default key uses method, final URL including serialized params, response type, adapter, socket path, and selected headers (`Accept`, `Authorization`, and `Range`). Use `deduplicateRequestKey` for service-specific keys, and set `deduplicateMethods` only when you explicitly want to coalesce other methods. Dedup hits are exposed in `api.getMetrics().requests.deduplicated` and Prometheus output. With `cacheStrategy: 'swr'`, entries are fresh until `revalidateAfter` or normal max-age expiry, then stale hits return immediately with `response.cached = true` and `response.stale = true` while Neutrx refreshes them in the background. Only one background refresh runs per cache key; duplicate stale hits keep returning the stale response. Cached responses with `ETag`, `Last-Modified`, and `stale-if-error` headers participate in conditional revalidation and stale fallback. `performance.cacheAdapter` can provide a process-local compatible store and refresh lock; Redis remains an optional package direction outside core.
+Request deduplication is enabled by default for identical inflight `GET`/`HEAD` requests; joined responses set `response.deduplicated = true`. Set `deduplicateRequests: false` to disable it. Unsafe methods are excluded unless explicitly added with `deduplicateMethods`; include an application-safe discriminator such as an idempotency key in `deduplicateRequestKey` when opting in. The default key uses method, final URL including serialized params, response type, adapter, socket path, and selected headers (`Accept`, `Authorization`, and `Range`). Dedup hits are exposed in `api.getMetrics().requests.deduplicated` and Prometheus output.
+
+With `cacheStrategy: 'swr'`, entries are fresh until `revalidateAfter` or normal max-age expiry, then stale hits return immediately with `response.cached = true` and `response.stale = true` while Neutrx refreshes them in the background. Only one background refresh runs per cache key; duplicate stale hits keep returning the stale response. Cached responses with `ETag`, `Last-Modified`, and `stale-if-error` headers participate in conditional revalidation and stale fallback. `performance.cacheAdapter` can provide a process-local compatible store and refresh lock; Redis remains an optional package direction outside core.
+
+## Metrics
+
+Every client exposes an in-process metrics snapshot and Prometheus text without requiring a monitoring dependency:
+
+```ts
+const metrics = api.getMetrics();
+
+console.log(metrics.requests.active);
+console.log(metrics.requests.retried);
+console.log(metrics.requests.deduplicated);
+console.log(metrics.errors.byCategory);
+
+const prometheusText = api.getMetricsPrometheus();
+```
+
+Metrics cover totals, active requests, success and error counts, retries, cache and deduplication hits, status codes, redacted endpoint keys, error codes and categories, and request-duration statistics. Lifecycle events and the optional OpenTelemetry bridge provide richer integration points. See [observability](docs/observability.md).
 
 ## Interceptors
 
@@ -484,6 +625,29 @@ try {
   if (error instanceof NeutrxValidationError) console.error(error.issues);
 }
 ```
+
+## Plugins
+
+Plugins extend the client lifecycle without adding required runtime dependencies to Neutrx core:
+
+```ts
+import neutrx, {
+  LogPlugin,
+  ValidationPlugin,
+  createOtelPlugin,
+  createTraceContextPlugin,
+} from 'neutrx';
+
+const api = neutrx.create({ baseURL: 'https://api.example.com' });
+
+api
+  .use(LogPlugin)
+  .use(ValidationPlugin)
+  .use(createTraceContextPlugin())
+  .use(createOtelPlugin({ tracerName: 'billing-http' }));
+```
+
+Built-in plugins cover logging, validation, OAuth2, GraphQL, mocks, WebSocket workflows, dependency-free trace-context propagation, and an optional OpenTelemetry bridge. Custom plugins can implement the typed `NeutrxPlugin` lifecycle. See [plugins](docs/plugins.md).
 
 ## Validation Plugin
 
@@ -545,6 +709,12 @@ realtime.send('hello');
 
 The OpenTelemetry plugin detects `@opentelemetry/api` when your application installs it, but Neutrx does not require it. Propagation uses the newly created client span, retries become span events, and spans include safe request and response attributes such as method, path target, host, retry count, status code, cache hit or miss, duration, and circuit breaker state. Errors record exceptions, stable error categories, and failure status. `response.traceContext` exposes the resolved trace identity.
 
+Install the optional peer only in applications that enable the OpenTelemetry bridge:
+
+```bash
+npm install @opentelemetry/api
+```
+
 ## Error Handling
 
 ```ts
@@ -561,16 +731,20 @@ try {
 
 `throwHttpErrors: false` returns non-2xx responses instead of throwing. `error.toJSON()` redacts sensitive URL params, headers, response fields, and causes while exposing a stable error category plus trace and request identity. Use `toStructuredError(error)` to safely normalize third-party errors for logs.
 
-## TypeScript
+## TypeScript Support
 
 ```ts
-type User = { id: string; name: string };
-const response = await api.get<readonly User[]>('/users');
+import neutrx, { type NeutrxResponse } from 'neutrx';
+
+type User = { readonly id: string; readonly name: string };
+
+const response: NeutrxResponse<readonly User[]> = await neutrx.get('/users');
+response.data[0]?.name;
 ```
 
-The project uses strict TypeScript, `NodeNext`, and generated declaration files.
+Neutrx is written in strict TypeScript and ships declarations for the root, Node, browser, plugin, error, header, instrumentation, and adapter exports. Generic response data and schema inference preserve application types without a separate `@types` package.
 
-## Browser Support Status
+## Browser Platform Limits
 
 Browser support exists through `neutrx/browser` and the package `browser` condition. In browser bundlers, `import neutrx from 'neutrx'` resolves to the browser build; you can also import `neutrx/browser` explicitly.
 
@@ -624,9 +798,12 @@ npm run typecheck
 npm run lint
 npm run package:validate
 npm run package:smoke
+npm run release:validate
 ```
 
 Tests use local servers and `node:test`. Security tests cover SSRF blocks, DNS validation, redirect header stripping, downgrade blocking, cache behavior, retry/circuit behavior, interceptors, ESM/CJS package imports, and TypeScript declarations. `npm run coverage` uses c8, emits text and lcov reports, and enforces minimum coverage thresholds for the built core, security, resilience, and performance modules.
+
+Before publishing, use the full [release testing checklist](docs/release-testing.md).
 
 ## Benchmarks
 
@@ -648,6 +825,12 @@ Benchmarks are scripts only. They do not publish fake results. Optional comparis
 - `.npmrc` sets `ignore-scripts=true`.
 - Maintainers can preview generated notes with `npm run changelog:preview`; use `npm run changelog:write` only when intentionally refreshing `CHANGELOG.md` outside the automated release.
 - See [docs/release-security.md](docs/release-security.md).
+
+## Security Disclosure
+
+Report suspected vulnerabilities privately through [GitHub private vulnerability reporting](https://github.com/Xenial-Devil/neutrx/security/advisories/new). Do not include exploit details in public issues, pull requests, discussions, social posts, or proofs of concept before maintainer review.
+
+Include the affected version or commit, impact, reproduction steps, a minimal private proof of concept when safe, known workarounds, and any suggested fix. See [SECURITY.md](SECURITY.md) for supported versions, response expectations, and disclosure rules.
 
 ## License
 

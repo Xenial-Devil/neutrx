@@ -1,10 +1,12 @@
 # Config Reference
 
-Neutrx config precedence is:
+Neutrx merges config in this order:
 
-1. library defaults
-2. instance defaults from `neutrx.create()`
+1. library defaults from `neutrx.defaults`
+2. instance defaults from `neutrx.create()` and later `api.defaults` mutations
 3. per-request config
+
+Each later layer overrides matching values from earlier layers. Per-request config always wins, including request headers over matching default headers.
 
 ## Core
 
@@ -39,7 +41,7 @@ const api = neutrx.create({
 
 `transitional.clarifyTimeoutError` mirrors Axios. By default, request timeouts use `ECONNABORTED` for Axios migration compatibility. When set to `true`, Neutrx uses `ETIMEDOUT` while still exposing typed timeout errors with a `phase`.
 
-`neutrx.defaults` is mutable and merges into new root requests and new instances. Instance config and per-request config override it. Headers are cloned and normalized during merges.
+`neutrx.defaults` is mutable and merges into later root requests and new instances. Instance config and per-request config override it. Headers are cloned and normalized during merges.
 
 Created clients also expose mutable `api.defaults` for common Axios migration patterns:
 
@@ -49,7 +51,9 @@ api.defaults.timeout = 10_000;
 api.defaults.headers.common.Authorization = `Bearer ${token}`;
 ```
 
-Per-request config still wins over `api.defaults`. Live instance defaults are shallow-mutable, with deep mutation intentionally supported for `headers.common` and method header buckets. Set security, resilience, and performance profiles during `neutrx.create()` so the constructed SSRF, redirect, retry, circuit breaker, and cache components stay consistent.
+Mutable defaults are shared state. Changing `neutrx.defaults` affects later root requests and new instances; changing `api.defaults` affects later requests made through that instance. Prefer per-request config for request-specific values to avoid cross-request state bugs.
+
+Per-request config always wins over `api.defaults`. Live instance defaults are shallow-mutable, with deep mutation intentionally supported for `headers.common` and method header buckets. Set security, resilience, and performance profiles during `neutrx.create()` so the constructed SSRF, redirect, retry, circuit breaker, and cache components stay consistent.
 
 ## Security
 
@@ -123,7 +127,19 @@ await api.get('/users', {
 
 `cancelToken` accepts `CancelToken.source().token` as an Axios migration bridge. Prefer `signal` for new code.
 
-Headers merge case-insensitively through `NeutrxHeaders`. Set a request header value to `false` to suppress a default and block automatic overwrites without emitting that header; use `NeutrxHeaders.set(name, null)` to delete it outright.
+Headers accept both plain objects and `NeutrxHeaders`:
+
+```ts
+await api.get('/plain', {
+  headers: { Authorization: 'Bearer token' },
+});
+
+await api.get('/class', {
+  headers: new NeutrxHeaders({ Authorization: 'Bearer token' }),
+});
+```
+
+At request start, Neutrx clones either input style into an internal `NeutrxHeaders` instance. Request hooks, interceptors, and adapters therefore receive the same case-insensitive header API without mutating the caller-owned input. Set a request header value to `false` to suppress a default and block automatic overwrites without emitting that header; use `NeutrxHeaders.set(name, null)` to delete it outright.
 
 `schema` validates parsed response data with a dependency-free adapter for Zod-like `safeParse`, `parse`, `validate`, TypeBox-style `Check/Errors`, or function validators. Valid schemas may return transformed data, which replaces `response.data`. Invalid data throws `NeutrxValidationError` with normalized `issues`. Set `schema: false` to disable a client default schema for a single request.
 
@@ -291,7 +307,7 @@ performance: {
 }
 ```
 
-`deduplicateRequests` shares identical inflight `GET`/`HEAD` dispatches. The default key uses the method, final URL with serialized params, response type, adapter, socket path, and selected headers (`deduplicateHeaders`). Use `deduplicateRequestKey` for service-specific keys. Set `deduplicateMethods` only when you explicitly want to coalesce other methods and include an application-safe discriminator such as an idempotency key in the custom key. Dedup hits are counted at `api.getMetrics().requests.deduplicated` and `neutrx_deduplication_hits_total`.
+`deduplicateRequests` defaults to `true` and shares identical inflight `GET`/`HEAD` dispatches. Set it to `false` to disable deduplication. The default key uses the method, final URL with serialized params, response type, adapter, socket path, and selected headers (`deduplicateHeaders`). Use `deduplicateRequestKey` for service-specific keys. Methods other than `GET` and `HEAD` remain excluded unless explicitly added with `deduplicateMethods`; include an application-safe discriminator such as an idempotency key in the custom key. Dedup hits are counted at `api.getMetrics().requests.deduplicated` and `neutrx_deduplication_hits_total`.
 
 `cacheStrategy` supports `max-age`, `swr`, and `network-first`. `swr` returns stale cache hits until `cacheStaleMax` while one background refresh updates the entry. Stale hits are marked with `response.cached = true`, `response.stale = true`, and `x-cache: STALE`.
 

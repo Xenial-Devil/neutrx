@@ -42,7 +42,7 @@ import {
 import { createMutableDefaults, defaultsToConfig, type NeutrxDefaults } from './defaults.js';
 import { detectContentType } from './bodySerializer.js';
 import { mergeCancellationSignal } from './cancel.js';
-import { NeutrxHeaders, hasHeader } from './headers.js';
+import { NeutrxHeaders, hasHeader, normalizeRequestHeaders } from './headers.js';
 import { REDIRECT_CODES, buildRedirectContext, shouldRedirectWithGet, stripRedirectHeaders, withoutBody } from './redirect.js';
 import { decompressResponseData, normalizeNodeResponseData, parseResponseData } from './responseParser.js';
 import { validateResponseData } from './validation.js';
@@ -104,7 +104,7 @@ export default class NeutrxClient extends EventEmitter {
         endpoint: string,
         query: string,
         variables?: Record<string, JsonValue>,
-        options?: { readonly operationName?: string; readonly headers?: Headers }
+        options?: { readonly operationName?: string; readonly headers?: HeaderSource }
     ) => Promise<GraphQLResult<TData>>;
     mock?: MockController;
     logger: NeutrxLogger | undefined = undefined;
@@ -638,7 +638,7 @@ export default class NeutrxClient extends EventEmitter {
     }
 
     clearAuth(): this {
-        this.#defaultHeaders = toInternalHeaders(NeutrxHeaders.from(this.#defaultHeaders).removeAuthorization());
+        this.#defaultHeaders = normalizeRequestHeaders(NeutrxHeaders.from(this.#defaultHeaders).removeAuthorization());
         return this;
     }
 
@@ -665,14 +665,14 @@ export default class NeutrxClient extends EventEmitter {
 
     setHeader(key: string, value: Headers[string]): this {
         this.#security.validateHeader(key, value);
-        this.#defaultHeaders = toInternalHeaders(NeutrxHeaders.from(this.#defaultHeaders).set(key, value));
+        this.#defaultHeaders = normalizeRequestHeaders(NeutrxHeaders.from(this.#defaultHeaders).set(key, value));
         return this;
     }
 
     removeHeader(key: string): this {
         const headers = NeutrxHeaders.from(this.#defaultHeaders);
         headers.delete(key);
-        this.#defaultHeaders = toInternalHeaders(headers);
+        this.#defaultHeaders = normalizeRequestHeaders(headers);
         return this;
     }
 
@@ -685,7 +685,7 @@ export default class NeutrxClient extends EventEmitter {
         } else if (auth.apiKey) {
             headers.set(auth.apiKey.header ?? 'X-Api-Key', auth.apiKey.key);
         }
-        this.#defaultHeaders = toInternalHeaders(headers);
+        this.#defaultHeaders = normalizeRequestHeaders(headers);
         return this;
     }
 
@@ -897,7 +897,7 @@ export default class NeutrxClient extends EventEmitter {
         const conditionalHeaders = this.#cache.revalidationHeaders(config);
         const revalidationConfig = withoutSignal({
             ...config,
-            headers: toInternalHeaders(NeutrxHeaders.concat(config.headers, conditionalHeaders)),
+            headers: normalizeRequestHeaders(NeutrxHeaders.concat(config.headers, conditionalHeaders)),
             requestId: this.#id(),
             startTime: Date.now(),
             cache: false,
@@ -1104,7 +1104,7 @@ export default class NeutrxClient extends EventEmitter {
         return {
             ...config,
             url: webSocketUrl(config.url),
-            headers: toInternalHeaders(config.headers),
+            headers: normalizeRequestHeaders(config.headers),
         };
     }
 
@@ -1115,14 +1115,14 @@ export default class NeutrxClient extends EventEmitter {
         idempotencyKey?: string,
         idempotencyKeyHeader = 'Idempotency-Key'
     ): InternalHeaders {
-        const headers = NeutrxHeaders.concat(this.#defaultHeaders, defaults.headers, config.headers);
+        const headers = NeutrxHeaders.concat(this.#defaultHeaders, defaults.headers, normalizeRequestHeaders(config.headers));
         headers.setIfNotBlocked('X-Request-ID', requestId);
         if (idempotencyKey) headers.setIfNotBlocked(idempotencyKeyHeader, idempotencyKey);
         const auth = config.auth ?? defaults.auth;
         if (auth) {
             headers.setIfNotBlocked('Authorization', `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`);
         }
-        return toInternalHeaders(headers);
+        return normalizeRequestHeaders(headers);
     }
 
     #resolveIdempotencyKey<TBody extends RequestBody>(
@@ -1144,7 +1144,7 @@ export default class NeutrxClient extends EventEmitter {
     }
 
     #buildDefaultHeaders(): InternalHeaders {
-        return toInternalHeaders({
+        return normalizeRequestHeaders({
             'User-Agent': `neutrx/${VERSION} Node.js/${process.version}`,
             Accept: 'application/json, text/plain, */*',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -1220,17 +1220,13 @@ function withUrlEncodedHeaders<TBody extends RequestBody, TSchema extends Respon
     };
 }
 
-function toInternalHeaders(headers: Headers | NeutrxHeaders): InternalHeaders {
-    return NeutrxHeaders.from(headers) as unknown as InternalHeaders;
-}
-
 function mergeCarrierHeaders(config: InternalRequestConfig, carrier: Record<string, string>): InternalHeaders {
     const headers = NeutrxHeaders.from(config.headers);
     for (const [name, value] of Object.entries(carrier)) {
         if (config.instrumentation?.overwriteTraceHeaders === true) headers.set(name, value);
         else headers.setIfUnset(name, value);
     }
-    return toInternalHeaders(headers);
+    return normalizeRequestHeaders(headers);
 }
 
 function withTraceContext<TData extends ParsedResponseData>(
@@ -1243,7 +1239,7 @@ function withTraceContext<TData extends ParsedResponseData>(
 function toInternalRequestConfig<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {
     return {
         ...config,
-        headers: toInternalHeaders(config.headers),
+        headers: normalizeRequestHeaders(config.headers),
     };
 }
 

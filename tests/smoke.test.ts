@@ -337,7 +337,7 @@ void test('named fetch adapter works through native fetch', async () => {
     }
 });
 
-void test('global defaults merge into root requests and new instances', async () => {
+void test('config precedence is global defaults, instance defaults, then per-request config', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const previousDefaults = { ...Neutrx.defaults };
     Neutrx.defaults.baseURL = 'https://defaults.example';
@@ -366,6 +366,8 @@ void test('global defaults merge into root requests and new instances', async ()
         assert.equal(Neutrx.getUri('/uri'), 'https://defaults.example/uri');
 
         const api = Neutrx.create({
+            baseURL: 'https://instance.example',
+            timeout: 2345,
             headers: { 'X-Default': 'override' },
             adapter: config => ({
                 status: 200,
@@ -381,9 +383,20 @@ void test('global defaults merge into root requests and new instances', async ()
         });
         const response = await api.get('/instance');
         assert.deepEqual(response.data, {
-            url: 'https://defaults.example/instance',
-            timeout: 1234,
+            url: 'https://instance.example/instance',
+            timeout: 2345,
             header: 'override',
+        });
+
+        const requestResponse = await api.get('/request', {
+            baseURL: 'https://request.example',
+            timeout: 3456,
+            headers: { 'X-Default': 'request' },
+        });
+        assert.deepEqual(requestResponse.data, {
+            url: 'https://request.example/request',
+            timeout: 3456,
+            header: 'request',
         });
     } finally {
         for (const key of Object.keys(Neutrx.defaults) as Array<keyof typeof Neutrx.defaults>) delete Neutrx.defaults[key];

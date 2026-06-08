@@ -24,7 +24,7 @@ export default class Deduplicator {
     #key?: PerformanceConfig['deduplicateRequestKey'];
 
     constructor(config: PerformanceConfig = {}) {
-        this.#enabled = config.deduplicateRequests ?? false;
+        this.#enabled = config.deduplicateRequests ?? true;
         this.#methods = new Set(config.deduplicateMethods ?? DEFAULT_DEDUPLICATE_METHODS);
         this.#headers = normalizeHeaderNames(config.deduplicateHeaders ?? DEFAULT_DEDUPLICATE_HEADERS);
         this.#key = config.deduplicateRequestKey;

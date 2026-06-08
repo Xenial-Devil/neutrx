@@ -129,7 +129,7 @@ export function buildConfig(custom: ClientConfig): NormalizedClientConfig {
             cacheTTL,
             cacheMaxEntrySize: custom.performance?.cacheMaxEntrySize ?? 1_048_576,
             respectCacheHeaders: custom.performance?.respectCacheHeaders ?? true,
-            deduplicateRequests: custom.performance?.deduplicateRequests ?? false,
+            deduplicateRequests: custom.performance?.deduplicateRequests ?? true,
             ...(custom.performance?.deduplicateRequestKey ? { deduplicateRequestKey: custom.performance.deduplicateRequestKey } : {}),
             deduplicateMethods: normalizeMethodList(custom.performance?.deduplicateMethods ?? ['GET', 'HEAD']),
             deduplicateHeaders: normalizeHeaderNameList(custom.performance?.deduplicateHeaders ?? ['accept', 'authorization', 'range']),

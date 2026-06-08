@@ -1,11 +1,10 @@
 import type NeutrxClient from '../core/NeutrxClient.js';
-import { NeutrxHeaders } from '../core/headers.js';
+import { NeutrxHeaders, normalizeRequestHeaders } from '../core/headers.js';
 import { validateValue } from '../core/validation.js';
 import { toStructuredError } from '../core/NeutrxError.js';
 import type {
     GraphQLResult,
     HeaderSource,
-    Headers,
     InternalRequestConfig,
     JsonValue,
     MockController,
@@ -164,7 +163,7 @@ export const OAuth2Plugin: NeutrxPlugin = {
 
             return {
                 ...config,
-                headers: { ...config.headers, Authorization: `Bearer ${token}` },
+                headers: NeutrxHeaders.concat(config.headers, { Authorization: `Bearer ${token}` }),
             };
         });
     },
@@ -179,7 +178,7 @@ export const GraphQLPlugin: NeutrxPlugin = {
             endpoint: string,
             query: string,
             variables: Record<string, JsonValue> = {},
-            options: { readonly operationName?: string; readonly headers?: Headers } = {}
+            options: { readonly operationName?: string; readonly headers?: HeaderSource } = {}
         ): Promise<GraphQLResult<TData>> => {
             const response = await client.post<{
                 readonly data?: TData;
@@ -193,7 +192,7 @@ export const GraphQLPlugin: NeutrxPlugin = {
                     operationName: options.operationName ?? null,
                 },
                 {
-                    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
+                    headers: NeutrxHeaders.concat({ 'Content-Type': 'application/json' }, options.headers),
                 }
             );
 
@@ -365,7 +364,7 @@ function isRequestConfig(context: HookContext): context is InternalRequestConfig
 function normalizeRequestConfig(config: BeforeRequestResult): InternalRequestConfig {
     return {
         ...config,
-        headers: NeutrxHeaders.from(config.headers) as InternalRequestConfig['headers'],
+        headers: normalizeRequestHeaders(config.headers),
     };
 }
 

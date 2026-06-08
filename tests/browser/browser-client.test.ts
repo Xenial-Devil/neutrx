@@ -127,6 +127,45 @@ void test('browser instance defaults are mutable after creation', async () => {
     }
 });
 
+void test('browser requests normalize plain objects and NeutrxHeaders before interceptors', async () => {
+    const originalFetch = globalThis.fetch;
+    const globalWithFetch = globalThis as MutableGlobal;
+    const captured: Array<string | null> = [];
+    const seenByInterceptor: boolean[] = [];
+
+    globalWithFetch.fetch = (_input, init): Promise<Response> => {
+        captured.push(new Headers(init?.headers).get('Authorization'));
+        return Promise.resolve(jsonResponse({ ok: true }));
+    };
+
+    try {
+        const mod = await import(browserEntry) as typeof BrowserEntry;
+        const collection = new mod.NeutrxHeaders({ Authorization: 'Bearer collection' });
+        const api = mod.default.create({
+            baseURL: 'https://headers.example',
+            performance: { enableCaching: false },
+            resilience: { enableRetry: false, enableCircuitBreaker: false, enableBulkhead: false },
+        });
+        api.interceptors.request.use(config => {
+            seenByInterceptor.push(config.headers instanceof mod.NeutrxHeaders);
+            return config;
+        });
+
+        try {
+            await api.get('/plain', { headers: { Authorization: 'Bearer plain' } });
+            await api.get('/collection', { headers: collection });
+
+            assert.deepEqual(seenByInterceptor, [true, true]);
+            assert.deepEqual(captured, ['Bearer plain', 'Bearer collection']);
+            assert.equal(collection.get('Authorization'), 'Bearer collection');
+        } finally {
+            destroyClient(api);
+        }
+    } finally {
+        globalWithFetch.fetch = originalFetch;
+    }
+});
+
 void test('browser cache keys include headers added by request interceptors', async () => {
     const originalFetch = globalThis.fetch;
     const globalWithFetch = globalThis as MutableGlobal;

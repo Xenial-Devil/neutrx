@@ -1,4 +1,4 @@
-import { NeutrxHeaders } from '../core/headers.js';
+import { normalizeRequestHeaders } from '../core/headers.js';
 import type { HeaderSource, InternalRequestConfig, NeutrxResponse, RequestBody } from '../types.js';
 
 type RequestConfigResult<TBody extends RequestBody = RequestBody> = Omit<InternalRequestConfig<TBody>, 'headers'> & { readonly headers: HeaderSource };
@@ -182,7 +182,7 @@ export default class InterceptorChain {
 function normalizeRequestConfig<TBody extends RequestBody>(config: RequestConfigResult<TBody>): InternalRequestConfig<TBody> {
     return {
         ...config,
-        headers: NeutrxHeaders.from(config.headers) as InternalRequestConfig<TBody>['headers'],
+        headers: normalizeRequestHeaders(config.headers),
     };
 }
 

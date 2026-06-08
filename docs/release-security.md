@@ -42,12 +42,15 @@ The canonical public release note surface is GitHub Releases. After a release, c
 Before publishing, review:
 
 ```bash
+npm run release:validate
 npm pack --dry-run
 npm run package:validate
 npm run package:smoke
 ```
 
 Package contents should include built `dist` output, docs, README, security docs, changelog, roadmap, threat model, license, and package metadata. It should not include local caches, tests output, credentials, or unpublished artifacts.
+
+See [Release Testing](release-testing.md) for the automated compatibility, HTTP, security, resilience, and observability checklist.
 
 ## Dependency Rule
 

@@ -28,6 +28,7 @@ const requiredAdoptionDocs = [
   "docs/browser-usage.md",
   "docs/axios-migration.md",
   "docs/axios-migration-matrix.md",
+  "docs/release-testing.md",
 ];
 
 function readJson(relativePath) {
@@ -74,6 +75,15 @@ function requireNoRuntimeDependencies() {
   }
 }
 
+function requireOptionalPeerDependency(name, range) {
+  requireEqual(packageJson.peerDependencies?.[name], range, `${name} peer dependency`);
+  requireEqual(packageJson.peerDependenciesMeta?.[name]?.optional, true, `${name} optional peer metadata`);
+
+  for (const field of ["dependencies", "optionalDependencies", "devDependencies"]) {
+    if (packageJson[field]?.[name]) failures.push(`${name} must not be listed in ${field}`);
+  }
+}
+
 function requireText(relativePath, expected, label = relativePath) {
   const contents = readText(relativePath);
   if (!contents.includes(expected)) failures.push(`${label} missing required text: ${expected}`);
@@ -87,7 +97,9 @@ function validateAdoptionContract() {
   requireEqual(packageJson.module, "dist/index.mjs", "package module");
   requireEqual(packageJson.browser, "dist/browser.mjs", "package browser");
   requireEqual(packageJson.types, "dist/index.d.ts", "package types");
+  requireEqual(packageJson.scripts?.["release:validate"], "npm run ci", "release validation script");
   requireNoRuntimeDependencies();
+  requireOptionalPeerDependency("@opentelemetry/api", ">=1.0.0 <2.0.0");
 
   for (const target of requiredPackageDocs) requireFile(target, "required package document");
   for (const target of requiredAdoptionDocs) requireFile(target, "required adoption document");
@@ -137,6 +149,16 @@ function validateAdoptionContract() {
     requireText("docs/node-infrastructure.md", expected, "Node infrastructure guide");
   }
 
+  for (const expected of [
+    "npm run release:validate",
+    "Node 18, 20, and 22",
+    "neutrx/plugins",
+    "neutrx/errors",
+    "Browser And Edge Limits",
+  ]) {
+    requireText("docs/release-testing.md", expected, "release testing guide");
+  }
+
   requireFile(".github/workflows/ci.yml", "CI workflow");
   requireFile(".github/workflows/release.yml", "release workflow");
   requireFile(".github/workflows/codeql.yml", "CodeQL workflow");
@@ -154,6 +176,7 @@ function validateAdoptionContract() {
     "npm test",
     "npm run coverage",
     "npm run build",
+    "npm run docs:build",
     "npm run package:validate",
     "npm run package:smoke",
   ]) {
@@ -166,6 +189,7 @@ function validateAdoptionContract() {
     "id-token: write",
     "semantic-release",
     "@semantic-release/github",
+    "npm run docs:build",
     "npm run package:validate",
     "npm run package:smoke",
     "npm run changelog:preview",

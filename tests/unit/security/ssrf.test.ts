@@ -158,3 +158,18 @@ void test('SecurityManager certificate pins support rotation windows and fail cl
     );
     assert.throws(() => security.pinCertificate('api.example.com', 'not-a-fingerprint'), /Invalid SHA-256/u);
 });
+
+void test('SecurityManager rejects prototype pollution keys in request bodies', async () => {
+    const { default: SecurityManager } = await import(securityEntry) as typeof SecurityModule;
+    const security = new SecurityManager();
+    const config = {
+        url: 'https://api.example.com/users',
+        method: 'POST',
+        headers: {},
+        data: JSON.parse('{"safe":true,"__proto__":{"polluted":true}}') as unknown,
+        requestId: 'prototype-pollution-test',
+    } as unknown as InternalRequestConfig;
+
+    assert.throws(() => security.validateRequest(config), /Prototype pollution attempt/u);
+    assert.equal((Object.prototype as { polluted?: unknown }).polluted, undefined);
+});

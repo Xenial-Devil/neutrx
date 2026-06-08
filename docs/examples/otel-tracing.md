@@ -2,6 +2,10 @@
 
 Neutrx can create OpenTelemetry-friendly spans and propagation headers when the application installs `@opentelemetry/api`. Neutrx core does not require it as a runtime dependency.
 
+```bash
+npm install @opentelemetry/api
+```
+
 ```ts
 import neutrx, { createOtelPlugin, createTraceContextPlugin } from 'neutrx';
 

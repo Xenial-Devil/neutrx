@@ -12,7 +12,10 @@ void test('package self-reference imports expose ESM, CJS, and subpath APIs', as
     const instrumentationEntry = moduleRecord(await import('neutrx/instrumentation'));
     const adaptersEntry = moduleRecord(await import('neutrx/adapters'));
     const pluginsEntry = moduleRecord(await import('neutrx/plugins'));
+    const errorsEntry = moduleRecord(await import('neutrx/errors'));
     const cjs = moduleRecord(require('neutrx') as unknown);
+    const cjsPlugins = moduleRecord(require('neutrx/plugins') as unknown);
+    const cjsErrors = moduleRecord(require('neutrx/errors') as unknown);
 
     assert.equal(typeof propertyRecord(root, 'default').create, 'function');
     assert.equal(typeof propertyRecord(nodeEntry, 'default').create, 'function');
@@ -34,6 +37,9 @@ void test('package self-reference imports expose ESM, CJS, and subpath APIs', as
     assert.equal(typeof root.toStructuredError, 'function');
     assert.equal(typeof pluginsEntry.TraceContextPlugin, 'object');
     assert.equal(typeof pluginsEntry.createTraceContextPlugin, 'function');
+    assert.equal(typeof errorsEntry.NeutrxError, 'function');
+    assert.equal(typeof cjsPlugins.OtelPlugin, 'object');
+    assert.equal(typeof cjsErrors.NeutrxError, 'function');
 });
 
 void test('package self-reference supports default ESM import syntax', () => {

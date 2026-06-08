@@ -1,7 +1,7 @@
 import type { IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:http';
 
 import { NeutrxInjectionError, NeutrxSecurityError } from './NeutrxError.js';
-import type { Headers, HeaderSource, HeaderValue } from '../types.js';
+import type { Headers, HeaderSource, HeaderValue, InternalHeaders } from '../types.js';
 
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const DANGEROUS_HEADER_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
@@ -217,6 +217,10 @@ export class NeutrxHeaders {
         }
         return entries;
     }
+}
+
+export function normalizeRequestHeaders(headers?: HeaderSource): InternalHeaders {
+    return NeutrxHeaders.from(headers) as unknown as InternalHeaders;
 }
 
 export function validateHeaderName(name: string): void {

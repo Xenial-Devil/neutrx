@@ -106,6 +106,41 @@ void test('RetryEngine adds bounded jitter to computed backoff delay', async () 
     }
 });
 
+void test('RetryEngine computes fixed, linear, exponential, and fibonacci strategies', async () => {
+    const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
+    const expected = {
+        fixed: [1, 1, 1, 1],
+        linear: [1, 2, 3, 4],
+        exponential: [1, 2, 4, 8],
+        fibonacci: [1, 2, 3, 5],
+    } as const;
+
+    for (const [strategy, expectedDelays] of Object.entries(expected)) {
+        const delays: number[] = [];
+        const engine = new RetryEngine({
+            maxRetries: 4,
+            retryDelay: 1,
+            retryJitter: false,
+            retryStrategy: strategy as keyof typeof expected,
+            retryableCodes: ['ETEST'],
+            onRetry: event => {
+                delays.push(event.delay);
+            },
+        });
+        let calls = 0;
+
+        const result = await engine.execute(async () => {
+            await Promise.resolve();
+            calls += 1;
+            if (calls <= 4) throw Object.assign(new Error('retry strategy'), { code: 'ETEST' });
+            return 'ok';
+        }, { method: 'GET', url: 'https://api.example.com/users' });
+
+        assert.equal(result.result, 'ok');
+        assert.deepEqual(delays, expectedDelays, strategy);
+    }
+});
+
 void test('RetryEngine stops during backoff when AbortSignal aborts', async () => {
     const { RetryEngine } = await import(retryEntry) as typeof RetryModule;
     const controller = new AbortController();

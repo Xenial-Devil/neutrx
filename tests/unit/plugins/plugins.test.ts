@@ -130,11 +130,13 @@ void test('GraphQLPlugin unwraps GraphQL data and surfaces errors', async () => 
 });
 
 void test('GraphQLPlugin forwards variables, operationName, headers, and partial error data', async () => {
-    const { default: Neutrx, GraphQLPlugin } = await import(builtEntry) as typeof PackageEntry;
+    const { default: Neutrx, GraphQLPlugin, NeutrxHeaders } = await import(builtEntry) as typeof PackageEntry;
     const seen: Array<{ readonly body: unknown; readonly headers: PackageEntry.Headers }> = [];
+    const blocked: unknown[] = [];
     const api = Neutrx.create({
         adapter: config => {
             seen.push({ body: config.data, headers: config.headers });
+            blocked.push(config.headers.get('X-Blocked'));
             return {
                 status: 200,
                 statusText: 'OK',
@@ -152,7 +154,7 @@ void test('GraphQLPlugin forwards variables, operationName, headers, and partial
         'https://api.example.com/graphql',
         '  query Viewer($id: ID!) { viewer(id: $id) { id } }  ',
         { id: '1' },
-        { operationName: 'Viewer', headers: { 'X-Test': 'ok' } }
+        { operationName: 'Viewer', headers: new NeutrxHeaders({ 'X-Test': 'ok', 'X-Blocked': false }) }
     );
     assert.deepEqual(response?.data, { viewer: { id: 'ok' } });
     assert.deepEqual(seen[0]?.body, {
@@ -161,6 +163,7 @@ void test('GraphQLPlugin forwards variables, operationName, headers, and partial
         operationName: 'Viewer',
     });
     assert.equal(seen[0]?.headers['X-Test'], 'ok');
+    assert.equal(blocked[0], false);
 
     await assert.rejects(
         api.gql?.('https://api.example.com/partial', '{ viewer { id } }') ?? Promise.resolve(),
@@ -172,7 +175,7 @@ void test('GraphQLPlugin forwards variables, operationName, headers, and partial
 });
 
 void test('OAuth2Plugin fetches token and injects bearer auth', async () => {
-    const { default: Neutrx, OAuth2Plugin } = await import(builtEntry) as typeof PackageEntry;
+    const { default: Neutrx, OAuth2Plugin, NeutrxHeaders } = await import(builtEntry) as typeof PackageEntry;
     const api = Neutrx.create({
         adapter: config => ({
             status: 200,
@@ -180,15 +183,21 @@ void test('OAuth2Plugin fetches token and injects bearer auth', async () => {
             headers: { 'content-type': 'application/json' },
             data: Buffer.from(config.url.endsWith('/token')
                 ? JSON.stringify({ access_token: 'token-1', expires_in: 3600 })
-                : JSON.stringify({ authorization: config.headers.Authorization })),
+                : JSON.stringify({
+                    authorization: config.headers.Authorization,
+                    keep: config.headers.get('X-Keep'),
+                    blocked: config.headers.get('X-Blocked'),
+                })),
             config,
         }),
     });
     api.use(OAuth2Plugin);
     api.configureOAuth2?.({ tokenURL: 'https://auth.example.com/token' });
 
-    const response = await api.get('https://api.example.com/secure');
-    assert.deepEqual(response.data, { authorization: 'Bearer token-1' });
+    const response = await api.get('https://api.example.com/secure', {
+        headers: new NeutrxHeaders({ 'X-Keep': 'yes', 'X-Blocked': false }),
+    });
+    assert.deepEqual(response.data, { authorization: 'Bearer token-1', keep: 'yes', blocked: false });
 });
 
 void test('OAuth2Plugin refreshes tokens inside the refresh window', async () => {

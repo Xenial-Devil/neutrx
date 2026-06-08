@@ -47,6 +47,10 @@ api.use(createOtelPlugin({
 
 The bridge uses `@opentelemetry/api` when the application installs it. Neutrx itself does not require OpenTelemetry at runtime.
 
+```bash
+npm install @opentelemetry/api
+```
+
 ## Validation
 
 ```ts

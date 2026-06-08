@@ -1,7 +1,7 @@
 {
   "name": "neutrx",
   "version": "1.3.0",
-  "description": "Security-first TypeScript HTTP client with retry, circuit breaker, bulkhead, cache, metrics, and plugins.",
+  "description": "Security-first TypeScript HTTP client — SSRF protection, circuit breaker, bulkhead, OTel, Zod validation, browser + Node.js.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Xenial-Devil/neutrx.git"
@@ -123,7 +123,7 @@
     "package:smoke": "npm run build && node scripts/pack-smoke.cjs",
     "changelog:preview": "conventional-changelog -p angular -r 0 --stdout",
     "changelog:write": "conventional-changelog -p angular -i CHANGELOG.md -o CHANGELOG.md -r 1",
-    "release:validate": "npm run validate",
+    "release:validate": "npm run ci",
     "validate": "npm run typecheck && npm run lint && npm test && npm run docs:build && npm run package:validate",
     "ci": "npm run lint && npm run typecheck && npm test && npm run coverage && npm run docs:build && npm run package:validate && npm run package:smoke"
   },
@@ -161,9 +161,27 @@
     "circuit-breaker",
     "retry",
     "cache",
-    "fetch-alternative"
+    "fetch",
+    "http2",
+    "opentelemetry",
+    "otel",
+    "tracing",
+    "bulkhead",
+    "graphql",
+    "axios-alternative",
+    "node",
+    "browser",
+    "edge"
   ],
   "license": "MIT",
+  "peerDependencies": {
+    "@opentelemetry/api": ">=1.0.0 <2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^24.10.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
@@ -172,6 +190,7 @@
     "conventional-changelog": "^7.2.0",
     "conventional-changelog-angular": "^8.3.1",
     "eslint": "^8.0.0",
+    "esbuild": "^0.27.0",
     "tsup": "^8.5.1",
     "typescript": "^5.6.0",
     "vitepress": "^1.6.4"

@@ -6,7 +6,7 @@ import type * as PackageEntry from '../../../src/index.js';
 
 const builtEntry = '../../../../dist/index.mjs';
 
-void test('deduplicateRequests coalesces three simultaneous GET calls and records hits', async () => {
+void test('deduplication defaults to coalescing simultaneous GET calls and records hits', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     let calls = 0;
     const server = http.createServer((request, response) => {
@@ -23,7 +23,7 @@ void test('deduplicateRequests coalesces three simultaneous GET calls and record
         assert.ok(isAddressInfo(address));
         const api = Neutrx.create({
             baseURL: `http://127.0.0.1:${address.port}`,
-            performance: { enableCaching: false, deduplicateRequests: true },
+            performance: { enableCaching: false },
             security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
         });
         const dedupEvents: unknown[] = [];
@@ -88,7 +88,7 @@ void test('deduplicateRequests propagates errors to all concurrent callers', asy
     }
 });
 
-void test('deduplicateRequests skips POST by default and supports explicit custom-key opt-in', async () => {
+void test('default deduplication skips POST and supports explicit custom-key opt-in', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     let defaultPostCalls = 0;
     let optInPostCalls = 0;
@@ -110,7 +110,7 @@ void test('deduplicateRequests skips POST by default and supports explicit custo
         const security = { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false };
         const defaultApi = Neutrx.create({
             baseURL,
-            performance: { enableCaching: false, deduplicateRequests: true },
+            performance: { enableCaching: false },
             security,
         });
 
@@ -126,7 +126,6 @@ void test('deduplicateRequests skips POST by default and supports explicit custo
             baseURL,
             performance: {
                 enableCaching: false,
-                deduplicateRequests: true,
                 deduplicateMethods: ['POST'],
                 deduplicateRequestKey(config) {
                     const key = `${config.method}:${config.url}:${config.idempotencyKey ?? ''}`;
@@ -147,6 +146,39 @@ void test('deduplicateRequests skips POST by default and supports explicit custo
         assert.equal(second.deduplicated, true);
         assert.equal(optInApi.getMetrics().requests.deduplicated, 1);
         assert.ok(customKeys.every(key => key.endsWith(':post-1')));
+    } finally {
+        await close(server);
+    }
+});
+
+void test('deduplicateRequests false disables default GET coalescing', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+    let calls = 0;
+    const server = http.createServer((_request, response) => {
+        calls += 1;
+        setTimeout(() => {
+            response.setHeader('content-type', 'application/json');
+            response.end(JSON.stringify({ calls }));
+        }, 30);
+    });
+    await listen(server);
+
+    try {
+        const address = server.address();
+        assert.ok(isAddressInfo(address));
+        const api = Neutrx.create({
+            baseURL: `http://127.0.0.1:${address.port}`,
+            performance: { enableCaching: false, deduplicateRequests: false },
+            security: { enforceHTTPS: false, enableSSRFProtection: false, blockPrivateIPs: false },
+        });
+
+        await Promise.all([
+            api.get('/dedupe-disabled'),
+            api.get('/dedupe-disabled'),
+        ]);
+
+        assert.equal(calls, 2);
+        assert.equal(api.getMetrics().requests.deduplicated, 0);
     } finally {
         await close(server);
     }

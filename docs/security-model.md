@@ -45,8 +45,12 @@ Use `error.toJSON()` and `getMetrics()` output for logs. Do not log raw request 
 
 Redaction covers common secret names in URLs, headers, context, and response data. OpenTelemetry attributes avoid query strings by default.
 
-## Known Limits
+## Runtime-Specific Limits
 
-- Browser builds cannot provide Node DNS validation.
+- The strongest SSRF, DNS pinning, private-IP, redirect-hop, TLS, certificate-pinning, proxy, and socket controls require the built-in Node HTTP or HTTP/2 adapters.
+- Browser and edge fetch runtimes do not expose DNS answers, resolved private-IP inspection, raw sockets, or normal JavaScript certificate controls. The platform may also follow redirects internally or hide redirect details, so the browser build cannot promise Node-equivalent redirect enforcement.
+- A `strict` profile in a browser does not create a trusted egress boundary. Route untrusted target URLs through a trusted Node.js service with explicit egress policy.
 - Custom adapters must preserve Neutrx security semantics if they follow redirects internally.
 - Disabling SSRF checks or using `legacy` for untrusted URLs is unsafe.
+
+See [Browser usage](browser-usage.md) for the runtime capability matrix and deployment guidance.
