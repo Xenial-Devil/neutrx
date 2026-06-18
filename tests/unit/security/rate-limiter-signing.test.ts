@@ -23,11 +23,11 @@ void test('RateLimiter enforces token bucket and refills over time', async () =>
             perDomain: false,
         });
 
-        limiter.checkLimit('https://api.example.com/a');
-        assert.throws(() => limiter.checkLimit('https://api.example.com/b'), /Rate limit exceeded/u);
+        await limiter.checkLimit('https://api.example.com/a');
+        await assert.rejects(limiter.checkLimit('https://api.example.com/b'), /Rate limit exceeded/u);
 
         now += 1000;
-        assert.doesNotThrow(() => limiter.checkLimit('https://api.example.com/c'));
+        await limiter.checkLimit('https://api.example.com/c');
     } finally {
         Date.now = originalNow;
     }
@@ -47,12 +47,12 @@ void test('RateLimiter enforces sliding window and fixed window policies', async
             windowMs: 1000,
             perDomain: false,
         });
-        sliding.checkLimit('https://api.example.com/a');
-        sliding.checkLimit('https://api.example.com/b');
-        assert.throws(() => sliding.checkLimit('https://api.example.com/c'), /Rate limit exceeded/u);
+        await sliding.checkLimit('https://api.example.com/a');
+        await sliding.checkLimit('https://api.example.com/b');
+        await assert.rejects(sliding.checkLimit('https://api.example.com/c'), /Rate limit exceeded/u);
 
         now += 1001;
-        assert.doesNotThrow(() => sliding.checkLimit('https://api.example.com/d'));
+        await sliding.checkLimit('https://api.example.com/d');
 
         const fixed = new RateLimiter({
             enabled: true,
@@ -71,7 +71,7 @@ void test('RateLimiter enforces sliding window and fixed window policies', async
     }
 });
 
-void test('request signing adds deterministic timestamp and HMAC headers', async () => {
+void test('request signing adds timestamp, per-request nonce and HMAC over the nonce', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const originalNow = Date.now;
     Date.now = () => 1_700_000_000_000;
@@ -86,22 +86,30 @@ void test('request signing adds deterministic timestamp and HMAC headers', async
                 headers: { 'content-type': 'application/json' },
                 data: Buffer.from(JSON.stringify({
                     timestamp: config.headers['X-Neutrx-Timestamp'],
+                    nonce: config.headers['X-Neutrx-Nonce'],
                     signature: config.headers['X-Neutrx-Signature'],
                 })),
                 config,
             }),
         }).enableRequestSigning(secret);
 
-        const response = await api.post('/signed', { ok: true });
+        const first = await api.post('/signed', { ok: true }) as { data: { timestamp: string; nonce: string; signature: string } };
+
+        // Nonce must be present and a 16-byte hex string.
+        assert.match(first.data.nonce, /^[0-9a-f]{32}$/u);
+
+        // Signature must cover the nonce (replay protection).
         const expected = crypto
             .createHmac('sha256', secret)
-            .update('POST:https://api.example.com/signed:1700000000000:{"ok":true}')
+            .update(`POST:https://api.example.com/signed:1700000000000:${first.data.nonce}:{"ok":true}`)
             .digest('hex');
+        assert.equal(first.data.signature, expected);
+        assert.equal(first.data.timestamp, '1700000000000');
 
-        assert.deepEqual(response.data, {
-            timestamp: '1700000000000',
-            signature: expected,
-        });
+        // Two identical requests at the same timestamp must produce different nonces and signatures.
+        const second = await api.post('/signed', { ok: true }) as { data: { nonce: string; signature: string } };
+        assert.notEqual(first.data.nonce, second.data.nonce);
+        assert.notEqual(first.data.signature, second.data.signature);
     } finally {
         Date.now = originalNow;
     }

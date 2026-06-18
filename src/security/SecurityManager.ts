@@ -116,6 +116,9 @@ export default class SecurityManager {
     }
 
     validateRequest<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {
+        if (config.insecureHTTPParser && this.#config.profile !== 'legacy') {
+            throw new NeutrxSecurityError('insecureHTTPParser is only allowed under the legacy security profile', { code: 'INSECURE_PARSER_BLOCKED' });
+        }
         if (config.socketPath) {
             this.validateSocketURL(config.url);
         } else {
@@ -463,8 +466,9 @@ export default class SecurityManager {
 
     #signRequest<TBody extends RequestBody>(config: InternalRequestConfig<TBody>): InternalRequestConfig<TBody> {
         const timestamp = Date.now().toString();
+        const nonce = crypto.randomBytes(16).toString('hex');
         const body = config.data === undefined ? '' : serializeForSignature(config.data);
-        const payload = `${config.method}:${config.url}:${timestamp}:${body}`;
+        const payload = `${config.method}:${config.url}:${timestamp}:${nonce}:${body}`;
         const signature = crypto
             .createHmac(this.#signingAlgo, this.#signingSecret ?? '')
             .update(payload)
@@ -475,6 +479,7 @@ export default class SecurityManager {
             headers: NeutrxHeaders
                 .from(config.headers)
                 .setIfNotBlocked('X-Neutrx-Timestamp', timestamp)
+                .setIfNotBlocked('X-Neutrx-Nonce', nonce)
                 .setIfNotBlocked('X-Neutrx-Signature', signature) as unknown as InternalHeaders,
         };
     }

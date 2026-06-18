@@ -44,7 +44,7 @@ import { detectContentType } from './bodySerializer.js';
 import { mergeCancellationSignal } from './cancel.js';
 import { NeutrxHeaders, hasHeader, normalizeRequestHeaders } from './headers.js';
 import { REDIRECT_CODES, buildRedirectContext, shouldRedirectWithGet, stripRedirectHeaders, withoutBody } from './redirect.js';
-import { decompressResponseData, normalizeNodeResponseData, parseResponseData } from './responseParser.js';
+import { decompressResponseData, normalizeNodeResponseData, parseResponseData, supportsZstd } from './responseParser.js';
 import { validateResponseData } from './validation.js';
 import type {
     AuthConfig,
@@ -374,22 +374,51 @@ export default class NeutrxClient extends EventEmitter {
         options: PaginationOptions = {}
     ): AsyncGenerator<PaginationPage<TData>> {
         const {
+            strategy = 'has-more',
             pageParam = 'page',
             limitParam = 'limit',
             pageSize = 20,
             dataPath = 'data',
             hasMorePath = 'hasMore',
+            totalPath = 'total',
+            nextCursorPath = 'nextCursor',
+            cursorParam = 'cursor',
             maxPages = Number.POSITIVE_INFINITY,
         } = options;
 
         let page = 1;
-        let hasMore = true;
+        let cursor: string | null = null;
+        let nextLink: string | null = null;
+        let seen = 0;
 
-        while (hasMore && page <= maxPages) {
-            const response = await this.get(url, { params: { [pageParam]: page, [limitParam]: pageSize } });
-            hasMore = Boolean(dig(response.data, hasMorePath));
-            yield { data: dig(response.data, dataPath) as TData, page, response };
+        while (page <= maxPages) {
+            const response = nextLink
+                ? await this.get(nextLink)
+                : await this.get(url, {
+                    params: strategy === 'cursor' && cursor !== null
+                        ? { [cursorParam]: cursor, [limitParam]: pageSize }
+                        : { [pageParam]: page, [limitParam]: pageSize },
+                });
+
+            const pageData = dig(response.data, dataPath) as TData;
+            yield { data: pageData, page, response };
+            seen += Array.isArray(pageData) ? pageData.length : 0;
             page += 1;
+
+            if (strategy === 'has-more') {
+                if (!dig(response.data, hasMorePath)) break;
+            } else if (strategy === 'total-count') {
+                const total = Number(dig(response.data, totalPath));
+                if (!Number.isFinite(total) || seen >= total) break;
+            } else if (strategy === 'cursor') {
+                const next = dig(response.data, nextCursorPath);
+                if (typeof next !== 'string' && typeof next !== 'number') break;
+                if (next === '') break;
+                cursor = String(next);
+            } else {
+                nextLink = parseNextLink(response.headers);
+                if (!nextLink) break;
+            }
         }
     }
 
@@ -502,7 +531,7 @@ export default class NeutrxClient extends EventEmitter {
             trackedUrl = rc.url;
 
             rc = toInternalRequestConfig(this.#security.validateRequest(rc));
-            this.#rateLimiter.checkLimit(rc.url);
+            await this.#rateLimiter.checkLimit(rc.url);
             trackedUrl = rc.url;
 
             rc = toInternalRequestConfig(await this.#interceptors.runRequest(rc));
@@ -847,7 +876,7 @@ export default class NeutrxClient extends EventEmitter {
         discardRedirectBody(raw.data);
 
         const redirectedMethod = shouldRedirectWithGet(raw.status, config.method) ? 'GET' : config.method;
-        const headers = stripRedirectHeaders(config.headers, config.url, redirectUrl, redirectedMethod !== config.method);
+        const headers = stripRedirectHeaders(config.headers, config.url, redirectUrl, redirectedMethod !== config.method, config.sensitiveHeaders);
         const redirectedConfig = redirectedMethod === 'GET'
             ? withoutBody({ ...config, url: redirectUrl, method: redirectedMethod, headers, hops })
             : { ...config, url: redirectUrl, method: redirectedMethod, headers, hops };
@@ -857,7 +886,8 @@ export default class NeutrxClient extends EventEmitter {
             redirectedConfig.headers,
             config.url,
             redirectUrl,
-            redirectedMethod !== config.method
+            redirectedMethod !== config.method,
+            config.sensitiveHeaders
         );
         for (const [key, value] of NeutrxHeaders.from(securedHeaders)) {
             this.#security.validateHeader(key, value);
@@ -1067,6 +1097,14 @@ export default class NeutrxClient extends EventEmitter {
             httpsAgent: config.httpsAgent ?? defaults.httpsAgent,
             lookup: config.lookup ?? defaults.lookup,
             socketPath: config.socketPath ?? defaults.socketPath,
+            ...(config.family ?? defaults.family) !== undefined ? { family: config.family ?? defaults.family } : {},
+            ...(config.insecureHTTPParser ?? defaults.insecureHTTPParser) !== undefined ? { insecureHTTPParser: config.insecureHTTPParser ?? defaults.insecureHTTPParser } : {},
+            ...(config.allowedSocketPaths ?? defaults.allowedSocketPaths) ? { allowedSocketPaths: config.allowedSocketPaths ?? defaults.allowedSocketPaths } : {},
+            ...(config.sensitiveHeaders ?? defaults.sensitiveHeaders) ? { sensitiveHeaders: config.sensitiveHeaders ?? defaults.sensitiveHeaders } : {},
+            ...(config.timeoutErrorMessage ?? defaults.timeoutErrorMessage) !== undefined ? { timeoutErrorMessage: config.timeoutErrorMessage ?? defaults.timeoutErrorMessage } : {},
+            ...(config.redact ?? defaults.redact) ? { redact: config.redact ?? defaults.redact } : {},
+            ...(config.formDataHeaderPolicy ?? defaults.formDataHeaderPolicy) ? { formDataHeaderPolicy: config.formDataHeaderPolicy ?? defaults.formDataHeaderPolicy } : {},
+            ...(config.env ?? defaults.env) ? { env: config.env ?? defaults.env } : {},
             decompress: config.decompress ?? defaults.decompress,
             maxRate: config.maxRate ?? defaults.maxRate,
             transitional: { ...defaults.transitional, ...(config.transitional ?? {}) },
@@ -1085,7 +1123,7 @@ export default class NeutrxClient extends EventEmitter {
         } else {
             (requestConfig as { data?: RequestBody }).data = transformedData;
         }
-        validateSocketPath(requestConfig.socketPath);
+        validateSocketPath(requestConfig.socketPath, requestConfig.allowedSocketPaths);
 
         return requestConfig as InternalRequestConfig<TBody>;
     }
@@ -1100,7 +1138,7 @@ export default class NeutrxClient extends EventEmitter {
         config = toInternalRequestConfig(this.#security.validateRequest(config));
         config = toInternalRequestConfig(await this.#interceptors.runRequest(config));
         config = toInternalRequestConfig(this.#security.validateRequest(config));
-        this.#rateLimiter.checkLimit(config.url);
+        await this.#rateLimiter.checkLimit(config.url);
         return {
             ...config,
             url: webSocketUrl(config.url),
@@ -1147,7 +1185,7 @@ export default class NeutrxClient extends EventEmitter {
         return normalizeRequestHeaders({
             'User-Agent': `neutrx/${VERSION} Node.js/${process.version}`,
             Accept: 'application/json, text/plain, */*',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Encoding': supportsZstd ? 'zstd, gzip, deflate, br' : 'gzip, deflate, br',
             Connection: 'keep-alive',
         });
     }
@@ -1197,6 +1235,19 @@ function dig(value: ParsedResponseData, path: string): ParsedResponseData {
     }, value);
 }
 
+function parseNextLink(headers: Headers): string | null {
+    const raw = headers['link'] ?? headers['Link'];
+    const value = Array.isArray(raw) ? raw.join(', ') : raw;
+    if (typeof value !== 'string' || value.length === 0) return null;
+    for (const part of value.split(',')) {
+        const match = /<([^>]+)>\s*;\s*([^,]*)/.exec(part.trim());
+        const link = match?.[1];
+        const rel = match?.[2];
+        if (link && rel && /\brel\s*=\s*"?next"?/i.test(rel)) return link;
+    }
+    return null;
+}
+
 function normalizeError(error: unknown): Error {
     if (error instanceof Error) return error;
     return new Error(String(error));
@@ -1243,10 +1294,13 @@ function toInternalRequestConfig<TBody extends RequestBody>(config: InternalRequ
     };
 }
 
-function validateSocketPath(socketPath: string | undefined): void {
+function validateSocketPath(socketPath: string | undefined, allowedSocketPaths?: readonly string[]): void {
     if (socketPath === undefined) return;
     if (/[\0\r\n]/u.test(socketPath)) {
         throw new NeutrxSecurityError('socketPath contains unsafe characters', { code: 'INVALID_SOCKET_PATH' });
+    }
+    if (allowedSocketPaths && !allowedSocketPaths.includes(socketPath)) {
+        throw new NeutrxSecurityError('socketPath is not in the allowedSocketPaths allowlist', { code: 'SOCKET_PATH_NOT_ALLOWED' });
     }
     if (socketPath.startsWith('/') || socketPath.startsWith('\\\\.\\pipe\\') || socketPath.startsWith('\\\\?\\pipe\\')) return;
     throw new NeutrxSecurityError('socketPath must be an absolute local path', { code: 'INVALID_SOCKET_PATH' });

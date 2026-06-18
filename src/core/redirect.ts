@@ -9,12 +9,19 @@ export function shouldRedirectWithGet(statusCode: number, method: HttpMethod): b
     return (statusCode === 301 || statusCode === 302) && method === 'POST';
 }
 
-export function stripRedirectHeaders(headers: Headers | NeutrxHeaders, fromURL: string, toURL: string, bodyDropped: boolean): InternalHeaders {
+export function stripRedirectHeaders(
+    headers: Headers | NeutrxHeaders,
+    fromURL: string,
+    toURL: string,
+    bodyDropped: boolean,
+    sensitiveHeaders?: readonly string[]
+): InternalHeaders {
     const from = new URL(fromURL);
     const to = new URL(toURL);
     const crossOrigin = from.origin !== to.origin;
     const protocolDowngrade = from.protocol === 'https:' && to.protocol === 'http:';
     const stripped = new Set(['authorization', 'cookie', 'proxy-authorization']);
+    if (sensitiveHeaders) for (const name of sensitiveHeaders) stripped.add(name.toLowerCase());
 
     if (crossOrigin) stripped.add('host');
     if (bodyDropped) {

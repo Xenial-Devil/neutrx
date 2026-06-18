@@ -30,6 +30,11 @@ export {
 export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
 export { Cancel, CancelToken, isCancel } from './core/cancel.js';
+export { toFormData, formDataToJSON, formToJSON } from './core/formData.js';
+export { HttpStatusCode } from './core/httpStatusCode.js';
+export { isURLSameOrigin } from './core/sameOrigin.js';
+export { mergeConfig } from './core/mergeConfig.js';
+export { getAdapter, type AdapterSpec } from './core/adapterRegistry.js';
 export { fetchAdapter } from './adapters/fetch.js';
 export { createNodeHttpAdapter, createNodeHttpAgents, nodeHttpAdapter, type NodeHttpAdapterAgents, type NodeHttpAdapterOptions } from './adapters/http.js';
 export { createNodeHttp2Adapter, http2Adapter, getHttp2SessionStats, type NodeHttp2AdapterOptions } from './adapters/http2.js';

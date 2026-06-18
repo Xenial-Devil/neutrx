@@ -36,7 +36,7 @@ void test('error classes expose metadata and redact JSON output', async () => {
         assert.equal(json.category, 'unknown');
         assert.equal(json.traceId, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
         assert.equal(json.spanId, 'bbbbbbbbbbbbbbbb');
-        assert.equal(json.url, 'https://%5BREDACTED%5D:%5BREDACTED%5D@example.com/path?token=%5BREDACTED%5D&ok=1');
+        assert.equal(json.url, 'https://[REDACTED]:[REDACTED]@example.com/path?token=[REDACTED]&ok=1');
         assert.equal((json.cause as { readonly message?: unknown }).message, 'cause?token=[REDACTED]');
         assert.deepEqual(json.context, {
             Authorization: '[REDACTED]',
@@ -99,7 +99,7 @@ void test('error classes expose metadata and redact JSON output', async () => {
         category: 'network',
         message: 'failed?token=[REDACTED]',
         requestId: null,
-        url: 'https://api.example.com/path?token=%5BREDACTED%5D',
+        url: 'https://api.example.com/path?token=[REDACTED]',
         method: null,
         retryable: false,
         duration: undefined,

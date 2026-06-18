@@ -366,6 +366,67 @@ void test('node client orchestration helpers, pagination, and SSE work with cust
     }
 });
 
+void test('node paginate supports total-count, cursor, and link-header strategies', async () => {
+    const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
+
+    const adapter = (config: InternalRequestConfig<RequestBody>): RawHttpResponse => {
+        const parsed = new URL(config.url);
+
+        if (parsed.pathname === '/total') {
+            const page = Number(parsed.searchParams.get('page') ?? '1');
+            return jsonRaw(config, { data: [`t${page}a`, `t${page}b`], total: 5 });
+        }
+        if (parsed.pathname === '/cursor') {
+            const cursor = parsed.searchParams.get('cursor');
+            if (cursor === null) return jsonRaw(config, { data: ['c1'], nextCursor: 'A' });
+            if (cursor === 'A') return jsonRaw(config, { data: ['c2'], nextCursor: 'B' });
+            return jsonRaw(config, { data: ['c3'], nextCursor: null });
+        }
+        // /link
+        const page = Number(parsed.searchParams.get('page') ?? '1');
+        const next = page < 2 ? `<https://pg.example/link?page=${page + 1}>; rel="next"` : '';
+        return {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/json', link: next },
+            data: Buffer.from(JSON.stringify({ data: [`l${page}`] })),
+            config,
+        };
+    };
+
+    const api = Neutrx.create({
+        baseURL: 'https://pg.example',
+        adapter,
+        performance: { enableCaching: false },
+        resilience: { enableRetry: false, enableCircuitBreaker: false, enableBulkhead: false },
+    });
+
+    try {
+        // total-count: 5 items, pageSize 2 → stop after 3 pages (4 < 5, 6 >= 5).
+        const totalPages: string[][] = [];
+        for await (const page of api.paginate<string[]>('/total', { strategy: 'total-count', pageSize: 2 })) {
+            totalPages.push(page.data);
+        }
+        assert.deepEqual(totalPages, [['t1a', 't1b'], ['t2a', 't2b'], ['t3a', 't3b']]);
+
+        // cursor: follow nextCursor until null.
+        const cursorPages: string[][] = [];
+        for await (const page of api.paginate<string[]>('/cursor', { strategy: 'cursor' })) {
+            cursorPages.push(page.data);
+        }
+        assert.deepEqual(cursorPages, [['c1'], ['c2'], ['c3']]);
+
+        // link-header: follow rel="next" until absent.
+        const linkPages: string[][] = [];
+        for await (const page of api.paginate<string[]>('/link', { strategy: 'link-header' })) {
+            linkPages.push(page.data);
+        }
+        assert.deepEqual(linkPages, [['l1'], ['l2']]);
+    } finally {
+        api.destroy();
+    }
+});
+
 void test('node ws uses baseURL, auth headers, defaults, and request interceptors', async () => {
     const { default: Neutrx } = await import(builtEntry) as typeof PackageEntry;
     const upgrades: Array<{ readonly url?: string; readonly headers: http.IncomingHttpHeaders }> = [];

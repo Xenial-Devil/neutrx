@@ -369,22 +369,51 @@ export default class BrowserClient extends TinyEmitter {
         options: PaginationOptions = {}
     ): AsyncGenerator<PaginationPage<TData>> {
         const {
+            strategy = 'has-more',
             pageParam = 'page',
             limitParam = 'limit',
             pageSize = 20,
             dataPath = 'data',
             hasMorePath = 'hasMore',
+            totalPath = 'total',
+            nextCursorPath = 'nextCursor',
+            cursorParam = 'cursor',
             maxPages = Number.POSITIVE_INFINITY,
         } = options;
 
         let page = 1;
-        let hasMore = true;
+        let cursor: string | null = null;
+        let nextLink: string | null = null;
+        let seen = 0;
 
-        while (hasMore && page <= maxPages) {
-            const response = await this.get(url, { params: { [pageParam]: page, [limitParam]: pageSize } });
-            hasMore = Boolean(dig(response.data, hasMorePath));
-            yield { data: dig(response.data, dataPath) as TData, page, response };
+        while (page <= maxPages) {
+            const response = nextLink
+                ? await this.get(nextLink)
+                : await this.get(url, {
+                    params: strategy === 'cursor' && cursor !== null
+                        ? { [cursorParam]: cursor, [limitParam]: pageSize }
+                        : { [pageParam]: page, [limitParam]: pageSize },
+                });
+
+            const pageData = dig(response.data, dataPath) as TData;
+            yield { data: pageData, page, response };
+            seen += Array.isArray(pageData) ? pageData.length : 0;
             page += 1;
+
+            if (strategy === 'has-more') {
+                if (!dig(response.data, hasMorePath)) break;
+            } else if (strategy === 'total-count') {
+                const total = Number(dig(response.data, totalPath));
+                if (!Number.isFinite(total) || seen >= total) break;
+            } else if (strategy === 'cursor') {
+                const next = dig(response.data, nextCursorPath);
+                if (typeof next !== 'string' && typeof next !== 'number') break;
+                if (next === '') break;
+                cursor = String(next);
+            } else {
+                nextLink = parseNextLink(response.headers);
+                if (!nextLink) break;
+            }
         }
     }
 
@@ -830,7 +859,7 @@ export default class BrowserClient extends TinyEmitter {
     }
 
     async #fetch(config: InternalRequestConfig): Promise<RawHttpResponse> {
-        const fetchImpl = config.fetch ?? globalThis.fetch;
+        const fetchImpl = config.fetch ?? config.env?.fetch ?? globalThis.fetch;
         if (typeof fetchImpl !== 'function') {
             throw new NeutrxSecurityError('Fetch adapter requires globalThis.fetch', { code: 'FETCH_UNAVAILABLE' });
         }
@@ -842,6 +871,7 @@ export default class BrowserClient extends TinyEmitter {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(new NeutrxResponseTimeoutError(runtimeConfig.url, runtimeConfig.timeout, {
             code: axiosTimeoutErrorCode(runtimeConfig.transitional),
+            ...(runtimeConfig.timeoutErrorMessage ? { timeoutErrorMessage: runtimeConfig.timeoutErrorMessage } : {}),
         })), runtimeConfig.timeout);
         const abort = (): void => controller.abort(runtimeConfig.signal ? abortReason(runtimeConfig.signal) : undefined);
         if (runtimeConfig.signal?.aborted) {
@@ -970,6 +1000,10 @@ export default class BrowserClient extends TinyEmitter {
             proxy: false,
             decompress: false,
             maxRate: config.maxRate ?? defaults.maxRate,
+            ...(config.timeoutErrorMessage ?? defaults.timeoutErrorMessage) !== undefined ? { timeoutErrorMessage: config.timeoutErrorMessage ?? defaults.timeoutErrorMessage } : {},
+            ...(config.redact ?? defaults.redact) ? { redact: config.redact ?? defaults.redact } : {},
+            ...(config.formDataHeaderPolicy ?? defaults.formDataHeaderPolicy) ? { formDataHeaderPolicy: config.formDataHeaderPolicy ?? defaults.formDataHeaderPolicy } : {},
+            ...(config.env ?? defaults.env) ? { env: config.env ?? defaults.env } : {},
             transitional: { ...defaults.transitional, ...(config.transitional ?? {}) },
             followRedirects: config.followRedirects !== false,
             ...(signal ? { signal } : {}),
@@ -2232,6 +2266,19 @@ function isStreamLike(value: unknown): value is ReadableStream<Uint8Array> {
     return value !== null
         && typeof value === 'object'
         && typeof (value as { readonly getReader?: unknown }).getReader === 'function';
+}
+
+function parseNextLink(headers: Headers): string | null {
+    const raw = headers['link'] ?? headers['Link'];
+    const value = Array.isArray(raw) ? raw.join(', ') : raw;
+    if (typeof value !== 'string' || value.length === 0) return null;
+    for (const part of value.split(',')) {
+        const match = /<([^>]+)>\s*;\s*([^,]*)/.exec(part.trim());
+        const link = match?.[1];
+        const rel = match?.[2];
+        if (link && rel && /\brel\s*=\s*"?next"?/i.test(rel)) return link;
+    }
+    return null;
 }
 
 function dig(value: ParsedResponseData, path: string): ParsedResponseData {

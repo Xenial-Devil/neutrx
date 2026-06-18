@@ -1,5 +1,5 @@
 import { NeutrxRateLimitError } from '../core/NeutrxError.js';
-import type { RateLimitConfig } from '../types.js';
+import type { RateLimitConfig, RateLimitSnapshot, RateLimitStorageConfig } from '../types.js';
 
 export const ALGORITHMS = {
     TOKEN_BUCKET: 'token_bucket',
@@ -16,12 +16,18 @@ interface NormalizedRateLimitConfig {
     readonly windowMs: number;
     readonly burstSize: number;
     readonly perDomain: boolean;
+    readonly storage?: RateLimitStorageConfig;
 }
 
 type LimiterState =
     | { tokens: number; lastRefill: number }
     | { requests: number[] }
     | { count: number; windowId: number };
+
+interface AlgorithmResult {
+    readonly allowed: boolean;
+    readonly state: LimiterState;
+}
 
 export class RateLimiter {
     #limiters = new Map<string, LimiterState>();
@@ -35,34 +41,37 @@ export class RateLimiter {
             windowMs: config.windowMs ?? 60_000,
             burstSize: config.burstSize ?? 20,
             perDomain: config.perDomain ?? true,
+            ...(config.storage ? { storage: config.storage } : {}),
         };
     }
 
-    checkLimit(url: string): void {
+    async checkLimit(url: string): Promise<void> {
         if (!this.#config.enabled) return;
 
-        const key = this.#config.perDomain ? this.#domain(url) : 'global';
-        if (!this.#check(key)) {
-            throw new NeutrxRateLimitError(key);
+        const key = this.#key(url);
+        const current = await this.#get(key);
+        const { allowed, state } = this.#evaluate(current);
+        await this.#set(key, state);
+
+        if (!allowed) {
+            throw new NeutrxRateLimitError(this.#target(url));
         }
     }
 
-    #check(key: string): boolean {
+    #evaluate(current: LimiterState | undefined): AlgorithmResult {
         switch (this.#config.algorithm) {
             case ALGORITHMS.SLIDING_WINDOW:
-                return this.#slidingWindow(key);
+                return this.#slidingWindow(current);
             case ALGORITHMS.FIXED_WINDOW:
-                return this.#fixedWindow(key);
+                return this.#fixedWindow(current);
             default:
-                return this.#tokenBucket(key);
+                return this.#tokenBucket(current);
         }
     }
 
-    #tokenBucket(key: string): boolean {
+    #tokenBucket(current: LimiterState | undefined): AlgorithmResult {
         const now = Date.now();
-        const current = this.#limiters.get(key);
-        const bucket = isTokenBucket(current) ? current : { tokens: this.#config.burstSize, lastRefill: now };
-        this.#limiters.set(key, bucket);
+        const bucket = isTokenBucket(current) ? { ...current } : { tokens: this.#config.burstSize, lastRefill: now };
 
         const elapsed = now - bucket.lastRefill;
         const refillRate = this.#config.maxRequests / this.#config.windowMs;
@@ -71,43 +80,67 @@ export class RateLimiter {
 
         if (bucket.tokens >= 1) {
             bucket.tokens -= 1;
-            return true;
+            return { allowed: true, state: bucket };
         }
-        return false;
+        return { allowed: false, state: bucket };
     }
 
-    #slidingWindow(key: string): boolean {
+    #slidingWindow(current: LimiterState | undefined): AlgorithmResult {
         const now = Date.now();
         const windowStart = now - this.#config.windowMs;
-        const current = this.#limiters.get(key);
-        const window = isSlidingWindow(current) ? current : { requests: [] };
-        this.#limiters.set(key, window);
+        const requests = (isSlidingWindow(current) ? current.requests : []).filter(ts => ts > windowStart);
 
-        window.requests = window.requests.filter(ts => ts > windowStart);
-        if (window.requests.length < this.#config.maxRequests) {
-            window.requests.push(now);
-            return true;
+        if (requests.length < this.#config.maxRequests) {
+            requests.push(now);
+            return { allowed: true, state: { requests } };
         }
-        return false;
+        return { allowed: false, state: { requests } };
     }
 
-    #fixedWindow(key: string): boolean {
+    #fixedWindow(current: LimiterState | undefined): AlgorithmResult {
         const now = Date.now();
         const windowId = Math.floor(now / this.#config.windowMs);
-        const current = this.#limiters.get(key);
-        const window = isFixedWindow(current) ? current : { count: 0, windowId };
-        this.#limiters.set(key, window);
-
-        if (window.windowId !== windowId) {
-            window.count = 0;
-            window.windowId = windowId;
-        }
+        const window = isFixedWindow(current) && current.windowId === windowId
+            ? { count: current.count, windowId }
+            : { count: 0, windowId };
 
         if (window.count < this.#config.maxRequests) {
             window.count += 1;
-            return true;
+            return { allowed: true, state: window };
         }
-        return false;
+        return { allowed: false, state: window };
+    }
+
+    async #get(key: string): Promise<LimiterState | undefined> {
+        const existing = this.#limiters.get(key);
+        if (existing) return existing;
+
+        const stored = await this.#config.storage?.store.get(key);
+        if (stored) {
+            const hydrated = stateFromSnapshot(stored);
+            if (hydrated) {
+                this.#limiters.set(key, hydrated);
+                return hydrated;
+            }
+        }
+        return undefined;
+    }
+
+    async #set(key: string, state: LimiterState): Promise<void> {
+        this.#limiters.set(key, state);
+        await this.#config.storage?.store.set(key, snapshotFromState(state));
+    }
+
+    #key(url: string): string {
+        const namespace = safeKeyPart(this.#config.storage?.namespace ?? 'default');
+        const scope = this.#config.storage?.scope ?? (this.#config.perDomain ? 'origin' : 'global');
+        const target = scope === 'global' ? 'global' : safeKeyPart(this.#target(url));
+        return `neutrx:${namespace}:ratelimit:${scope}:${target}`;
+    }
+
+    #target(url: string): string {
+        if (!this.#config.perDomain) return 'global';
+        return this.#domain(url);
     }
 
     #domain(url: string): string {
@@ -117,6 +150,29 @@ export class RateLimiter {
             return url;
         }
     }
+}
+
+function snapshotFromState(state: LimiterState): RateLimitSnapshot {
+    if (isTokenBucket(state)) return { tokens: state.tokens, lastRefill: state.lastRefill };
+    if (isSlidingWindow(state)) return { requests: [...state.requests] };
+    return { count: state.count, windowId: state.windowId };
+}
+
+function stateFromSnapshot(snapshot: RateLimitSnapshot): LimiterState | undefined {
+    if (snapshot.tokens !== undefined && snapshot.lastRefill !== undefined) {
+        return { tokens: snapshot.tokens, lastRefill: snapshot.lastRefill };
+    }
+    if (snapshot.requests !== undefined) {
+        return { requests: [...snapshot.requests] };
+    }
+    if (snapshot.count !== undefined && snapshot.windowId !== undefined) {
+        return { count: snapshot.count, windowId: snapshot.windowId };
+    }
+    return undefined;
+}
+
+function safeKeyPart(value: string): string {
+    return value.replace(/[^a-zA-Z0-9:._-]/g, '_');
 }
 
 function isTokenBucket(value: LimiterState | undefined): value is { tokens: number; lastRefill: number } {

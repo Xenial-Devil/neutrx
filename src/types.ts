@@ -43,6 +43,22 @@ export type ProgressEvent = {
 };
 export type FetchCredentials = 'include' | 'omit' | 'same-origin';
 export type FetchImplementation = typeof fetch;
+export type IpAddressFamily = 4 | 6;
+/**
+ * Controls which headers the multipart serializer is allowed to auto-set when a
+ * FormData/record body is sent. `auto` (default) sets `Content-Type` with a
+ * generated boundary when absent; `preserve` only sets it when no `Content-Type`
+ * exists yet (never overwrites); `none` leaves header management entirely to the
+ * caller.
+ */
+export type FormDataHeaderPolicy = 'auto' | 'preserve' | 'none';
+/** Runtime polyfill injection (axios `env` parity). Node 18+ exposes these globally. */
+export interface EnvConfig {
+    readonly FormData?: typeof FormData;
+    readonly fetch?: FetchImplementation;
+    readonly Request?: typeof Request;
+    readonly Response?: typeof Response;
+}
 export type MaxRate = number | readonly [uploadBytesPerSecond: number, downloadBytesPerSecond: number];
 export type IdempotencyKey = string | (() => string) | true;
 export type TransportRequest = ClientRequest | ClientHttp2Stream | Request;
@@ -398,6 +414,32 @@ export interface CircuitBreakerStorageConfig {
     readonly namespace?: string;
 }
 
+/** Serializable snapshot of a rate-limiter key's state across all algorithms. */
+export interface RateLimitSnapshot {
+    /** token_bucket: remaining tokens. */
+    readonly tokens?: number;
+    /** token_bucket: last refill timestamp (ms). */
+    readonly lastRefill?: number;
+    /** sliding_window: request timestamps (ms) within the window. */
+    readonly requests?: readonly number[];
+    /** fixed_window: request count in the current window. */
+    readonly count?: number;
+    /** fixed_window: current window id. */
+    readonly windowId?: number;
+}
+
+export interface RateLimitStore {
+    get(key: string): MaybePromise<RateLimitSnapshot | undefined>;
+    set(key: string, value: RateLimitSnapshot): MaybePromise<void>;
+    delete?(key: string): MaybePromise<void>;
+}
+
+export interface RateLimitStorageConfig {
+    readonly store: RateLimitStore;
+    readonly scope?: 'origin' | 'global';
+    readonly namespace?: string;
+}
+
 export interface AdaptiveConcurrencyConfig {
     readonly enabled?: boolean;
     readonly initialLimit?: number;
@@ -436,6 +478,8 @@ export interface RateLimitConfig {
     readonly windowMs?: number;
     readonly burstSize?: number;
     readonly perDomain?: boolean;
+    /** Optional external store for sharing limiter state across processes (best-effort, non-atomic). */
+    readonly storage?: RateLimitStorageConfig;
 }
 
 export interface ResilienceConfig {
@@ -604,6 +648,14 @@ export interface ClientConfig {
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
     readonly socketPath?: string;
+    readonly family?: IpAddressFamily;
+    readonly insecureHTTPParser?: boolean;
+    readonly allowedSocketPaths?: readonly string[];
+    readonly sensitiveHeaders?: readonly string[];
+    readonly timeoutErrorMessage?: string;
+    readonly redact?: readonly string[];
+    readonly formDataHeaderPolicy?: FormDataHeaderPolicy;
+    readonly env?: EnvConfig;
     readonly decompress?: boolean;
     readonly maxRate?: MaxRate;
     readonly transitional?: TransitionalConfig;
@@ -613,7 +665,7 @@ export interface ClientConfig {
     readonly performance?: PerformanceConfig;
 }
 
-export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'auth' | 'idempotencyKey' | 'idempotencyKeyHeader' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'schema' | 'parseJson' | 'stringifyJson' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'serviceDiscovery' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'tls' | 'beforeRedirect' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'maxRate' | 'security' | 'egressPolicy' | 'resilience' | 'performance' | 'transitional'>> {
+export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'baseURL' | 'headers' | 'auth' | 'idempotencyKey' | 'idempotencyKeyHeader' | 'paramsSerializer' | 'formSerializer' | 'transformRequest' | 'transformResponse' | 'schema' | 'parseJson' | 'stringifyJson' | 'adapter' | 'fetch' | 'httpVersion' | 'http2Options' | 'serviceDiscovery' | 'withCredentials' | 'credentials' | 'xsrfCookieName' | 'xsrfHeaderName' | 'withXSRFToken' | 'instrumentation' | 'proxy' | 'tls' | 'beforeRedirect' | 'httpAgent' | 'httpsAgent' | 'lookup' | 'socketPath' | 'family' | 'insecureHTTPParser' | 'allowedSocketPaths' | 'sensitiveHeaders' | 'timeoutErrorMessage' | 'redact' | 'formDataHeaderPolicy' | 'env' | 'maxRate' | 'security' | 'egressPolicy' | 'resilience' | 'performance' | 'transitional'>> {
     readonly baseURL?: string;
     readonly headers?: HeaderSource;
     readonly auth?: BasicAuthConfig;
@@ -644,6 +696,14 @@ export interface NormalizedClientConfig extends Required<Omit<ClientConfig, 'bas
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
     readonly socketPath?: string;
+    readonly family?: IpAddressFamily;
+    readonly insecureHTTPParser?: boolean;
+    readonly allowedSocketPaths?: readonly string[];
+    readonly sensitiveHeaders?: readonly string[];
+    readonly timeoutErrorMessage?: string;
+    readonly redact?: readonly string[];
+    readonly formDataHeaderPolicy?: FormDataHeaderPolicy;
+    readonly env?: EnvConfig;
     readonly maxRate?: MaxRate;
     readonly egressPolicy?: EgressPolicyConfig;
     readonly transitional: Required<TransitionalConfig>;
@@ -721,6 +781,14 @@ export interface RequestConfig<
     readonly httpsAgent?: HttpsAgent;
     readonly lookup?: LookupFunction;
     readonly socketPath?: string;
+    readonly family?: IpAddressFamily;
+    readonly insecureHTTPParser?: boolean;
+    readonly allowedSocketPaths?: readonly string[];
+    readonly sensitiveHeaders?: readonly string[];
+    readonly timeoutErrorMessage?: string;
+    readonly redact?: readonly string[];
+    readonly formDataHeaderPolicy?: FormDataHeaderPolicy;
+    readonly env?: EnvConfig;
     readonly decompress?: boolean;
     readonly maxRate?: MaxRate;
     readonly transitional?: TransitionalConfig;
@@ -768,6 +836,14 @@ export interface InternalRequestConfig<TBody extends RequestBody = RequestBody> 
     readonly instrumentation?: InstrumentationConfig;
     readonly proxy?: ProxyConfig | false;
     readonly socketPath?: string;
+    readonly family?: IpAddressFamily;
+    readonly insecureHTTPParser?: boolean;
+    readonly allowedSocketPaths?: readonly string[];
+    readonly sensitiveHeaders?: readonly string[];
+    readonly timeoutErrorMessage?: string;
+    readonly redact?: readonly string[];
+    readonly formDataHeaderPolicy?: FormDataHeaderPolicy;
+    readonly env?: EnvConfig;
     readonly decompress: boolean;
     readonly maxRate?: MaxRate;
     readonly transitional: Required<TransitionalConfig>;
@@ -843,12 +919,23 @@ export interface ConcurrentResult<TData extends ParsedResponseData = ParsedRespo
     readonly completed: number;
 }
 
+export type PaginationStrategy = 'has-more' | 'total-count' | 'cursor' | 'link-header';
+
 export interface PaginationOptions {
+    /** Continuation strategy. Defaults to `has-more` for backward compatibility. */
+    readonly strategy?: PaginationStrategy;
     readonly pageParam?: string;
     readonly limitParam?: string;
     readonly pageSize?: number;
     readonly dataPath?: string;
+    /** strategy `has-more`: dotted path to a boolean "more pages" flag. */
     readonly hasMorePath?: string;
+    /** strategy `total-count`: dotted path to the total item count. */
+    readonly totalPath?: string;
+    /** strategy `cursor`: dotted path to the next-page cursor in the response. */
+    readonly nextCursorPath?: string;
+    /** strategy `cursor`: query param name carrying the cursor (default `cursor`). */
+    readonly cursorParam?: string;
     readonly maxPages?: number;
 }
 

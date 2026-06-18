@@ -18,6 +18,10 @@ export interface NeutrxErrorOptions {
     readonly timeout?: number;
     readonly phase?: string;
     readonly severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    /** Custom timeout message (axios `timeoutErrorMessage` parity). Overrides the default phrasing. */
+    readonly timeoutErrorMessage?: string;
+    /** Extra property/header keys to mask in {@link NeutrxError.toJSON} (axios `redact` parity). */
+    readonly redact?: readonly string[];
 }
 
 export function axiosTimeoutErrorCode(transitional?: { readonly clarifyTimeoutError?: boolean }): 'ECONNABORTED' | 'ETIMEDOUT' {
@@ -36,6 +40,8 @@ export class NeutrxError extends Error {
     context: Record<string, string | number | boolean | null | undefined>;
     traceContext?: TraceContext;
     duration?: number;
+    /** Extra keys to mask in {@link toJSON}, sourced from request config `redact`. */
+    redact?: readonly string[];
 
     constructor(message: string, options: NeutrxErrorOptions = {}) {
         super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
@@ -49,6 +55,7 @@ export class NeutrxError extends Error {
         this.retryable = options.retryable ?? false;
         this.context = options.context ?? {};
         if (options.traceContext) this.traceContext = options.traceContext;
+        if (options.redact && options.redact.length > 0) this.redact = options.redact;
         Object.defineProperty(this, '__isNeutrxError', {
             value: true,
             enumerable: false,
@@ -68,22 +75,22 @@ export class NeutrxError extends Error {
             name: this.name,
             code: this.code,
             category: this.category,
-            message: redactText(this.message),
+            message: redactText(this.message, this.redact),
             timestamp: this.timestamp,
             requestId: this.requestId,
-            url: this.url ? redactUrl(this.url) : null,
+            url: this.url ? redactUrl(this.url, this.redact) : null,
             method: this.method,
             retryable: this.retryable,
             duration: this.duration,
             traceId: this.traceContext?.traceId ?? null,
             spanId: this.traceContext?.spanId ?? null,
-            context: redactUnknown(this.context),
+            context: redactUnknown(this.context, 0, this.redact),
             ...(this.cause !== undefined ? { cause: serializeCause(this.cause) } : {}),
         };
     }
 
     override toString(): string {
-        return `[${this.name}] ${this.code}: ${redactText(this.message)}`;
+        return `[${this.name}] ${this.code}: ${redactText(this.message, this.redact)}`;
     }
 }
 
@@ -193,7 +200,7 @@ export class NeutrxTimeoutError extends NeutrxError {
 
 export class NeutrxConnectTimeoutError extends NeutrxTimeoutError {
     constructor(url: string, timeout: number, options: NeutrxErrorOptions = {}) {
-        super(`Connect timeout after ${timeout}ms: ${url}`, {
+        super(options.timeoutErrorMessage ?? `Connect timeout after ${timeout}ms: ${url}`, {
             ...options,
             code: options.code ?? 'CONNECT_TIMEOUT',
             timeout,
@@ -204,7 +211,7 @@ export class NeutrxConnectTimeoutError extends NeutrxTimeoutError {
 
 export class NeutrxResponseTimeoutError extends NeutrxTimeoutError {
     constructor(url: string, timeout: number, options: NeutrxErrorOptions = {}) {
-        super(`Response timeout after ${timeout}ms: ${url}`, {
+        super(options.timeoutErrorMessage ?? `Response timeout after ${timeout}ms: ${url}`, {
             ...options,
             code: options.code ?? 'RESPONSE_TIMEOUT',
             timeout,
@@ -347,6 +354,7 @@ export class NeutrxHTTPError extends NeutrxError {
                 url: response.config.url,
                 method: response.config.method,
                 ...(traceContext ? { traceContext } : {}),
+                ...(options.redact ?? response.config.redact ? { redact: options.redact ?? response.config.redact } : {}),
             }
         );
         this.status = response.status;
@@ -366,8 +374,8 @@ export class NeutrxHTTPError extends NeutrxError {
             response: {
                 status: this.status,
                 statusText: this.statusText,
-                headers: redactHeaders(this.headers),
-                data: redactUnknown(this.data),
+                headers: redactHeaders(this.headers, this.redact),
+                data: redactUnknown(this.data, 0, this.redact),
             },
         };
     }
@@ -545,10 +553,15 @@ export interface NodeLikeError extends Error {
 type HeaderValueAsString = string;
 
 export class NeutrxErrorFactory {
-    static fromNodeError(nodeError: NodeLikeError, config: { readonly url?: string; readonly method?: string } = {}): NeutrxError {
+    static fromNodeError(
+        nodeError: NodeLikeError,
+        config: { readonly url?: string; readonly method?: string; readonly redact?: readonly string[]; readonly timeoutErrorMessage?: string } = {}
+    ): NeutrxError {
         const opts: NeutrxErrorOptions = {
             ...(config.url ? { url: config.url } : {}),
             ...(config.method ? { method: config.method } : {}),
+            ...(config.redact ? { redact: config.redact } : {}),
+            ...(config.timeoutErrorMessage ? { timeoutErrorMessage: config.timeoutErrorMessage } : {}),
             context: { errno: nodeError.errno, syscall: nodeError.syscall },
             errno: nodeError.errno ?? null,
             syscall: nodeError.syscall ?? null,
@@ -561,7 +574,7 @@ export class NeutrxErrorFactory {
             case 'ENOTFOUND':
                 return new NeutrxDNSError(NeutrxErrorFactory.#safeHostname(config.url), opts);
             case 'ETIMEDOUT':
-                return new NeutrxTimeoutError(nodeError.message, opts);
+                return new NeutrxTimeoutError(config.timeoutErrorMessage ?? nodeError.message, opts);
             case 'ECONNRESET':
                 return new NeutrxNetworkError('Connection reset', { ...opts, code: 'ECONNRESET' });
             case 'ENETUNREACH':
@@ -601,53 +614,60 @@ function isProduction(): boolean {
     return typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
 }
 
-function redactHeaders(headers: Headers): Headers {
+function redactHeaders(headers: Headers, extra?: readonly string[]): Headers {
     const result: Headers = {};
     for (const [key, value] of Object.entries(headers)) {
-        result[key] = isSensitiveKey(key)
+        result[key] = isSensitiveKey(key, extra)
             ? Array.isArray(value) ? value.map(() => REDACTION) : REDACTION
             : value;
     }
     return result;
 }
 
-function redactUnknown(value: unknown, depth = 0): unknown {
+function redactUnknown(value: unknown, depth = 0, extra?: readonly string[]): unknown {
     if (depth > 5) return '[Truncated]';
-    if (typeof value === 'string') return redactText(value);
+    if (typeof value === 'string') return redactText(value, extra);
     if (value === null || typeof value !== 'object') return value;
     if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return `[Buffer:${value.length}]`;
     if (value instanceof ArrayBuffer) return `[ArrayBuffer:${value.byteLength}]`;
     if (ArrayBuffer.isView(value)) return `[TypedArray:${value.byteLength}]`;
-    if (Array.isArray(value)) return value.map(item => redactUnknown(item, depth + 1));
+    if (Array.isArray(value)) return value.map(item => redactUnknown(item, depth + 1, extra));
 
     const record = value as Record<string, unknown>;
     const result: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(record)) {
-        result[key] = isSensitiveKey(key) ? REDACTION : redactUnknown(child, depth + 1);
+        result[key] = isSensitiveKey(key, extra) ? REDACTION : redactUnknown(child, depth + 1, extra);
     }
     return result;
 }
 
-function redactText(value: string): string {
-    return value.replace(/([?&](?:access_token|refresh_token|token|api_key|apikey|password|secret|client_secret)=)[^&\s]+/gi, `$1${REDACTION}`);
+function redactText(value: string, extra?: readonly string[]): string {
+    const redacted = value.replace(/([?&](?:access_token|refresh_token|token|api_key|apikey|password|secret|client_secret)=)[^&\s]+/gi, `$1${REDACTION}`);
+    if (!extra || extra.length === 0) return redacted;
+    return extra.reduce<string>((current, key) => {
+        const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return current.replace(new RegExp(`([?&]${escaped}=)[^&\\s]+`, 'gi'), `$1${REDACTION}`);
+    }, redacted);
 }
 
-function redactUrl(value: string): string {
+function redactUrl(value: string, extra?: readonly string[]): string {
     try {
         const parsed = new URL(value);
         if (parsed.username) parsed.username = REDACTION;
         if (parsed.password) parsed.password = REDACTION;
         for (const key of [...parsed.searchParams.keys()]) {
-            if (isSensitiveKey(key)) parsed.searchParams.set(key, REDACTION);
+            if (isSensitiveKey(key, extra)) parsed.searchParams.set(key, REDACTION);
         }
-        return parsed.toString();
+        return parsed.toString().replace(new RegExp(encodeURIComponent(REDACTION), 'g'), REDACTION);
     } catch {
-        return redactText(value);
+        return redactText(value, extra);
     }
 }
 
-function isSensitiveKey(key: string): boolean {
-    return SENSITIVE_KEY_RE.test(key.toLowerCase());
+function isSensitiveKey(key: string, extra?: readonly string[]): boolean {
+    const lower = key.toLowerCase();
+    if (SENSITIVE_KEY_RE.test(lower)) return true;
+    return extra ? extra.some(entry => entry.toLowerCase() === lower) : false;
 }
 
 function serializeNestedError(error: Error): Record<string, unknown> {
