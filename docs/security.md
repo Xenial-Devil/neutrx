@@ -1,3 +1,9 @@
+---
+title: Security Guide
+parent: Security
+nav_order: 2
+---
+
 # Neutrx Security Guide
 
 ## Profiles

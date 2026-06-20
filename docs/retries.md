@@ -1,3 +1,9 @@
+---
+title: Retry Strategies
+parent: Guides
+nav_order: 4
+---
+
 # Retries
 
 Retries are enabled by default and apply only to idempotent methods unless configured otherwise.

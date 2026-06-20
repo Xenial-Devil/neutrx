@@ -61,11 +61,11 @@ void test('RateLimiter enforces sliding window and fixed window policies', async
             windowMs: 1000,
             perDomain: false,
         });
-        fixed.checkLimit('https://api.example.com/a');
-        assert.throws(() => fixed.checkLimit('https://api.example.com/b'), /Rate limit exceeded/u);
+        await fixed.checkLimit('https://api.example.com/a');
+        await assert.rejects(fixed.checkLimit('https://api.example.com/b'), /Rate limit exceeded/u);
 
         now += 1000;
-        assert.doesNotThrow(() => fixed.checkLimit('https://api.example.com/c'));
+        await assert.doesNotReject(fixed.checkLimit('https://api.example.com/c'));
     } finally {
         Date.now = originalNow;
     }

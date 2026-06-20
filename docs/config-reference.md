@@ -1,3 +1,9 @@
+---
+title: Config Reference
+parent: Reference
+nav_order: 2
+---
+
 # Config Reference
 
 Neutrx merges config in this order:
@@ -286,6 +292,50 @@ resilience: {
 ```
 
 `retryBudget.store` and `circuitBreakerStorage.store` are dependency-free interfaces for shared fleet state. Use them from optional Redis/database packages or userland code; core only calls the interface.
+
+### Distributed State (`StateAdapter`)
+
+`StateAdapter<T>` is a single generic key/value contract (`get`, `set(key, value, ttlMs?)`, optional `delete`/`keys`/`clear`) that one backend implements once and bridges into multiple components. Instead of writing a separate store per collaborator, implement `StateAdapter` (e.g. over Redis) and adapt it:
+
+```ts
+import {
+  MemoryStateAdapter,
+  namespaceAdapter,
+  circuitStoreFromAdapter,
+  rateLimitStoreFromAdapter,
+} from 'neutrx';
+
+const shared = new MemoryStateAdapter(); // or a Redis-backed StateAdapter (optional peer dep)
+
+const api = neutrx.create({
+  resilience: {
+    circuitBreakerStorage: { store: circuitStoreFromAdapter(shared) },
+  },
+  security: {
+    rateLimit: { enabled: true, storage: { store: rateLimitStoreFromAdapter(shared) } },
+  },
+});
+```
+
+`MemoryStateAdapter` is the in-process reference impl (Map-backed, TTL-aware, single-process only — use a distributed adapter for multi-instance fleets). `namespaceAdapter(adapter, prefix)` prefixes keys so one backend hosts multiple logical namespaces without collision. Bridged stores are **best-effort and non-atomic**, matching the underlying rate-limiter and circuit-breaker contracts. `ttlMs` is an expiry hint only — backends may ignore it; correctness never depends on it, since the in-process layer revalidates timestamps. Concrete distributed backends (Redis, Memcached) ship as opt-in peer deps; core only defines the interface.
+
+#### Redis (`RedisStateAdapter`, Node only)
+
+`RedisStateAdapter` is a ready-made distributed adapter. It adds **no runtime dependency** — you supply your own connected `ioredis` / `node-redis` (or any client matching the `RedisLikeClient` shape: `get`/`set`/`pexpire`/`del`/`keys`). Neutrx imports no Redis package.
+
+```ts
+import Redis from 'ioredis';
+import { RedisStateAdapter, circuitStoreFromAdapter, rateLimitStoreFromAdapter } from 'neutrx';
+
+const shared = new RedisStateAdapter({ client: new Redis(process.env.REDIS_URL), keyPrefix: 'neutrx:' });
+
+const api = neutrx.create({
+  resilience: { circuitBreakerStorage: { store: circuitStoreFromAdapter(shared) } },
+  security: { rateLimit: { enabled: true, storage: { store: rateLimitStoreFromAdapter(shared) } } },
+});
+```
+
+Values are JSON-serialized under `keyPrefix` (default `neutrx:`); `ttlMs` maps to `PEXPIRE`. **Server-only and not atomic** — `set` + `pexpire` are two round-trips and the bridged contracts are best-effort, so concurrent writers can race (correctness never depends on it). **`keys()` / `clear()` use `KEYS prefix*`** — O(N) and blocking on large databases; they scope strictly to `keyPrefix` (so `clear()` never wipes foreign keys or the whole DB), but for hot paths prefer a dedicated namespace DB or a backend that doesn't enumerate. Override `serialize`/`deserialize` for custom encoding.
 
 ## Performance
 

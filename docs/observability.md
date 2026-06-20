@@ -1,3 +1,9 @@
+---
+title: Observability
+parent: Guides
+nav_order: 11
+---
+
 # Observability
 
 Neutrx exposes lightweight metrics and events without requiring OpenTelemetry as a runtime dependency.

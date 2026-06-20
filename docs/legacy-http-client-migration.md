@@ -1,3 +1,9 @@
+---
+title: Legacy HTTP Client Migration
+parent: Migration
+nav_order: 2
+---
+
 # Legacy HTTP Client Migration
 
 Neutrx keeps an ergonomic request API while focusing on secure Node.js 18+ backend service calls. This guide highlights common migration patterns from another HTTP client or legacy request library.

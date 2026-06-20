@@ -1,3 +1,9 @@
+---
+title: Cache & Deduplication
+parent: Guides
+nav_order: 7
+---
+
 # Cache
 
 Neutrx has an in-memory response cache for safe `GET` requests. Unsafe methods are not cached by the client.

@@ -1,3 +1,9 @@
+---
+title: OTel Tracing
+parent: Examples
+nav_order: 5
+---
+
 # OTel Tracing
 
 Neutrx can create OpenTelemetry-friendly spans and propagation headers when the application installs `@opentelemetry/api`. Neutrx core does not require it as a runtime dependency.

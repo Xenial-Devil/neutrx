@@ -1,3 +1,9 @@
+---
+title: Circuit Breaker
+parent: Guides
+nav_order: 5
+---
+
 # Circuit Breaker
 
 Circuit breaking is enabled by default and tracked per target host.

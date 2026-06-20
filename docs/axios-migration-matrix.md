@@ -1,3 +1,9 @@
+---
+title: Axios Migration Matrix
+parent: Migration
+nav_order: 1
+---
+
 # Axios Migration Matrix
 
 This guide maps common Axios backend usage to Neutrx. Neutrx keeps familiar ergonomics where they fit, but preserves backend security defaults over exact compatibility.

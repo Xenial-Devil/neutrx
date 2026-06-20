@@ -1,3 +1,9 @@
+---
+title: Release Security
+parent: Reference
+nav_order: 5
+---
+
 # Release Security
 
 Neutrx's release path should match its security-first product claim.

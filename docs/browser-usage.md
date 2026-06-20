@@ -1,3 +1,9 @@
+---
+title: Browser Usage
+parent: Guides
+nav_order: 3
+---
+
 # Browser Usage
 
 Browser support exists through `neutrx/browser` and the package `browser` condition. It is useful when you want Neutrx request ergonomics in frontend code, while accepting normal browser platform limits.

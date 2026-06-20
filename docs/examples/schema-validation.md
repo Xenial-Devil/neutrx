@@ -1,3 +1,9 @@
+---
+title: Schema Validation
+parent: Examples
+nav_order: 6
+---
+
 # Schema Validation
 
 Use `schema` to validate and optionally transform parsed response data before a successful response is returned. Neutrx accepts Zod-like `safeParse`, `parse`, `validate`, TypeBox-style `Check/Errors`, or function validators.

@@ -1,3 +1,9 @@
+---
+title: Release Testing
+parent: Reference
+nav_order: 4
+---
+
 # Release Testing
 
 Run the full local release gate before publishing:

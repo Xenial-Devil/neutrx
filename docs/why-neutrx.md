@@ -1,3 +1,8 @@
+---
+title: Why Neutrx
+nav_order: 8
+---
+
 # Why Neutrx
 
 Neutrx is for Node.js backend egress where outbound HTTP is a security boundary.

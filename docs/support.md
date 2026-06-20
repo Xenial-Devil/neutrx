@@ -1,3 +1,8 @@
+---
+title: Support
+nav_order: 9
+---
+
 # Support And Sustainability
 
 Neutrx is maintained as an open-source project for secure Node.js backend service-to-service HTTP. This page explains where users should ask for help, where security reports belong, and how sponsorship supports ongoing maintenance.

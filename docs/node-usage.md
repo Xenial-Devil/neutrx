@@ -1,3 +1,9 @@
+---
+title: Node Usage
+parent: Guides
+nav_order: 1
+---
+
 # Node Usage
 
 Neutrx is backend-first. The Node entry uses the built-in Node HTTP adapter by default and can use HTTP/2, Unix sockets, custom agents, proxy config, TLS controls, DNS lookup hooks, bandwidth rate limits, progress events, and strict SSRF checks.

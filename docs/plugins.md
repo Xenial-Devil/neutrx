@@ -1,3 +1,9 @@
+---
+title: Plugins
+parent: Guides
+nav_order: 10
+---
+
 # Plugins
 
 Plugins extend client behavior without adding required runtime dependencies to Neutrx core.
@@ -110,3 +116,41 @@ api.mock?.enable().register('/users', {
 ```
 
 Use `MockPlugin` for examples, tests, and local demos where you want the client lifecycle without network calls.
+
+## AWS SigV4 (Node only)
+
+```ts
+import { createAwsSigV4Plugin } from 'neutrx';
+
+api.use(createAwsSigV4Plugin({
+  region: 'us-east-1',
+  service: 'execute-api',
+  credentials: { accessKeyId: '...', secretAccessKey: '...', sessionToken: '...' },
+}));
+```
+
+Signs each request via the `beforeRequest` hook using AWS Signature Version 4: canonical request → string-to-sign → HMAC-SHA256 key chain → `Authorization` header. Zero-dep (`node:crypto` only).
+
+- Signs `host`, `content-type` (if present), and all `x-amz-*` headers (including `x-amz-security-token` for STS). `X-Amz-Content-Sha256` is added and signed for `s3` (or opt in via `addContentSha256Header: true`).
+- **Body hashing:** strings, `Buffer`, typed arrays, and `URLSearchParams` are hashed directly. Plain objects are serialized to JSON and rewritten onto `config.data` so the wire body matches the signature. Streams, `Blob`, `FormData`, and `unsignedPayload: true` send `UNSIGNED-PAYLOAD`.
+- `doubleEncodePath` defaults to `true` except for `s3`. `now` overrides the clock for deterministic tests.
+
+**Server contract:** the target AWS service (or a SigV4-validating gateway) verifies the signature, the credential scope (region/service/date), and the timestamp window. Clock skew beyond ~15 min is rejected by AWS. **Node-only** — needs a `Host` header that `fetch` cannot set.
+
+## HAR Recording
+
+```ts
+import { createHarRecorder } from 'neutrx';
+
+const recorder = createHarRecorder({ maxEntries: 1000 });
+api.use(recorder.plugin);
+
+// ... make requests ...
+const har = recorder.har();        // HAR 1.2 log object
+recorder.export();                  // JSON string
+recorder.clear();
+```
+
+Captures HAR 1.2 entries via `afterRequest`; failed requests are captured via `onError` with status `0` and an `_error` field. Ring-buffer bounded by `maxEntries`. Binary bodies are emitted base64.
+
+**Security default — redaction is on.** `authorization`, `cookie`, `set-cookie`, and `x-amz-security-token` header values are redacted. Pass `redactHeaders: false` to keep raw values, or supply a custom `redactHeaders` list. Treat exported HAR as sensitive: it may still contain URLs, query params, and bodies. `includeRequestBody` / `includeResponseBody` control body capture.

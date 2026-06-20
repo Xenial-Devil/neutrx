@@ -1,3 +1,9 @@
+---
+title: Errors
+parent: Reference
+nav_order: 3
+---
+
 # Errors
 
 Neutrx errors are typed, branded, and machine-readable.

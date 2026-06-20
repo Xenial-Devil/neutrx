@@ -1,3 +1,9 @@
+---
+title: Bulkhead Isolation
+parent: Guides
+nav_order: 6
+---
+
 # Bulkhead Isolation
 
 Bulkheads limit concurrent work per target so one slow or overloaded upstream does not consume all outbound capacity.

@@ -1,3 +1,9 @@
+---
+title: File Upload
+parent: Examples
+nav_order: 3
+---
+
 # File Upload
 
 Use form helpers for multipart uploads. In Node, plain objects are serialized as multipart bodies by the Node HTTP adapter. In browser runtimes, plain objects are converted to `FormData` where the platform supports it.

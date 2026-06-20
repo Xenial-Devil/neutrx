@@ -1,3 +1,9 @@
+---
+title: Security
+nav_order: 4
+has_children: true
+---
+
 # Security Model
 
 Neutrx is designed for Node.js 18+ backend services making outbound HTTP calls. Its main security goal is to make dangerous outbound targets and credential leaks harder to trigger by accident.

@@ -1,3 +1,9 @@
+---
+title: Full-Stack Frontend Migration
+parent: Migration
+nav_order: 3
+---
+
 # Full-Stack And Frontend Migration
 
 Use this guide when you want Neutrx request ergonomics in browser, edge, SSR, and backend code while keeping the backend security controls explicit. Neutrx is still backend-first; browser support is for shared workflows and frontend fetch ergonomics, not for browser-side SSRF guarantees.

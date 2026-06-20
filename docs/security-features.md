@@ -1,3 +1,9 @@
+---
+title: Security Features
+parent: Security
+nav_order: 1
+---
+
 # Security Features
 
 Neutrx treats outbound HTTP from Node.js backends as a security boundary. The built-in Node adapters provide the strongest SSRF, redirect, TLS, and egress controls. Browser and edge fetch runtimes retain application-level protections but cannot provide equivalent network enforcement.
