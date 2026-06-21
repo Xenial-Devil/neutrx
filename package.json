@@ -182,7 +182,7 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^18.19.0",
+    "@types/node": "^24.10.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "c8": "^10.1.3",
