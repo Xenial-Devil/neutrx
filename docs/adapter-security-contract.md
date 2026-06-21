@@ -1,3 +1,9 @@
+---
+title: Adapter Security Contract
+parent: Security
+nav_order: 4
+---
+
 # Adapter Security Contract
 
 Custom adapters are powerful and risky. Neutrx can validate request config before an adapter runs and parse/redact errors after a response returns, but it cannot inspect redirects, DNS, TLS, proxy behavior, or retries that a custom adapter performs internally.

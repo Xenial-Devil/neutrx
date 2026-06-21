@@ -1,3 +1,9 @@
+---
+title: Request Retry
+parent: Examples
+nav_order: 4
+---
+
 # Request Retry
 
 Retries are enabled by default for idempotent methods. Configure the retry budget and delay behavior on the client.

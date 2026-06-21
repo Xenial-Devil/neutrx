@@ -1,3 +1,9 @@
+---
+title: Secure Egress
+parent: Security
+nav_order: 3
+---
+
 # Secure Egress Policy
 
 `egressPolicy` makes outbound network intent reviewable in one object. It adds policy checks on top of security profiles. It does not weaken SSRF defaults unless you explicitly allow a CIDR.

@@ -11,6 +11,19 @@ const gunzip = promisify(zlib.gunzip);
 const inflate = promisify(zlib.inflate);
 const brotliDecompress = promisify(zlib.brotliDecompress);
 
+type ZstdCapableZlib = typeof zlib & {
+    readonly zstdDecompress: (buffer: zlib.InputType, callback: (error: Error | null, result: Buffer) => void) => void;
+};
+
+function getZstdDecompress(): ((data: zlib.InputType) => Promise<Buffer>) | undefined {
+    const candidate = (zlib as Partial<ZstdCapableZlib>).zstdDecompress;
+    if (typeof candidate !== 'function') return undefined;
+    return promisify((zlib as ZstdCapableZlib).zstdDecompress);
+}
+
+/** True when the runtime's `node:zlib` exposes zstd (Node 22+). */
+export const supportsZstd = getZstdDecompress() !== undefined;
+
 export async function decompressResponseData(
     data: Buffer | IncomingMessage,
     headers: Headers,
@@ -34,6 +47,10 @@ export async function decompressResponseData(
 }
 
 async function inflateEncoded(data: Buffer, encoding: string): Promise<Buffer | null> {
+    if (encoding.includes('zstd')) {
+        const zstdDecompress = getZstdDecompress();
+        return zstdDecompress ? zstdDecompress(data) : null;
+    }
     if (encoding.includes('br')) return brotliDecompress(data);
     if (encoding.includes('gzip')) return gunzip(data);
     if (encoding.includes('deflate')) return inflate(data);

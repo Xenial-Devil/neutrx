@@ -1,3 +1,9 @@
+---
+title: Auth Token
+parent: Examples
+nav_order: 2
+---
+
 # Auth Token
 
 Use `setAuth()` for service-wide bearer tokens, or pass request-specific headers when each call has a different token.

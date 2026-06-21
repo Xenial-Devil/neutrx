@@ -133,6 +133,8 @@ export async function nodeHttpAdapter(config: InternalRequestConfig, options: No
                         : runtimeConfig.httpAgent ?? options.defaults.httpAgent ?? options.agents.http,
                 }),
             ...(lookup ? { lookup } : {}),
+            ...(runtimeConfig.family !== undefined ? { family: runtimeConfig.family } : {}),
+            ...(runtimeConfig.insecureHTTPParser !== undefined ? { insecureHTTPParser: runtimeConfig.insecureHTTPParser } : {}),
             ...(requestTarget.tunnel
                 ? {
                     createConnection: (_requestOptions: RequestOptions, callback: (error: Error | null, socket: Duplex) => void): Duplex | null | undefined => createHttpsProxyConnection(
@@ -172,6 +174,7 @@ export async function nodeHttpAdapter(config: InternalRequestConfig, options: No
         connectTimer = setTimeout(() => {
             const error = new NeutrxConnectTimeoutError(runtimeConfig.url, runtimeConfig.connectTimeout, {
                 code: axiosTimeoutErrorCode(runtimeConfig.transitional),
+                ...(runtimeConfig.timeoutErrorMessage ? { timeoutErrorMessage: runtimeConfig.timeoutErrorMessage } : {}),
             });
             fail(error);
             req.destroy(error);
@@ -182,6 +185,7 @@ export async function nodeHttpAdapter(config: InternalRequestConfig, options: No
                 req.destroy();
                 fail(new NeutrxResponseTimeoutError(runtimeConfig.url, runtimeConfig.timeout, {
                     code: axiosTimeoutErrorCode(runtimeConfig.transitional),
+                    ...(runtimeConfig.timeoutErrorMessage ? { timeoutErrorMessage: runtimeConfig.timeoutErrorMessage } : {}),
                 }));
             };
             const connectEvent = isHTTPS ? 'secureConnect' : 'connect';

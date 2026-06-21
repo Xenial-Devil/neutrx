@@ -1,3 +1,9 @@
+---
+title: Docker Socket Request
+parent: Examples
+nav_order: 7
+---
+
 # Docker Socket Request
 
 Use `socketPath` for trusted local HTTP-over-Unix-socket services such as Docker Engine.

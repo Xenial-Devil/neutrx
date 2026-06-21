@@ -1,3 +1,9 @@
+---
+title: Backend Recipes
+parent: Examples
+nav_order: 8
+---
+
 # Backend Recipes
 
 ## Secure Webhook Fetcher

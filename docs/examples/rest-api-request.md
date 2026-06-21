@@ -1,3 +1,9 @@
+---
+title: REST API Request
+parent: Examples
+nav_order: 1
+---
+
 # REST API Request
 
 Create one client for the upstream API, then use verb helpers for each request.

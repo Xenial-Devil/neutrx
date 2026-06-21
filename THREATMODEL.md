@@ -60,6 +60,22 @@ Many service instances retrying a failing upstream can amplify an outage. Use id
 
 `legacy` relaxes network blocking for migration and trusted local testing. Do not use it for user-controlled URLs. Deprecated profile aliases are accepted only for migration compatibility and are normalized internally.
 
+## Request Signing And Replay Defense
+
+When a signing secret is configured, Neutrx HMACs every outbound request and attaches three headers:
+
+- `X-Neutrx-Timestamp` — `Date.now()` in milliseconds.
+- `X-Neutrx-Nonce` — 16 random bytes (`crypto.randomBytes(16)`) hex-encoded (32 chars).
+- `X-Neutrx-Signature` — `HMAC(secret, "<method>:<url>:<timestamp>:<nonce>:<body>")` (default `sha256`, hex). Body is serialized deterministically; streams/blobs/form-data sign a stable placeholder, not their contents.
+
+The nonce + timestamp defeat replay **only if the server enforces them.** Neutrx is the client half of the contract; it cannot detect replays on its own. Server-side contract:
+
+1. Recompute the HMAC over the same payload using the shared secret and reject on mismatch (constant-time compare).
+2. Reject requests whose `X-Neutrx-Timestamp` is outside an accepted clock-skew window (e.g. ±5 min).
+3. Track seen `X-Neutrx-Nonce` values within that window and reject duplicates. A nonce-store TTL equal to the skew window bounds memory.
+
+Without steps 2–3 a captured request can be replayed verbatim — the signature stays valid. Streaming/blob/form-data bodies are not covered by the signature; sign such requests at a higher layer if body integrity matters.
+
 ## Review Checklist
 
 - Keep Node.js minimum at `>=18.0.0`.

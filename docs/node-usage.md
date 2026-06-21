@@ -1,8 +1,20 @@
+---
+title: Node Usage
+parent: Guides
+nav_order: 1
+---
+
 # Node Usage
+{: .no_toc }
 
-Neutrx is backend-first. The Node entry uses the built-in Node HTTP adapter by default and can use HTTP/2, Unix sockets, custom agents, proxy config, TLS controls, DNS lookup hooks, bandwidth rate limits, progress events, and strict SSRF checks.
+1. TOC
+{:toc}
 
-## Standard Service Client
+---
+
+Neutrx is backend-first. The Node entry uses the built-in Node HTTP/1.1 adapter by default and can use HTTP/2, Unix sockets, custom agents, proxy config, TLS controls, DNS lookup hooks, bandwidth caps, progress events, and strict SSRF checks — all with zero runtime dependencies.
+
+## A standard service client
 
 ```ts
 import neutrx from 'neutrx';
@@ -16,16 +28,67 @@ export const billingApi = neutrx.create({
     allowedHosts: ['billing.example.com'],
   },
   resilience: {
-    enableRetry: true,
     maxRetries: 3,
-    enableCircuitBreaker: true,
-    enableBulkhead: true,
+    failureThreshold: 5,
     maxConcurrent: 20,
   },
 });
 ```
 
-Use `allowedHosts` when the service has a fixed upstream host. Use `egressPolicy` when the allowed outbound shape should be audited.
+Use `allowedHosts` when the upstream host is fixed. Use [`egressPolicy`](secure-egress.md) when the allowed outbound shape should be audited.
+
+## Request methods
+
+Every verb is a thin wrapper over `request()`. Bodyless verbs take `(url, config?)`; body verbs take `(url, data, config?)`.
+
+```ts
+await api.get('/users', { params: { page: 1 } });
+await api.delete('/users/1');
+await api.head('/users/1');
+await api.options('/users');
+
+await api.post('/users', { name: 'Ada' });
+await api.put('/users/1', { name: 'Ada L.' });
+await api.patch('/users/1', { name: 'Ada' });
+
+// Content-type convenience variants:
+await api.postForm('/upload', formData);          // multipart/form-data
+await api.postUrlEncoded('/login', { user, pass }); // application/x-www-form-urlencoded
+await api.upload('/files', fileData, { onUploadProgress: e => {} });
+await api.download('/report.pdf');                 // -> NeutrxResponse<Buffer>
+
+// Generic form + callable form:
+await api.request({ url: '/users', method: 'GET' });
+await neutrx('https://api.example.com/health');
+```
+
+Type the response with a generic: `await api.get<User>('/users/1')`.
+
+## Concurrency helpers
+
+Built-in helpers run multiple requests without hand-rolling `Promise` orchestration:
+
+```ts
+// Run together with a concurrency limit; collect results + errors.
+const { results, errors } = await api.concurrent(
+  [{ url: '/users' }, { url: '/orders' }, { url: '/inventory' }],
+  { limit: 10, failFast: false },
+);
+
+// Run in order; each step can read the previous result.
+await api.sequential([
+  { url: '/login', method: 'POST', data: creds },
+  prev => ({ url: '/me', headers: { authorization: `Bearer ${prev?.data.token}` } }),
+]);
+
+// First to resolve wins.
+await api.race([{ url: 'https://a.example/ping' }, { url: 'https://b.example/ping' }]);
+
+// Hedged: fire a backup after `delay` ms, take whichever returns first.
+await api.hedged([{ url: '/slow' }, { url: '/slow' }], { delay: 200 });
+```
+
+For paged endpoints use [`paginate`](pagination.md); for N+1 fan-out use [DataLoader](data-loader.md).
 
 ## HTTP/2
 
@@ -41,9 +104,9 @@ const api = neutrx.create({
 });
 ```
 
-HTTP/2 does not support proxy config, `socketPath`, custom HTTP agents, or `maxRate`. Use `adapter: 'http'` or `httpVersion: 1` when those controls are required.
+HTTP/2 does **not** support proxy config, `socketPath`, custom HTTP agents, or `maxRate`. Use `adapter: 'http'` (or `httpVersion: 1`) when those controls are required.
 
-## TLS And Certificate Pins
+## TLS and certificate pinning
 
 ```ts
 const payments = neutrx.create({
@@ -62,7 +125,9 @@ const payments = neutrx.create({
 });
 ```
 
-## Unix Socket Request
+You can also pin at runtime: `api.pinCertificate('host', sha256Hex)`. See [Security Features](security-features.md).
+
+## Unix sockets
 
 ```ts
 const docker = neutrx.create({
@@ -74,26 +139,45 @@ const docker = neutrx.create({
 const version = await docker.get('/v1/version');
 ```
 
-Treat `socketPath` as privileged local configuration. It should not come from user-controlled input.
+{: .warning }
+> Treat `socketPath` as privileged configuration — never derive it from user input. HTTP/2, proxy config, and HTTPS URLs are rejected with `socketPath`. See [Node Infrastructure](node-infrastructure.md).
 
-## Progress And Bandwidth Limits
+## Progress and bandwidth caps
 
 ```ts
 await api.get('/exports/monthly.csv', {
   responseType: 'buffer',
-  maxRate: [0, 256 * 1024],
-  onDownloadProgress(event) {
-    console.log(event.loaded, event.total, event.rate);
-  },
+  maxRate: [0, 256 * 1024], // [upload, download] bytes/sec; 0 = uncapped
+  onDownloadProgress: e => console.log(e.loaded, e.total, e.rate),
 });
 ```
 
-`security.rateLimit` controls request counts. `maxRate` controls Node HTTP upload and download bytes per second.
+`security.rateLimit` controls request **counts** over a window; `maxRate` controls **byte throughput** for one request. See [Node Infrastructure → maxRate](node-infrastructure.md).
 
-## Node Reference
+## Operational methods
 
-- [Node infrastructure usage](node-infrastructure.md)
-- [Config reference](config-reference.md)
-- [Secure egress](secure-egress.md)
-- [Adapter security contract](adapter-security-contract.md)
-- [Backend recipes](recipes/backend-recipes.md)
+```ts
+const api = neutrx.create({ baseURL: 'https://api.example.com' })
+  .setTimeout(10_000)
+  .setHeader('X-Service', 'billing')
+  .setAuth({ bearer: process.env.API_TOKEN ?? '' });
+
+api.getUri({ url: '/users', params: { page: 1 } }); // resolve final URL
+api.getMetrics();                                    // metrics snapshot
+api.getCacheStats();
+api.getCircuitStatus();
+api.getBulkheadStats();
+api.getEgressPolicy();
+
+api.destroy(); // close keep-alive agents, HTTP/2 sessions, cache/metrics timers
+```
+
+Call `destroy()` when a worker shuts down to release sockets, sessions, and timers.
+
+## See also
+
+- [Node Infrastructure](node-infrastructure.md) — sockets, proxies, redirects, decompression, bandwidth
+- [Config Reference](config-reference.md) · [API Reference](api.md)
+- [Secure Egress](secure-egress.md) · [Adapter Security Contract](adapter-security-contract.md)
+- [Backend Recipes](recipes/backend-recipes.md)
+</content>

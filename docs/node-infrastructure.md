@@ -1,3 +1,9 @@
+---
+title: Node Infrastructure
+parent: Guides
+nav_order: 2
+---
+
 # Node Infrastructure Usage
 
 Neutrx can be used for Docker Engine calls, local proxy egress, enterprise HTTP gateways, and backend data-transfer jobs without adding runtime dependencies. These controls are Node-oriented and are strongest with the default `http` adapter.

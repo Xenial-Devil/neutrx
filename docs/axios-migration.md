@@ -1,3 +1,9 @@
+---
+title: Migration
+nav_order: 5
+has_children: true
+---
+
 # Axios Migration Guide
 
 This guide covers the common Axios backend migration path. Neutrx intentionally keeps familiar request ergonomics, but it does not clone Axios blindly: backend security and resilience behavior stay explicit.

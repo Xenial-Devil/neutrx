@@ -30,6 +30,11 @@ export {
 export { default as NeutrxClient } from './core/NeutrxClient.js';
 export { default as Neutrx } from './core/Neutrx.js';
 export { Cancel, CancelToken, isCancel } from './core/cancel.js';
+export { toFormData, formDataToJSON, formToJSON } from './core/formData.js';
+export { HttpStatusCode } from './core/httpStatusCode.js';
+export { isURLSameOrigin } from './core/sameOrigin.js';
+export { mergeConfig } from './core/mergeConfig.js';
+export { getAdapter, type AdapterSpec } from './core/adapterRegistry.js';
 export { fetchAdapter } from './adapters/fetch.js';
 export { createNodeHttpAdapter, createNodeHttpAgents, nodeHttpAdapter, type NodeHttpAdapterAgents, type NodeHttpAdapterOptions } from './adapters/http.js';
 export { createNodeHttp2Adapter, http2Adapter, getHttp2SessionStats, type NodeHttp2AdapterOptions } from './adapters/http2.js';
@@ -38,9 +43,12 @@ export { NeutrxHeaders } from './core/headers.js';
 export { OpenTelemetryInstrumentation } from './monitoring/OpenTelemetryInstrumentation.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/Neutrx.js';
 export type { NeutrxInterceptorManager, NeutrxInterceptors, NeutrxRequestInterceptorManager, RequestInterceptorOptions } from './interceptors/InterceptorChain.js';
-export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, TraceContextPlugin, createOtelPlugin, createTraceContextPlugin, type NeutrxPlugin, type OtelPluginOptions, type TraceContextPluginOptions, type TracePropagationFormat } from './plugins/PluginManager.js';
+export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, TraceContextPlugin, createAwsSigV4Plugin, createHarRecorder, createOtelPlugin, createTraceContextPlugin, type AwsCredentials, type AwsCredentialsProvider, type AwsSigV4PluginOptions, type HarContent, type HarEntry, type HarLog, type HarNameValue, type HarPostData, type HarRecorder, type HarRecorderOptions, type HarRequest, type HarResponse, type NeutrxPlugin, type OtelPluginOptions, type TraceContextPluginOptions, type TracePropagationFormat } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
 export { ALGORITHMS } from './security/RateLimiter.js';
+export { MemoryStateAdapter, namespaceAdapter, circuitStoreFromAdapter, rateLimitStoreFromAdapter, type StateAdapter } from './state/StateAdapter.js';
+export { RedisStateAdapter, type RedisLikeClient, type RedisStateAdapterOptions } from './state/RedisStateAdapter.js';
+export { default as DataLoader, type BatchLoadFn, type BatchScheduleFn, type CacheMap, type DataLoaderOptions } from './performance/DataLoader.js';
 export type {
     AdaptiveConcurrencyConfig,
     AuthConfig,

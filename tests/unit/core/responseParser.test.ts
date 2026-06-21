@@ -35,11 +35,31 @@ void test('response parser decompresses gzip, deflate, and brotli payloads', asy
     assert.deepEqual(await decompressResponseData(zlib.brotliCompressSync(payload), { 'content-encoding': 'br' }, true), payload);
 });
 
+const zstdCompressSync = (zlib as { readonly zstdCompressSync?: (data: Buffer) => Buffer }).zstdCompressSync;
+
+void test('response parser decompresses zstd payloads when the runtime supports it', { skip: !zstdCompressSync }, async () => {
+    const { decompressResponseData, supportsZstd } = await import(parserEntry) as typeof ParserModule;
+    assert.equal(supportsZstd, true);
+    const payload = Buffer.from('zstd compressed payload');
+
+    assert.deepEqual(await decompressResponseData(zstdCompressSync!(payload), { 'content-encoding': 'zstd' }, true), payload);
+});
+
+void test('response parser enforces maxContentLength after zstd decompression', { skip: !zstdCompressSync }, async () => {
+    const { decompressResponseData } = await import(parserEntry) as typeof ParserModule;
+    const inflated = Buffer.alloc(2048, 'x');
+
+    await assert.rejects(
+        decompressResponseData(zstdCompressSync!(inflated), { 'content-encoding': 'zstd' }, true, 1024),
+        error => error instanceof Error && error.name === 'NeutrxResponseSizeError'
+    );
+});
+
 void test('response parser returns original bytes for unknown or invalid encodings', async () => {
     const { decompressResponseData } = await import(parserEntry) as typeof ParserModule;
     const payload = Buffer.from('not compressed');
 
-    assert.equal(await decompressResponseData(payload, { 'content-encoding': 'zstd' }, true), payload);
+    assert.equal(await decompressResponseData(payload, { 'content-encoding': 'identity' }, true), payload);
     assert.equal(await decompressResponseData(payload, { 'content-encoding': 'gzip' }, true), payload);
 });
 

@@ -26,9 +26,15 @@ export {
 } from './core/NeutrxError.js';
 export { default as BrowserClient, default as NeutrxClient } from './core/BrowserClient.js';
 export { Cancel, CancelToken, isCancel } from './core/cancel.js';
+export { toFormData, formDataToJSON, formToJSON } from './core/formData.js';
+export { HttpStatusCode } from './core/httpStatusCode.js';
+export { isURLSameOrigin } from './core/sameOrigin.js';
+export { mergeConfig } from './core/mergeConfig.js';
+export { getAdapter, type BrowserAdapterSpec } from './core/browserAdapterRegistry.js';
 export { NeutrxHeaders } from './core/headers.js';
 export { PluginManager, OAuth2Plugin, GraphQLPlugin, MockPlugin, ValidationPlugin, WebSocketPlugin, LogPlugin, OtelPlugin, TraceContextPlugin, createOtelPlugin, createTraceContextPlugin, type NeutrxPlugin, type OtelPluginOptions, type TraceContextPluginOptions, type TracePropagationFormat } from './plugins/PluginManager.js';
 export { STRATEGY } from './resilience/RetryEngine.js';
+export { default as DataLoader, type BatchLoadFn, type BatchScheduleFn, type CacheMap, type DataLoaderOptions } from './performance/DataLoader.js';
 export type { NeutrxDefaults, NeutrxInstance, NeutrxStatic } from './core/BrowserNeutrx.js';
 export type {
     AdaptiveConcurrencyConfig,

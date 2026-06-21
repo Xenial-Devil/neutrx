@@ -350,6 +350,24 @@ export {
     type TraceContextPluginOptions,
     type TracePropagationFormat,
 } from './TraceContextPlugin.js';
+export {
+    createAwsSigV4Plugin,
+    type AwsSigV4PluginOptions,
+    type AwsCredentials,
+    type AwsCredentialsProvider,
+} from './AwsSigV4Plugin.js';
+export {
+    createHarRecorder,
+    type HarRecorder,
+    type HarRecorderOptions,
+    type HarLog,
+    type HarEntry,
+    type HarRequest,
+    type HarResponse,
+    type HarContent,
+    type HarNameValue,
+    type HarPostData,
+} from './HarRecorder.js';
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => {

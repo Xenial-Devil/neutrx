@@ -1,3 +1,9 @@
+---
+title: API Reference
+parent: Reference
+nav_order: 1
+---
+
 # Neutrx API Reference
 
 ## Import
@@ -60,6 +66,7 @@ neutrx.defaults.headers = { 'X-Service': 'billing' };
 - `patchUrlEncoded(url, data, config?)`
 - `upload(url, data, config?)`
 - `download(url, config?)`
+- `paginate(url, options?)` — async generator over pages (see [Pagination](pagination.md))
 - `sse(url, handlers?)`
 - `ws(url, options?)`
 - `getUri(config)`
@@ -364,6 +371,12 @@ Built-in plugins:
 - `OtelPlugin`
 - `TraceContextPlugin`
 
+Factory plugins (from `neutrx/plugins` or the Node entry):
+
+- `createAwsSigV4Plugin(options)` — AWS Signature V4 request signing (Node only). See [Plugins → AWS SigV4](plugins.md#aws-sigv4-node-only).
+- `createHarRecorder(options)` — capture traffic as a HAR 1.2 log with secret redaction. See [Plugins → HAR Recording](plugins.md#har-recording).
+- `createOtelPlugin(options)` / `createTraceContextPlugin(options)` — configurable variants of the built-ins above.
+
 `ValidationPlugin` reads `config.validation.request` before dispatch and `config.validation.response` after parsing. Use the first-class `schema` option for normal response validation; use the plugin when request-body validation or central plugin hooks are needed. Validators may be functions or schema-like objects with `safeParse`, `parse`, `validate`, or TypeBox-style `Check`/`Errors`. Failures throw `NeutrxValidationError`.
 
 `WebSocketPlugin` is retained as a compatibility plugin; `api.ws(url, options)` is available directly on clients.
@@ -373,6 +386,42 @@ Built-in plugins:
 `OtelPlugin` enables the built-in OpenTelemetry bridge through `api.use(OtelPlugin)` without adding a runtime dependency to Neutrx. It creates a client span, propagates that span's context, records retry-attempt events, and attaches safe HTTP and Neutrx attributes.
 
 `TraceContextPlugin` provides dependency-free W3C Trace Context and B3 propagation. The resolved identity is available on `response.traceContext` and typed errors.
+
+## Distributed State
+
+A single `StateAdapter<T>` key/value backend can power cross-process rate-limit and circuit-breaker state. See [Config Reference → Distributed State](config-reference.md#distributed-state-stateadapter) for the full guide.
+
+- `StateAdapter<T>` — generic contract: `get` / `set(key, value, ttlMs?)` / optional `delete` / `keys` / `clear`.
+- `MemoryStateAdapter<T>` — in-process reference impl (Map-backed, TTL-aware, single-process).
+- `RedisStateAdapter<T>` — distributed backend over a **user-supplied** `ioredis` / `node-redis` client (Node only, zero added dependency).
+- `namespaceAdapter(adapter, prefix)` — prefix keys so one backend hosts many logical namespaces.
+- `circuitStoreFromAdapter(adapter)` / `rateLimitStoreFromAdapter(adapter)` — bridge an adapter into `resilience.circuitBreakerStorage.store` and `security.rateLimit.storage.store`.
+
+```ts
+import Redis from 'ioredis';
+import { RedisStateAdapter, circuitStoreFromAdapter, rateLimitStoreFromAdapter } from 'neutrx';
+
+const shared = new RedisStateAdapter({ client: new Redis(process.env.REDIS_URL), keyPrefix: 'neutrx:' });
+const api = neutrx.create({
+  resilience: { circuitBreakerStorage: { store: circuitStoreFromAdapter(shared) } },
+  security: { rateLimit: { enabled: true, storage: { store: rateLimitStoreFromAdapter(shared) } } },
+});
+```
+
+## Request Batching (DataLoader)
+
+`DataLoader<K, V>` is an opt-in utility that coalesces many `.load(key)` calls in the same tick into one batch function call and memoizes per key. Nothing in the request pipeline uses it unless you wire it. See [DataLoader](data-loader.md).
+
+```ts
+import { DataLoader } from 'neutrx';
+
+const users = new DataLoader<string, User>(async ids => {
+  const { data } = await api.get('/users', { params: { ids: ids.join(',') } });
+  return ids.map(id => data.find(u => u.id === id) ?? new Error(`no user ${id}`));
+});
+
+const [a, b] = await Promise.all([users.load('1'), users.load('2')]); // one HTTP call
+```
 
 ## Headers
 

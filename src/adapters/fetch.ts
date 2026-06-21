@@ -14,7 +14,7 @@ type StreamRead = { readonly done: boolean; readonly value?: Uint8Array };
 type AbortSignalWithReason = AbortSignal & { readonly reason?: unknown };
 
 export const fetchAdapter: RequestAdapter = async config => {
-    const fetchImpl = config.fetch ?? globalThis.fetch;
+    const fetchImpl = config.fetch ?? config.env?.fetch ?? globalThis.fetch;
     if (typeof fetchImpl !== 'function') {
         throw new Error('Fetch adapter requires fetch');
     }
@@ -42,7 +42,7 @@ export const fetchAdapter: RequestAdapter = async config => {
 
     try {
         const response = await fetchImpl(config.url, init);
-        const request = createFetchRequest(config.url, init);
+        const request = createFetchRequest(config.url, init, config.env?.Request);
         return {
             status: response.status,
             statusText: response.statusText,
@@ -56,6 +56,7 @@ export const fetchAdapter: RequestAdapter = async config => {
             const reason = timeoutSignal.aborted
                 ? new NeutrxResponseTimeoutError(config.url, config.timeout, {
                     code: axiosTimeoutErrorCode(config.transitional),
+                    ...(config.timeoutErrorMessage ? { timeoutErrorMessage: config.timeoutErrorMessage } : {}),
                 })
                 : abortReason(signal);
             if (reason instanceof Error) throw reason;
@@ -286,11 +287,12 @@ function trackFetchDownloadStream(
     }));
 }
 
-function createFetchRequest(url: string, init: FetchInit): Request | undefined {
-    if (typeof Request === 'undefined') return undefined;
+function createFetchRequest(url: string, init: FetchInit, envRequest?: typeof Request): Request | undefined {
+    const RequestCtor = envRequest ?? (typeof Request !== 'undefined' ? Request : undefined);
+    if (!RequestCtor) return undefined;
     if (init.body !== undefined && (isNodeReadable(init.body) || isReadableStreamLike(init.body))) return undefined;
     try {
-        return new Request(url, init);
+        return new RequestCtor(url, init);
     } catch {
         return undefined;
     }

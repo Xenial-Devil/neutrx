@@ -1,60 +1,85 @@
-# Cache
+---
+title: Cache & Deduplication
+parent: Guides
+nav_order: 7
+---
 
-Neutrx has an in-memory response cache for safe `GET` requests. Unsafe methods are not cached by the client.
+# Cache & Deduplication
+{: .no_toc }
+
+1. TOC
+{:toc}
+
+---
+
+Neutrx ships an in-memory response cache and in-flight request deduplication. Both are **on by default** for safe methods and are configured under `performance`.
+
+## Response cache
 
 ```ts
 const api = neutrx.create({
   performance: {
     enableCaching: true,
-    deduplicateRequestKey: config => `${config.method}:${config.url}:${config.headers.get('X-Tenant-ID') ?? ''}`,
     cacheStrategy: 'swr',
-    cacheTTL: 300_000,
-    revalidateAfter: 60_000,
-    cacheStaleMax: 1_500_000,
-    cacheMaxSize: 500,
-    cacheMaxEntrySize: 1_048_576,
+    cacheTTL: 300_000,        // default max-age when upstream sends none (ms)
+    revalidateAfter: 60_000,  // optional SWR freshness boundary
+    cacheStaleMax: 1_500_000, // max window stale SWR entries stay usable
+    cacheMaxSize: 500,        // max entries
+    cacheMaxEntrySize: 1_048_576, // 1 MB per entry
     respectCacheHeaders: true,
-    onRevalidate(event) {
-      console.log(event.url, event.updated, event.status);
-    },
+    onRevalidate: e => console.log(e.url, e.updated, e.status),
   },
 });
 ```
 
-Cache behavior:
+### Options
 
-- caches successful `GET` responses only
-- includes URL, `Accept`, and `Authorization` in the cache key
-- skips `no-store`, `no-cache`, and `private`
-- respects `Cache-Control: max-age` and `Expires` when enabled
-- returns `response.cached` and `response.cacheAge` on hits
-- returns `response.stale` and `x-cache: STALE` for SWR hits
-- shares identical inflight `GET`/`HEAD` requests by default; joined responses set `response.deduplicated`
-- lets you customize deduplication with `deduplicateRequestKey`, `deduplicateMethods`, and `deduplicateHeaders`
-- counts joined requests in `api.getMetrics().requests.deduplicated` and `neutrx_deduplication_hits_total`
-- accepts `performance.cacheAdapter` for custom process-local stores with optional `lock`/`unlock`
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `enableCaching` | `boolean` | `true` | Master toggle |
+| `cacheStrategy` | `'max-age' \| 'swr' \| 'network-first'` | `'max-age'` | Freshness policy (see below) |
+| `cacheTTL` | `number` (ms) | `300000` | Default max-age when upstream omits one |
+| `revalidateAfter` | `number` (ms) | — | SWR freshness cap before background refresh |
+| `cacheStaleMax` | `number` (ms) | `max(cacheTTL, 1500000)` | Bounded window stale entries remain usable |
+| `cacheMaxSize` | `number` | `500` | Max cached entries (LRU eviction) |
+| `cacheMaxEntrySize` | `number` (bytes) | `1048576` | Skip caching responses larger than this |
+| `respectCacheHeaders` | `boolean` | `true` | Honor `Cache-Control` + `Expires` |
+| `cacheAdapter` | `CacheStore` | in-memory | Custom process-local store |
+| `onRevalidate` | `(event) => void` | — | Fires after a background revalidation |
+
+{: .note }
+> `ttl` and `stale-while-revalidate` are accepted as compatibility aliases for `max-age` and `swr`.
+
+### What gets cached
+
+- Only successful **2xx** responses, for cacheable methods (`GET` by default).
+- The cache key is a SHA-256 of `{ socketPath, url, Accept, Authorization }` — so per-user/per-tenant responses don't collide.
+- `Cache-Control: no-store`, `no-cache`, and `private` skip caching entirely.
+- `max-age` / `Expires` (when `respectCacheHeaders`) override `cacheTTL`.
+
+On a hit, the response carries `cached: true`, plus `cacheAge` and (for stale serves) `stale: true` with an `x-cache: STALE` header.
+
+### Strategies
+
+| Strategy | Behavior |
+| --- | --- |
+| `max-age` *(default)* | Serve fresh hits until expiry; then go to network. |
+| `swr` | Serve fresh hits immediately. After `revalidateAfter` / max-age, return **stale** data immediately (`cached: true`, `stale: true`) while **one** background request revalidates. Conditional `If-None-Match` / `If-Modified-Since` are sent automatically. |
+| `network-first` | Try the network first; on network failure fall back to a cached entry within its stale window. |
+
+**stale-if-error** is always available: if the network fails and a cached entry is within its `stale-if-error` window (from the `Cache-Control` directive), Neutrx serves it with `x-cache: STALE-IF-ERROR` and a `Warning: 110` header rather than throwing.
+
+### Manage the cache
 
 ```ts
 await api.get('/catalog');
-console.log(api.getCacheStats());
-api.clearCache();
-api.invalidateCache(/\/catalog/u);
-api.deleteCacheEntry('/catalog');
+api.getCacheStats();          // { hits, misses, evictions, size, hitRate, ... }
+api.clearCache();             // clear all
+api.invalidateCache(/\/catalog/u); // by pattern
+api.deleteCacheEntry('/catalog');  // single entry
 ```
 
-Cache strategies:
-
-- `max-age`: return fresh cache hits until normal max-age expiry, then use the network.
-- `swr`: return fresh hits immediately; after `revalidateAfter` or normal max-age expiry, return stale data immediately with `response.cached = true` and `response.stale = true` while one background refresh updates the cache.
-- `network-first`: try the network first and fall back to a cached response when the network request fails.
-
-`cacheTTL` is the default max-age when upstream headers do not provide one. `revalidateAfter` is an optional SWR freshness boundary; when omitted, normal max-age controls freshness. `cacheStaleMax` keeps stale SWR entries usable for a bounded window. Existing `ttl` and `stale-while-revalidate` strategy names are accepted as compatibility aliases for `max-age` and `swr`.
-
-Deduplication is enabled by default only for `GET` and `HEAD`; set `deduplicateRequests: false` to disable it. The default deduplication key includes method, final URL with serialized params, response type, adapter, socket path, and selected headers (`Accept`, `Authorization`, and `Range`). Coalescing other methods is opt-in; include an idempotency key or another application-safe discriminator in `deduplicateRequestKey` when enabling it.
-
-Requests with cancellation signals are never deduplicated, and requests with non-keyable transport overrides are not deduplicated by the default key. This keeps one caller's cancellation, proxy, TLS, agent, lookup, redirect hook, fetch implementation, or bandwidth controls from changing another caller's request. Keyable timeout, redirect-limit, response-limit, proxy-disable, and HTTP/2 settings are included in the default key. Use a custom `deduplicateRequestKey` only when other transport differences are intentionally equivalent.
-
-Custom adapter shape:
+### Custom cache store
 
 ```ts
 const api = neutrx.create({
@@ -65,11 +90,47 @@ const api = neutrx.create({
       delete: key => store.delete(key),
       clear: () => store.clear(),
       keys: () => store.keys(),
-      lock: key => lockOnce(key),
-      unlock: key => unlock(key),
+      lock: key => lockOnce(key),   // optional: single-flight revalidation
+      unlock: key => unlock(key),   // optional
     },
   },
 });
 ```
 
-Core stays synchronous and dependency-free. Redis or other networked stores should live in optional packages that can own async locking, serialization, and peer dependencies.
+{: .important }
+> Core stays synchronous and dependency-free. Redis or other networked stores belong in optional packages that own async locking, serialization, and peer dependencies.
+
+## Request deduplication
+
+Identical in-flight requests are coalesced into one network call; the joiners get a clone with `deduplicated: true`.
+
+| Option | Type | Default |
+| --- | --- | --- |
+| `deduplicateRequests` | `boolean` | `true` |
+| `deduplicateMethods` | `HttpMethod[]` | `['GET', 'HEAD']` |
+| `deduplicateHeaders` | `string[]` | `['accept', 'authorization', 'range']` |
+| `deduplicateRequestKey` | `(config) => string \| null \| undefined` | — (default key) |
+
+```ts
+const api = neutrx.create({
+  performance: {
+    deduplicateRequestKey: c =>
+      `${c.method}:${c.url}:${c.headers.get('X-Tenant-ID') ?? ''}`,
+  },
+});
+```
+
+The default key includes method, final URL with serialized params, response type, adapter, socket path, the keyable transport limits (timeout, redirect/response limits, proxy-disabled, HTTP/2 settings), and the selected headers.
+
+{: .warning }
+> Requests with a cancellation `signal`/`cancelToken`, `responseType: 'stream'`, or non-keyable transport overrides (custom `proxy`, `tls`, agents, `lookup`, `fetch`, redirect hook, `maxRate`) are **never** deduplicated by the default key — so one caller's cancellation or transport can't change another's. Return `null` from `deduplicateRequestKey` to skip dedup for a request.
+
+Coalescing methods beyond `GET`/`HEAD` is opt-in; only do it when the requests are genuinely equivalent (e.g. include an idempotency key in your custom key).
+
+Joined requests count in `api.getMetrics().requests.deduplicated` and the `neutrx_deduplication_hits_total` Prometheus counter, and emit a `deduplication:hit` event. See [Observability](observability.md).
+
+## Related
+
+- [Pagination](pagination.md) · [Request Batching (DataLoader)](data-loader.md)
+- [Config Reference](config-reference.md) — full performance schema
+</content>
