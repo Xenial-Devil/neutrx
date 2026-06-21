@@ -1,3 +1,16 @@
+# [1.5.0](https://github.com/Xenial-Devil/neutrx/compare/v1.4.0...v1.5.0) (2026-06-21)
+
+
+### Bug Fixes
+
+* replace docs:build with docs:check ([8055137](https://github.com/Xenial-Devil/neutrx/commit/80551370a77611254c0f35b12946948c89c3658b))
+
+
+### Features
+
+* expand roadmap with comprehensive audit and bug analysis ([59cd48b](https://github.com/Xenial-Devil/neutrx/commit/59cd48bab90200f067869c1bd7f2f477794737a1)), closes [hi#level](https://github.com/hi/issues/level)
+* replace docs build with check and remove vitepress ([1b0a48d](https://github.com/Xenial-Devil/neutrx/commit/1b0a48d9a489c22fcaa5bd4ab9da3b01d6282c73))
+
 # [1.4.0](https://github.com/Xenial-Devil/neutrx/compare/v1.3.0...v1.4.0) (2026-06-08)
 
 

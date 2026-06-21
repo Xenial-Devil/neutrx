@@ -1,6 +1,6 @@
 {
   "name": "neutrx",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Security-first TypeScript HTTP client — SSRF protection, circuit breaker, bulkhead, OTel, Zod validation, browser + Node.js.",
   "repository": {
     "type": "git",
