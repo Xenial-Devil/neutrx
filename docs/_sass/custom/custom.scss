@@ -1,0 +1,14 @@
+// Custom overrides for the Just the Docs theme (auto-imported by the theme).
+
+// Default content column is ~800px, which reads as a narrow half-window strip
+// on wide displays. Widen the main content area while keeping the nav fixed.
+.main {
+  max-width: 1100px;
+}
+
+// On large viewports give the content even more room.
+@media (min-width: 75rem) {
+  .main {
+    max-width: 1264px;
+  }
+}
