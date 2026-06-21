@@ -55,8 +55,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Build docs
-        run: npm run docs:build
+      - name: Check docs
+        run: npm run docs:check
 
       - name: Validate package
         run: npm run package:validate
