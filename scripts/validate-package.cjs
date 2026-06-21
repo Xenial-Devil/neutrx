@@ -176,7 +176,7 @@ function validateAdoptionContract() {
     "npm test",
     "npm run coverage",
     "npm run build",
-    "npm run docs:build",
+    "npm run docs:check",
     "npm run package:validate",
     "npm run package:smoke",
   ]) {
@@ -189,7 +189,7 @@ function validateAdoptionContract() {
     "id-token: write",
     "semantic-release",
     "@semantic-release/github",
-    "npm run docs:build",
+    "npm run docs:check",
     "npm run package:validate",
     "npm run package:smoke",
     "npm run changelog:preview",
