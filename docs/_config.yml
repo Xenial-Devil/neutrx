@@ -42,6 +42,24 @@ last_edit_timestamp: true
 
 color_scheme: dark
 
+# Callout boxes (used across the docs as `{: .note }`, `{: .warning }`, etc.)
+callouts:
+  note:
+    title: Note
+    color: blue
+  tip:
+    title: Tip
+    color: green
+  important:
+    title: Important
+    color: purple
+  warning:
+    title: Warning
+    color: yellow
+  danger:
+    title: Security
+    color: red
+
 footer_content: 'Released under the MIT License. &copy; Neutrx contributors.'
 
 # GitHub Pages-whitelisted plugins

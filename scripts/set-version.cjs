@@ -31,13 +31,9 @@ if (lockJson.packages?.[""]) {
 }
 writeJson("package-lock.json", lockJson);
 
-fs.writeFileSync(
-  path.join(rootDir, "src", "version.ts"),
-  [
-    `export const VERSION = ${JSON.stringify(version)};`,
-    "",
-  ].join("\n"),
-  "utf8"
-);
+// src/version.ts is intentionally NOT written here. It is generated from
+// package.json at build time by scripts/generate-version.cjs (the `prebuild`
+// step baked into every `build` script), so package.json stays the single
+// source of truth and the literal can never drift one release behind.
 
 console.log(`Set Neutrx version to ${version}`);
