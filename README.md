@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/neutrx-logo.svg" alt="Neutrx logo" width="520">
+</p>
+
 # Neutrx
 
 [![CI](https://github.com/Xenial-Devil/neutrx/actions/workflows/ci.yml/badge.svg)](https://github.com/Xenial-Devil/neutrx/actions/workflows/ci.yml)

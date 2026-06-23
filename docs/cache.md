@@ -133,4 +133,3 @@ Joined requests count in `api.getMetrics().requests.deduplicated` and the `neutr
 
 - [Pagination](pagination.md) · [Request Batching (DataLoader)](data-loader.md)
 - [Config Reference](config-reference.md) — full performance schema
-</content>

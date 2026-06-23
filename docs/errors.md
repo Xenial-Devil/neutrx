@@ -132,4 +132,3 @@ All of these are exported from `neutrx` and `neutrx/errors`.
 
 - [API Reference → Errors](api.md) · [Getting Started → Handle errors safely](getting-started.md)
 - [Security Features → Error redaction](security-features.md)
-</content>

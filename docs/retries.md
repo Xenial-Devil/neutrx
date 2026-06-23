@@ -134,4 +134,3 @@ Retries also surface via the OpenTelemetry attribute `neutrx.retry.count`. See [
 - [Circuit Breaker](circuit-breaker.md) — stop hammering a downed upstream
 - [Bulkhead Isolation](bulkhead-isolation.md) — bound concurrent retries
 - [Config Reference](config-reference.md) — full resilience schema
-</content>

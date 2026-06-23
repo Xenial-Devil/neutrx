@@ -5,10 +5,11 @@ nav_order: 1
 ---
 
 # Node Usage
+
 {: .no_toc }
 
 1. TOC
-{:toc}
+   {:toc}
 
 ---
 
@@ -20,18 +21,18 @@ Neutrx is backend-first. The Node entry uses the built-in Node HTTP/1.1 adapter 
 import neutrx from 'neutrx';
 
 export const billingApi = neutrx.create({
-  baseURL: 'https://billing.example.com',
-  timeout: 8_000,
-  connectTimeout: 2_000,
-  security: {
-    profile: 'standard',
-    allowedHosts: ['billing.example.com'],
-  },
-  resilience: {
-    maxRetries: 3,
-    failureThreshold: 5,
-    maxConcurrent: 20,
-  },
+    baseURL: 'https://billing.example.com',
+    timeout: 8_000,
+    connectTimeout: 2_000,
+    security: {
+        profile: 'standard',
+        allowedHosts: ['billing.example.com'],
+    },
+    resilience: {
+        maxRetries: 3,
+        failureThreshold: 5,
+        maxConcurrent: 20,
+    },
 });
 ```
 
@@ -52,10 +53,10 @@ await api.put('/users/1', { name: 'Ada L.' });
 await api.patch('/users/1', { name: 'Ada' });
 
 // Content-type convenience variants:
-await api.postForm('/upload', formData);          // multipart/form-data
+await api.postForm('/upload', formData); // multipart/form-data
 await api.postUrlEncoded('/login', { user, pass }); // application/x-www-form-urlencoded
-await api.upload('/files', fileData, { onUploadProgress: e => {} });
-await api.download('/report.pdf');                 // -> NeutrxResponse<Buffer>
+await api.upload('/files', fileData, { onUploadProgress: (e) => {} });
+await api.download('/report.pdf'); // -> NeutrxResponse<Buffer>
 
 // Generic form + callable form:
 await api.request({ url: '/users', method: 'GET' });
@@ -70,15 +71,15 @@ Built-in helpers run multiple requests without hand-rolling `Promise` orchestrat
 
 ```ts
 // Run together with a concurrency limit; collect results + errors.
-const { results, errors } = await api.concurrent(
-  [{ url: '/users' }, { url: '/orders' }, { url: '/inventory' }],
-  { limit: 10, failFast: false },
-);
+const { results, errors } = await api.concurrent([{ url: '/users' }, { url: '/orders' }, { url: '/inventory' }], {
+    limit: 10,
+    failFast: false,
+});
 
 // Run in order; each step can read the previous result.
 await api.sequential([
-  { url: '/login', method: 'POST', data: creds },
-  prev => ({ url: '/me', headers: { authorization: `Bearer ${prev?.data.token}` } }),
+    { url: '/login', method: 'POST', data: creds },
+    (prev) => ({ url: '/me', headers: { authorization: `Bearer ${prev?.data.token}` } }),
 ]);
 
 // First to resolve wins.
@@ -94,13 +95,13 @@ For paged endpoints use [`paginate`](pagination.md); for N+1 fan-out use [DataLo
 
 ```ts
 const api = neutrx.create({
-  baseURL: 'https://api.example.com',
-  httpVersion: 2,
-  http2Options: {
-    sessionTimeout: 60_000,
-    maxSessions: 50,
-    maxConcurrentStreams: 100,
-  },
+    baseURL: 'https://api.example.com',
+    httpVersion: 2,
+    http2Options: {
+        sessionTimeout: 60_000,
+        maxSessions: 50,
+        maxConcurrentStreams: 100,
+    },
 });
 ```
 
@@ -110,18 +111,20 @@ HTTP/2 does **not** support proxy config, `socketPath`, custom HTTP agents, or `
 
 ```ts
 const payments = neutrx.create({
-  baseURL: 'https://payments.example.com',
-  security: { profile: 'strict' },
-  tls: {
-    ca: process.env.PAYMENTS_CA_PEM,
-    cert: process.env.PAYMENTS_CLIENT_CERT_PEM,
-    key: process.env.PAYMENTS_CLIENT_KEY_PEM,
-    servername: 'payments.example.com',
-    certificatePins: [{
-      hostname: 'payments.example.com',
-      sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-    }],
-  },
+    baseURL: 'https://payments.example.com',
+    security: { profile: 'strict' },
+    tls: {
+        ca: process.env.PAYMENTS_CA_PEM,
+        cert: process.env.PAYMENTS_CLIENT_CERT_PEM,
+        key: process.env.PAYMENTS_CLIENT_KEY_PEM,
+        servername: 'payments.example.com',
+        certificatePins: [
+            {
+                hostname: 'payments.example.com',
+                sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+            },
+        ],
+    },
 });
 ```
 
@@ -131,24 +134,25 @@ You can also pin at runtime: `api.pinCertificate('host', sha256Hex)`. See [Secur
 
 ```ts
 const docker = neutrx.create({
-  baseURL: 'http://docker',
-  socketPath: '/var/run/docker.sock',
-  proxy: false,
+    baseURL: 'http://docker',
+    socketPath: '/var/run/docker.sock',
+    proxy: false,
 });
 
 const version = await docker.get('/v1/version');
 ```
 
 {: .warning }
+
 > Treat `socketPath` as privileged configuration — never derive it from user input. HTTP/2, proxy config, and HTTPS URLs are rejected with `socketPath`. See [Node Infrastructure](node-infrastructure.md).
 
 ## Progress and bandwidth caps
 
 ```ts
 await api.get('/exports/monthly.csv', {
-  responseType: 'buffer',
-  maxRate: [0, 256 * 1024], // [upload, download] bytes/sec; 0 = uncapped
-  onDownloadProgress: e => console.log(e.loaded, e.total, e.rate),
+    responseType: 'buffer',
+    maxRate: [0, 256 * 1024], // [upload, download] bytes/sec; 0 = uncapped
+    onDownloadProgress: (e) => console.log(e.loaded, e.total, e.rate),
 });
 ```
 
@@ -157,13 +161,14 @@ await api.get('/exports/monthly.csv', {
 ## Operational methods
 
 ```ts
-const api = neutrx.create({ baseURL: 'https://api.example.com' })
-  .setTimeout(10_000)
-  .setHeader('X-Service', 'billing')
-  .setAuth({ bearer: process.env.API_TOKEN ?? '' });
+const api = neutrx
+    .create({ baseURL: 'https://api.example.com' })
+    .setTimeout(10_000)
+    .setHeader('X-Service', 'billing')
+    .setAuth({ bearer: process.env.API_TOKEN ?? '' });
 
 api.getUri({ url: '/users', params: { page: 1 } }); // resolve final URL
-api.getMetrics();                                    // metrics snapshot
+api.getMetrics(); // metrics snapshot
 api.getCacheStats();
 api.getCircuitStatus();
 api.getBulkheadStats();
@@ -180,4 +185,3 @@ Call `destroy()` when a worker shuts down to release sockets, sessions, and time
 - [Config Reference](config-reference.md) · [API Reference](api.md)
 - [Secure Egress](secure-egress.md) · [Adapter Security Contract](adapter-security-contract.md)
 - [Backend Recipes](recipes/backend-recipes.md)
-</content>

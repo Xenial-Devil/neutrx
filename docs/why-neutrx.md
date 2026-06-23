@@ -72,4 +72,3 @@ See [Security Features](security-features.md) for exact per-profile values.
 Axios-like ergonomics for Node.js backends — with SSRF protection, redirect safety, redacted typed errors, retries, circuit breaking, caching, metrics, and observability built in, and nothing required at runtime.
 
 Ready? → [Getting Started](getting-started.md)
-</content>

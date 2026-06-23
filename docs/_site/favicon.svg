@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180" role="img" aria-labelledby="neutrx-favicon-title neutrx-favicon-desc">
+  <title id="neutrx-favicon-title">Neutrx icon</title>
+  <desc id="neutrx-favicon-desc">Icon-only Neutrx shield mark for secure backend HTTP.</desc>
+  <defs>
+    <linearGradient id="neutrx-shield" x1="14" y1="14" x2="134" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="0.52" stop-color="#1763e6"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="neutrx-signal" x1="38" y1="47" x2="112" y2="117" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dbeafe"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="180" height="180" rx="40" fill="#0b1320"/>
+  <g transform="translate(10 0)">
+    <path d="M80 16 137 37v45c0 39-22 65-57 82-35-17-57-43-57-82V37L80 16Z" fill="url(#neutrx-shield)"/>
+    <path d="M80 30 124 46v35c0 29-16 49-44 64-28-15-44-35-44-64V46l44-16Z" fill="#ffffff" opacity="0.12"/>
+    <path d="M51 111V66l58 48V69" fill="none" stroke="url(#neutrx-signal)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M50 66h20m38 48h18" fill="none" stroke="#dbeafe" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+    <circle cx="50" cy="66" r="8" fill="#ecfeff"/>
+    <circle cx="126" cy="114" r="8" fill="#ecfeff"/>
+    <circle cx="80" cy="140" r="5" fill="#ffffff" opacity="0.72"/>
+  </g>
+</svg>

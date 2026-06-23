@@ -50,29 +50,46 @@ neutrx.defaults.headers = { 'X-Service': 'billing' };
 
 ## Methods
 
-- `request(config)`
-- `get(url, config?)`
-- `post(url, data, config?)`
-- `put(url, data, config?)`
-- `patch(url, data, config?)`
-- `delete(url, config?)`
-- `head(url, config?)`
-- `options(url, config?)`
-- `postForm(url, data, config?)`
-- `putForm(url, data, config?)`
-- `patchForm(url, data, config?)`
-- `postUrlEncoded(url, data, config?)`
-- `putUrlEncoded(url, data, config?)`
-- `patchUrlEncoded(url, data, config?)`
-- `upload(url, data, config?)`
-- `download(url, config?)`
-- `paginate(url, options?)` — async generator over pages (see [Pagination](pagination.md))
-- `sse(url, handlers?)`
-- `ws(url, options?)`
-- `getUri(config)`
-- `clearCache(pattern?)`
-- `invalidateCache(pattern?)`
-- `deleteCacheEntry(configOrUrl)`
+Every method funnels through `request()` and returns a `Promise<NeutrxResponse<T>>` (except the streaming/generator/utility helpers noted below). Generic `T` types `response.data`.
+
+### Verb methods
+
+| Method | Purpose |
+| --- | --- |
+| `request(config)` | The single funnel. Takes a full config object (`url`, `method`, `data`, …). All other verbs delegate to it. |
+| `get(url, config?)` | `GET`. No body. Use for reads; deduplicated and cacheable by default. |
+| `post(url, data, config?)` | `POST`. `data` becomes the body (JSON-encoded for plain objects). Not retried unless `idempotencyKey` is set. |
+| `put(url, data, config?)` | `PUT`. Full-resource replace. Retried by default (`retryMethods`). |
+| `patch(url, data, config?)` | `PATCH`. Partial update. Not retried unless `idempotencyKey` is set. |
+| `delete(url, config?)` | `DELETE`. Optional body via `config.data`. |
+| `head(url, config?)` | `HEAD`. Headers only, no body returned. |
+| `options(url, config?)` | `OPTIONS`. Preflight/capability probe. |
+
+### Body-encoding helpers
+
+| Method | Encoding |
+| --- | --- |
+| `postForm` / `putForm` / `patchForm` | `multipart/form-data`. Node serializes plain objects to a multipart body; browser-like runtimes convert to `FormData`. Use for file uploads with fields. |
+| `postUrlEncoded` / `putUrlEncoded` / `patchUrlEncoded` | `application/x-www-form-urlencoded`. Serializes the object to a query-string body. |
+
+### Streaming & large transfers
+
+| Method | Purpose |
+| --- | --- |
+| `upload(url, data, config?)` | Upload with `onUploadProgress` events; streams/buffers a body. |
+| `download(url, config?)` | Download with `onDownloadProgress` events; pairs with `responseType: 'buffer'` / `'stream'`. |
+| `paginate(url, options?)` | Async generator yielding pages — `for await (const page of api.paginate(...))`. See [Pagination](pagination.md). |
+| `sse(url, handlers?)` | Server-Sent Events stream; `handlers` receive parsed events. |
+| `ws(url, options?)` | Opens a WebSocket through the same client defaults/hooks. See [WebSocket](#websocket). |
+
+### Utility & cache control
+
+| Method | Purpose |
+| --- | --- |
+| `getUri(config)` | Build the final URL without sending. See [Utility Methods](#utility-methods). |
+| `clearCache(pattern?)` | Remove all cached responses (or those matching `pattern`). |
+| `invalidateCache(pattern?)` | Remove cached entries whose key or final URL matches a string/regex. |
+| `deleteCacheEntry(configOrUrl)` | Remove the cache entry for one specific final URL. |
 
 ## Utility Methods
 
@@ -91,57 +108,88 @@ api.getUri({ url: '/users?active=true#team', params: { page: 2 } });
 
 ## Request Config
 
-Important fields:
+Config merges in three layers: library `neutrx.defaults` → instance defaults (`neutrx.create({...})`) → per-request `config`. Per-request wins.
 
-- `baseURL`
-- `allowAbsoluteUrls`
-- `url`
-- `method`
-- `params`
-- `paramsSerializer`
-- `headers`
-- `auth`
-- `idempotencyKey`
-- `idempotencyKeyHeader`
-- `data`
-- `timeout`
-- `connectTimeout`
-- `signal`
-- `cancelToken` (migration bridge; prefer `signal`)
-- `maxRedirects`
-- `maxContentLength`
-- `maxBodyLength`
-- `responseType`
-- `responseEncoding`
-- `validateStatus`
-- `throwHttpErrors`
-- `parseJson`
-- `stringifyJson`
-- `transformRequest`
-- `transformResponse`
-- `schema`
-- `adapter`
-- `fetch`
-- `httpVersion`
-- `serviceDiscovery`
-- `proxy`
-- `tls`
-- `lookup`
-- `httpAgent`
-- `httpsAgent`
-- `socketPath` (Node only)
-- `beforeRedirect`
-- `decompress` (Node only)
-- `maxRate` (Node only, bytes per second or `[upload, download]`)
-- `transitional.clarifyTimeoutError`
-- `security`
-- `egressPolicy`
-- `resilience`
-- `performance`
-- `instrumentation`
-- `validation`
-- `onUploadProgress`
-- `onDownloadProgress`
+### Target & URL
+
+| Field | Description |
+| --- | --- |
+| `url` | Request path or absolute URL. Joined onto `baseURL` unless absolute and allowed. |
+| `baseURL` | Prefix applied to relative `url`. |
+| `allowAbsoluteUrls` | When `false`, absolute-looking `url`s are still forced through `baseURL`. Default `true`. |
+| `method` | HTTP verb. Set automatically by the verb helpers. |
+| `params` | Query params object, appended to the URL. |
+| `paramsSerializer` | Custom function to encode `params` into a query string. |
+
+### Headers & auth
+
+| Field | Description |
+| --- | --- |
+| `headers` | Plain object or `NeutrxHeaders`. Normalized to `NeutrxHeaders` at request start. |
+| `auth` | Basic auth `{ username, password }`; sets the `Authorization` header. |
+| `idempotencyKey` | Value for the idempotency header; also makes `POST`/`PATCH` retryable. |
+| `idempotencyKeyHeader` | Header name for the key. Default `Idempotency-Key`. |
+
+### Body & data transform
+
+| Field | Description |
+| --- | --- |
+| `data` | Request body. Plain objects are JSON-encoded by default. |
+| `parseJson` / `stringifyJson` | Override the JSON parse/serialize functions. |
+| `transformRequest` | Function(s) run over the body before sending. |
+| `transformResponse` | Function(s) run over the raw body after receiving, before `schema`. |
+| `schema` | Validate response data; replaces `data` or throws `NeutrxValidationError`. See [Response Schema Validation](#response-schema-validation). |
+| `validation` | Plugin-driven request/response validation (`ValidationPlugin`). |
+
+### Timeouts & cancellation
+
+| Field | Description |
+| --- | --- |
+| `timeout` | Total request deadline in ms. |
+| `connectTimeout` | Connection-establishment deadline in ms. |
+| `signal` | `AbortSignal` to cancel the request. Preferred. |
+| `cancelToken` | Axios-style cancel bridge for migration; prefer `signal`. |
+| `transitional.clarifyTimeoutError` | When `true`, timeout errors use `ETIMEDOUT` instead of `ECONNABORTED`. |
+
+### Response handling & limits
+
+| Field | Description |
+| --- | --- |
+| `responseType` | `'json'` (default), `'text'`, `'buffer'`, `'stream'`, etc. |
+| `responseEncoding` | Text decoding charset for buffered text. |
+| `validateStatus` | Predicate deciding which status codes resolve vs throw. |
+| `throwHttpErrors` | When `false`, non-2xx responses resolve instead of throwing. |
+| `maxRedirects` | Max redirect hops to follow. |
+| `maxContentLength` | Max response body size in bytes. |
+| `maxBodyLength` | Max request body size in bytes. |
+| `decompress` | (Node only) `false` preserves compressed response bytes. |
+
+### Transport & adapter
+
+| Field | Description |
+| --- | --- |
+| `adapter` | `'http'`, `'fetch'`, `'http2'`, `HttpAdapter`, or a custom `NeutrxAdapter`. |
+| `fetch` | Custom `fetch` implementation for the fetch adapter. |
+| `httpVersion` | `1` or `2`. `2` routes through `node:http2`. See [HTTP/2](#http2). |
+| `serviceDiscovery` | Resolver + strategy for relative URLs. See [Service Discovery](#service-discovery). |
+| `proxy` | Proxy settings (Node, HTTP/1.1). |
+| `tls` | TLS options (CA, cert, key, `rejectUnauthorized`). |
+| `lookup` | Custom DNS lookup function. |
+| `httpAgent` / `httpsAgent` | (Node) custom agents for connection pooling. |
+| `socketPath` | (Node only) Unix domain socket path. |
+| `beforeRedirect` | Hook run after Neutrx validates each redirect hop. |
+| `maxRate` | (Node only) bandwidth cap in bytes/s, or `[upload, download]`; `0` = uncapped. |
+
+### Safety, resilience & observability
+
+| Field | Description |
+| --- | --- |
+| `security` | SSRF/host/HTTPS controls + rate limiting. See [Security Config](#security-config). |
+| `egressPolicy` | Outbound egress allowlist. See [Egress Policy](#egress-policy). |
+| `resilience` | Retry, circuit breaker, bulkhead. See [Resilience Config](#resilience-config). |
+| `performance` | Caching + request dedup. See [Performance Config](#performance-config). |
+| `instrumentation` | Metrics/telemetry hooks. |
+| `onUploadProgress` / `onDownloadProgress` | Progress callbacks (`ProgressEvent`). |
 
 Progress events include `loaded`, `total`, `percent`, `progress`, `bytes`, `rate`, `estimated`, and `upload` or `download`.
 
@@ -360,16 +408,26 @@ api.interceptors.response.clear();
 
 ## Plugins
 
-Built-in plugins:
+Register with `api.use(Plugin)`. Built-in plugins (zero added runtime dependency):
 
-- `OAuth2Plugin`
-- `GraphQLPlugin`
-- `MockPlugin`
-- `ValidationPlugin`
-- `WebSocketPlugin`
-- `LogPlugin`
-- `OtelPlugin`
-- `TraceContextPlugin`
+| Plugin | What it does |
+| --- | --- |
+| `OAuth2Plugin` | Client-credentials OAuth2. Fetches a bearer token from `tokenURL`, caches it, refreshes ~30s before expiry, and injects `Authorization: Bearer …` on every request. Configure via `api.configureOAuth2({...})`. |
+| `GraphQLPlugin` | Adds `api.gql(endpoint, query, variables?, options?)` — `POST`s `{ query, variables, operationName }`, unwraps `data`, and throws on a non-empty `errors` array. |
+| `MockPlugin` | In-process mocking. `api.mock.enable().register(urlPatternOrRegex, { status, data, … })` short-circuits matching requests with a mock response (optional `delay`) without hitting the network. For tests/demos. |
+| `ValidationPlugin` | Request- and response-body validation through `config.validation`. See note below. |
+| `WebSocketPlugin` | Compatibility shim only; prefer `api.ws(url, options)` directly. |
+| `LogPlugin` | Structured success/error log entries to the logger set via `api.setLogger(...)`. |
+| `OtelPlugin` | OpenTelemetry bridge (spans + context propagation) using a host-installed `@opentelemetry/api`. |
+| `TraceContextPlugin` | Dependency-free W3C Trace Context + B3 propagation headers. |
+
+See [Plugins](plugins.md) for full configuration and examples of each.
+
+`OAuth2Plugin` refreshes lazily on the next request after the token nears expiry; token requests are sent with `skipOAuth: true` so they don't recurse. Set `skipOAuth: true` on any request that must not carry the injected bearer token.
+
+`GraphQLPlugin` errors are thrown as an `Error` carrying `graphQLErrors` (the response `errors` array) and any partial `data`. Successful results expose `extensions` when the server returns them.
+
+`MockPlugin` matches string patterns by URL substring and `RegExp` patterns by `test()`; the first registered match wins. Call `api.mock.disable()` or `api.mock.clear()` to stop mocking.
 
 Factory plugins (from `neutrx/plugins` or the Node entry):
 

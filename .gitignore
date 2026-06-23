@@ -11,3 +11,4 @@ npm-debug.log*
 .tmp/
 CLAUDE.md
 graphify-out/
+_config.dev.yml

@@ -1,0 +1,1693 @@
+
+
+<!DOCTYPE html>
+
+<html lang="en-US">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+
+  <link rel="stylesheet" href="/assets/css/just-the-docs-default.css">
+
+  <link rel="stylesheet" href="/assets/css/just-the-docs-head-nav.css" id="jtd-head-nav-stylesheet">
+
+  <style id="jtd-nav-activation">
+  
+
+    .site-nav > ul.nav-list:first-child > li > a,
+    
+    .site-nav > ul.nav-list:first-child > li > ul > li:not(:nth-child(1)) > a,
+    .site-nav > ul.nav-list:first-child > li > ul > li > ul > li a {
+      background-image: none;
+    }
+
+    .site-nav > ul.nav-list:not(:first-child) a,
+    .site-nav li.external a {
+      background-image: none;
+    }
+
+    .site-nav > ul.nav-list:first-child > li:nth-child(7) > ul > li:nth-child(1) > a {
+      font-weight: 600;
+      text-decoration: none;
+    }.site-nav > ul.nav-list:first-child > li:nth-child(7) > button svg,
+    .site-nav > ul.nav-list:first-child > li:nth-child(7) > ul > li:nth-child(1) > button svg {
+      transform: rotate(-90deg);
+    }.site-nav > ul.nav-list:first-child > li.nav-list-item:nth-child(7) > ul.nav-list,
+    .site-nav > ul.nav-list:first-child > li.nav-list-item:nth-child(7) > ul.nav-list > li.nav-list-item:nth-child(1) > ul.nav-list {
+      display: block;
+    }
+  </style>
+
+  
+
+  
+    <script src="/assets/js/vendor/lunr.min.js"></script>
+  
+
+  <script src="/assets/js/just-the-docs.js"></script>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
+
+
+
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>API Reference | Neutrx</title>
+<meta name="generator" content="Jekyll v4.4.1" />
+<meta property="og:title" content="API Reference" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends." />
+<meta name="twitter:description" property="og:description" content="Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends." />
+<link rel="canonical" href="http://localhost:4000/api.html" />
+<meta property="og:url" content="http://localhost:4000/api.html" />
+<meta property="og:site_name" content="Neutrx" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="API Reference" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","description":"Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends.","headline":"API Reference","publisher":{"@type":"Organization","logo":{"@type":"ImageObject","url":"http://localhost:4000/assets/neutrx-logo.svg"}},"url":"http://localhost:4000/api.html"}</script>
+<!-- End Jekyll SEO tag -->
+
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+<script>
+  (function () {
+    var searchDataUrl = "/assets/js/search-data.json";
+    var open = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      if (url === '/assets/js/search-data.json') {
+        arguments[1] = searchDataUrl;
+      }
+      return open.apply(this, arguments);
+    };
+  })();
+</script>
+
+<script>
+  (function () {
+    var searchDataUrl = "/assets/js/search-data.json";
+    var docsPromise;
+
+    function loadDocs() {
+      if (!docsPromise) {
+        docsPromise = fetch(searchDataUrl).then(function (response) {
+          if (!response.ok) throw new Error('search-data request failed: ' + response.status);
+          return response.json();
+        });
+      }
+      return docsPromise;
+    }
+
+    function score(query, doc) {
+      var q = query.toLowerCase();
+      var title = String(doc.title || '').toLowerCase();
+      var content = String(doc.content || '').toLowerCase();
+      var relUrl = String(doc.relUrl || '');
+      var value = 0;
+      if (title === q) value += 100;
+      if (title.indexOf(q) !== -1) value += 50;
+      if (relUrl.toLowerCase().indexOf(q) !== -1) value += 20;
+      var index = content.indexOf(q);
+      if (index !== -1) value += 10 + Math.max(0, 10 - Math.floor(index / 120));
+      return value;
+    }
+
+    function excerpt(query, doc) {
+      var text = String(doc.content || '').replace(/\s+/g, ' ').trim();
+      if (!text) return '';
+      var index = text.toLowerCase().indexOf(query.toLowerCase());
+      if (index < 0) return text.slice(0, 180);
+      var start = Math.max(0, index - 70);
+      var end = Math.min(text.length, index + query.length + 110);
+      return (start > 0 ? '... ' : '') + text.slice(start, end) + (end < text.length ? ' ...' : '');
+    }
+
+    function renderFallback(query, docs, resultsNode) {
+      var results = Object.keys(docs)
+        .map(function (id) { return { doc: docs[id], score: score(query, docs[id]) }; })
+        .filter(function (item) { return item.score > 0; })
+        .sort(function (a, b) { return b.score - a.score; })
+        .slice(0, 8);
+
+      resultsNode.innerHTML = '';
+
+      if (!results.length) {
+        var empty = document.createElement('div');
+        empty.className = 'search-no-result';
+        empty.textContent = 'No results found';
+        resultsNode.appendChild(empty);
+        return;
+      }
+
+      var list = document.createElement('ul');
+      list.className = 'search-results-list';
+      resultsNode.appendChild(list);
+
+      results.forEach(function (item) {
+        var doc = item.doc;
+        var li = document.createElement('li');
+        li.className = 'search-results-list-item';
+        var link = document.createElement('a');
+        link.className = 'search-result';
+        link.href = doc.url || doc.relUrl || '#';
+
+        var title = document.createElement('div');
+        title.className = 'search-result-title';
+        link.appendChild(title);
+
+        var resultDoc = document.createElement('div');
+        resultDoc.className = 'search-result-doc';
+        resultDoc.innerHTML = '<svg viewBox="0 0 24 24" class="search-result-icon" aria-hidden="true"><use xlink:href="#svg-doc"></use></svg>';
+        title.appendChild(resultDoc);
+
+        var docTitle = document.createElement('div');
+        docTitle.className = 'search-result-doc-title';
+        docTitle.textContent = doc.doc || doc.title || 'Untitled';
+        resultDoc.appendChild(docTitle);
+
+        if (doc.doc && doc.title && doc.doc !== doc.title) {
+          resultDoc.classList.add('search-result-doc-parent');
+          var section = document.createElement('div');
+          section.className = 'search-result-section';
+          section.textContent = doc.title;
+          title.appendChild(section);
+        }
+
+        var relUrl = document.createElement('div');
+        relUrl.className = 'search-result-rel-url';
+        relUrl.textContent = doc.relUrl || doc.url || '';
+        title.appendChild(relUrl);
+
+        var previews = document.createElement('div');
+        previews.className = 'search-result-previews';
+        var preview = document.createElement('div');
+        preview.className = 'search-result-preview';
+        preview.textContent = excerpt(query, doc);
+        previews.appendChild(preview);
+        link.appendChild(previews);
+
+        li.appendChild(link);
+        list.appendChild(li);
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      var input = document.getElementById('search-input');
+      var results = document.getElementById('search-results');
+      if (!input || !results) return;
+
+      var searchBox = input.closest('.search') || results.parentElement;
+      var debounce;
+      var lastRenderedQuery = '';
+
+      function hideResults() {
+        clearTimeout(debounce);
+        document.documentElement.classList.remove('search-active');
+        results.hidden = true;
+      }
+
+      function clearResults() {
+        lastRenderedQuery = '';
+        results.innerHTML = '';
+        hideResults();
+      }
+
+      function showResults() {
+        results.hidden = false;
+        document.documentElement.classList.add('search-active');
+      }
+
+      function runFallbackSearch() {
+        var query = input.value.trim();
+        if (!query) { clearResults(); return; }
+        showResults();
+        if (query === lastRenderedQuery && results.children.length) return;
+        loadDocs()
+          .then(function (docs) {
+            lastRenderedQuery = query;
+            renderFallback(query, docs, results);
+          })
+          .catch(function () {
+            lastRenderedQuery = query;
+            results.innerHTML = '<div class="search-no-result">Search unavailable</div>';
+          });
+      }
+
+      input.addEventListener('input', function () {
+        var query = input.value.trim();
+        clearTimeout(debounce);
+        if (!query) { clearResults(); return; }
+        showResults();
+        debounce = setTimeout(runFallbackSearch, 120);
+      });
+
+      // Re-open existing results when the field regains focus.
+      input.addEventListener('focus', function () {
+        if (!input.value.trim()) return;
+        if (results.children.length && input.value.trim() === lastRenderedQuery) showResults();
+        else debounce = setTimeout(runFallbackSearch, 60);
+      });
+
+      // Hide when focus leaves the search box. Clicking a result moves focus to
+      // the link (still inside searchBox) so navigation isn't cut off.
+      if (searchBox) {
+        searchBox.addEventListener('focusout', function (e) {
+          if (e.relatedTarget && searchBox.contains(e.relatedTarget)) return;
+          setTimeout(function () {
+            if (!searchBox.contains(document.activeElement)) hideResults();
+          }, 0);
+        });
+
+        document.addEventListener('pointerdown', function (e) {
+          if (!searchBox.contains(e.target)) hideResults();
+        });
+      }
+
+      // Escape closes and drops focus.
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { hideResults(); input.blur(); }
+      });
+    });
+  })();
+</script>
+
+<!-- Neutrx docs: theme (light/dark, system default + manual toggle) and code copy buttons.
+     Loaded in <head> by Just the Docs. The first script runs synchronously to
+     apply a saved theme before paint (avoids a flash of the wrong theme). -->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('neutrx-theme');
+      if (saved === 'light' || saved === 'dark') {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    } catch (e) { /* localStorage unavailable -> fall back to OS preference */ }
+  })();
+</script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // ----- Theme toggle ----------------------------------------------------
+    function systemDark() {
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    function effectiveTheme() {
+      var explicit = document.documentElement.getAttribute('data-theme');
+      if (explicit === 'light' || explicit === 'dark') return explicit;
+      return systemDark() ? 'dark' : 'light';
+    }
+
+    var btn = document.createElement('button');
+    btn.id = 'theme-toggle';
+    btn.type = 'button';
+
+    var SUN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    var MOON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+
+    function render() {
+      var t = effectiveTheme();
+      // Show the icon of the theme you'll switch TO.
+      btn.innerHTML = (t === 'dark' ? SUN : MOON);
+      btn.setAttribute('title', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme');
+      btn.setAttribute('aria-label', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme');
+    }
+    function setTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      try { localStorage.setItem('neutrx-theme', t); } catch (e) {}
+      render();
+    }
+    btn.addEventListener('click', function () {
+      setTheme(effectiveTheme() === 'dark' ? 'light' : 'dark');
+    });
+    render();
+
+    // Place the toggle in the top-right aux nav (next to GitHub / npm links).
+    var auxList = document.querySelector('.aux-nav-list');
+    if (auxList) {
+      var li = document.createElement('li');
+      li.className = 'aux-nav-list-item';
+      li.appendChild(btn);
+      auxList.appendChild(li);
+    } else {
+      btn.style.position = 'fixed';
+      btn.style.top = '0.6rem';
+      btn.style.right = '0.8rem';
+      btn.style.zIndex = '1000';
+      document.body.appendChild(btn);
+    }
+
+    // Follow OS changes only while the user hasn't pinned a choice.
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+        if (!document.documentElement.getAttribute('data-theme')) render();
+      });
+    }
+
+    // ----- Back-to-top floating button -----------------------------------
+    // JtD renders <a id="back-to-top"> in the footer. Promote it to a fixed
+    // bottom-right pill, icon-only, revealed after the page scrolls a bit.
+    (function floatBackToTop() {
+      var btt = document.getElementById('back-to-top');
+      if (!btt) return;
+      btt.classList.add('btt-float');
+      btt.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+      btt.setAttribute('aria-label', 'Back to top');
+      btt.setAttribute('title', 'Back to top');
+
+      function onScroll() {
+        btt.classList.toggle('is-visible', window.scrollY > 400);
+      }
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+
+      // Smooth scroll; respect reduced-motion.
+      btt.addEventListener('click', function (e) {
+        e.preventDefault();
+        var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+      });
+    })();
+
+    // ----- Active sidebar item --------------------------------------------
+    // JtD marks the current nav link server-side, but under a baseurl (/neutrx)
+    // it compares the relative_url'd node.url against the raw page.url, so they
+    // never match and `.active` is never emitted. Re-derive it client-side by
+    // matching each link's resolved pathname to the current one (baseurl-proof).
+    (function markActiveNav() {
+      function norm(p) { return p.replace(/index\.html$/, '').replace(/\/+$/, '') || '/'; }
+      var here = norm(location.pathname);
+      var links = document.querySelectorAll('.side-bar .nav-list-link');
+      links.forEach(function (a) {
+        if (norm(a.pathname) !== here) return;
+        a.classList.add('active');
+        a.setAttribute('aria-current', 'page');
+        // Activate every ancestor nav-list-item (also reveals collapsed sections).
+        var li = a.closest('.nav-list-item');
+        while (li) {
+          li.classList.add('active');
+          li = li.parentElement ? li.parentElement.closest('.nav-list-item') : null;
+        }
+      });
+    })();
+
+    // ----- Copy buttons on code blocks ------------------------------------
+    var COPY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    var TICK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
+    var blocks = document.querySelectorAll('.main-content div.highlighter-rouge, .main-content figure.highlight');
+    blocks.forEach(function (block) {
+      var code = block.querySelector('code') || block.querySelector('pre');
+      if (!code) return;
+
+      var copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'copy-btn';
+      copy.innerHTML = COPY_ICON;
+      copy.setAttribute('data-tooltip', 'Copied');
+      copy.setAttribute('aria-label', 'Copy code to clipboard');
+      copy.setAttribute('title', 'Copy');
+
+      var resetTimer;
+      copy.addEventListener('click', function () {
+        var text = code.innerText.replace(/\n$/, '');
+        var done = function () {
+          copy.innerHTML = TICK_ICON;
+          copy.classList.add('copied');
+          copy.setAttribute('aria-label', 'Copied');
+          clearTimeout(resetTimer);
+          resetTimer = setTimeout(function () {
+            copy.innerHTML = COPY_ICON;
+            copy.classList.remove('copied');
+            copy.setAttribute('aria-label', 'Copy code to clipboard');
+          }, 3000);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(function () { fallback(text, done); });
+        } else {
+          fallback(text, done);
+        }
+      });
+
+      block.appendChild(copy);
+    });
+
+    function fallback(text, done) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+  });
+</script>
+<script>
+  document.addEventListener('keydown', function (e) {
+    var target = e.target;
+    var typing =
+      target &&
+      (target.closest('input, textarea, select') || target.closest('[contenteditable="true"]'));
+
+    if (typing || e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+
+    var input = document.getElementById('search-input');
+    if (!input) return;
+
+    e.preventDefault();
+    input.focus();
+  });
+</script>
+
+
+</head>
+
+<body>
+  <a class="skip-to-main" href="#main-content">Skip to main content</a>
+  <svg xmlns="http://www.w3.org/2000/svg" class="d-none">
+  <symbol id="svg-link" viewBox="0 0 24 24">
+  <title>Link</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-link">
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+  </svg>
+</symbol>
+
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+  <title>Menu</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-menu">
+    <line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line>
+  </svg>
+</symbol>
+
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+  <title>Expand</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-chevron-right">
+    <polyline points="9 18 15 12 9 6"></polyline>
+  </svg>
+</symbol>
+
+  <!-- Feather. MIT License: https://github.com/feathericons/feather/blob/master/LICENSE -->
+<symbol id="svg-external-link" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-external-link">
+  <title id="svg-external-link-title">(external link)</title>
+  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line>
+</symbol>
+
+  
+    <symbol id="svg-doc" viewBox="0 0 24 24">
+  <title>Document</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-file">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline>
+  </svg>
+</symbol>
+
+    <symbol id="svg-search" viewBox="0 0 24 24">
+  <title>Search</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-search">
+    <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+  </svg>
+</symbol>
+
+  
+  
+    <!-- Bootstrap Icons. MIT License: https://github.com/twbs/icons/blob/main/LICENSE.md -->
+<symbol id="svg-copy" viewBox="0 0 16 16">
+  <title>Copy</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard" viewBox="0 0 16 16">
+    <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
+    <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>
+  </svg>
+</symbol>
+<symbol id="svg-copied" viewBox="0 0 16 16">
+  <title>Copied</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard-check-fill" viewBox="0 0 16 16">
+    <path d="M6.5 0A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3Zm3 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3Z"/>
+    <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1A2.5 2.5 0 0 1 9.5 5h-3A2.5 2.5 0 0 1 4 2.5v-1Zm6.854 7.354-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 0 1 .708-.708L7.5 10.793l2.646-2.647a.5.5 0 0 1 .708.708Z"/>
+  </svg>
+</symbol>
+
+  
+</svg>
+
+  
+    <header class="side-bar">
+  <div class="site-header">
+    <a href="/" class="site-title lh-tight">
+  <div class="site-logo" role="img" aria-label="Neutrx"></div>
+
+</a>
+    <button id="menu-button" class="site-button btn-reset" aria-label="Menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" class="icon" aria-hidden="true"><use xlink:href="#svg-menu"></use></svg>
+    </button>
+  </div>
+
+  <nav aria-label="Main" id="site-nav" class="site-nav">
+  
+  
+    <ul class="nav-list"><li class="nav-list-item"><a href="/" class="nav-list-link">Home</a></li><li class="nav-list-item"><a href="/getting-started.html" class="nav-list-link">Getting Started</a></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Guides submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/guides.html" class="nav-list-link">Guides</a><ul class="nav-list"><li class="nav-list-item"><a href="/node-usage.html" class="nav-list-link">Node Usage</a></li><li class="nav-list-item"><a href="/node-infrastructure.html" class="nav-list-link">Node Infrastructure</a></li><li class="nav-list-item"><a href="/browser-usage.html" class="nav-list-link">Browser Usage</a></li><li class="nav-list-item"><a href="/retries.html" class="nav-list-link">Retry Strategies</a></li><li class="nav-list-item"><a href="/circuit-breaker.html" class="nav-list-link">Circuit Breaker</a></li><li class="nav-list-item"><a href="/bulkhead-isolation.html" class="nav-list-link">Bulkhead Isolation</a></li><li class="nav-list-item"><a href="/cache.html" class="nav-list-link">Cache & Deduplication</a></li><li class="nav-list-item"><a href="/pagination.html" class="nav-list-link">Pagination</a></li><li class="nav-list-item"><a href="/data-loader.html" class="nav-list-link">Request Batching (DataLoader)</a></li><li class="nav-list-item"><a href="/plugins.html" class="nav-list-link">Plugins</a></li><li class="nav-list-item"><a href="/observability.html" class="nav-list-link">Observability</a></li></ul></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Security submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/security-model.html" class="nav-list-link">Security</a><ul class="nav-list"><li class="nav-list-item"><a href="/security-features.html" class="nav-list-link">Security Features</a></li><li class="nav-list-item"><a href="/security.html" class="nav-list-link">Security Guide</a></li><li class="nav-list-item"><a href="/secure-egress.html" class="nav-list-link">Secure Egress</a></li><li class="nav-list-item"><a href="/adapter-security-contract.html" class="nav-list-link">Adapter Security Contract</a></li></ul></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Migration submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/axios-migration.html" class="nav-list-link">Migration</a><ul class="nav-list"><li class="nav-list-item"><a href="/axios-migration-matrix.html" class="nav-list-link">Axios Migration Matrix</a></li><li class="nav-list-item"><a href="/legacy-http-client-migration.html" class="nav-list-link">Legacy HTTP Client Migration</a></li><li class="nav-list-item"><a href="/full-stack-frontend-migration.html" class="nav-list-link">Full-Stack Frontend Migration</a></li></ul></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Examples submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/examples.html" class="nav-list-link">Examples</a><ul class="nav-list"><li class="nav-list-item"><a href="/examples/rest-api-request.html" class="nav-list-link">REST API Request</a></li><li class="nav-list-item"><a href="/examples/auth-token.html" class="nav-list-link">Auth Token</a></li><li class="nav-list-item"><a href="/examples/file-upload.html" class="nav-list-link">File Upload</a></li><li class="nav-list-item"><a href="/examples/request-retry.html" class="nav-list-link">Request Retry</a></li><li class="nav-list-item"><a href="/examples/otel-tracing.html" class="nav-list-link">OTel Tracing</a></li><li class="nav-list-item"><a href="/examples/schema-validation.html" class="nav-list-link">Schema Validation</a></li><li class="nav-list-item"><a href="/examples/docker-socket-request.html" class="nav-list-link">Docker Socket Request</a></li><li class="nav-list-item"><a href="/recipes/backend-recipes.html" class="nav-list-link">Backend Recipes</a></li></ul></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Reference submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/reference.html" class="nav-list-link">Reference</a><ul class="nav-list"><li class="nav-list-item"><a href="/api.html" class="nav-list-link">API Reference</a></li><li class="nav-list-item"><a href="/config-reference.html" class="nav-list-link">Config Reference</a></li><li class="nav-list-item"><a href="/errors.html" class="nav-list-link">Errors</a></li><li class="nav-list-item"><a href="/release-testing.html" class="nav-list-link">Release Testing</a></li><li class="nav-list-item"><a href="/release-security.html" class="nav-list-link">Release Security</a></li></ul></li><li class="nav-list-item"><a href="/why-neutrx.html" class="nav-list-link">Why Neutrx</a></li><li class="nav-list-item"><a href="/support.html" class="nav-list-link">Support</a></li></ul>
+  
+</nav>
+
+
+<div class="d-md-block d-none site-footer">
+  
+  
+    <p class="text-small text-grey-dk-000 mb-0">Released under the MIT License. &copy; Neutrx contributors.</p>
+
+  
+  </div>
+</header>
+
+  
+  <div class="main" id="top">
+    <div id="main-header" class="main-header">
+  
+    
+
+<div class="search" role="search">
+  <div class="search-input-wrap">
+    <input type="text" id="search-input" class="search-input" tabindex="0" placeholder="Search Neutrx" autocomplete="off">
+    <label for="search-input" class="search-label">
+      <span class="sr-only">Search Neutrx</span>
+      <svg viewBox="0 0 24 24" class="search-icon" aria-hidden="true"><use xlink:href="#svg-search"></use></svg>
+    </label>
+  </div>
+  <div id="search-results" class="search-results"></div>
+</div>
+
+  
+  
+  
+    <nav aria-label="Auxiliary" class="aux-nav">
+  <ul class="aux-nav-list">
+    
+      <li class="aux-nav-list-item">
+        <a href="https://github.com/Xenial-Devil/neutrx" class="site-button"
+          
+          target="_blank" rel="noopener noreferrer"
+          
+        >
+          GitHub
+        </a>
+      </li>
+    
+      <li class="aux-nav-list-item">
+        <a href="https://www.npmjs.com/package/neutrx" class="site-button"
+          
+          target="_blank" rel="noopener noreferrer"
+          
+        >
+          npm
+        </a>
+      </li>
+    
+  </ul>
+</nav>
+
+  
+</div>
+
+    <div class="main-content-wrap">
+      <nav aria-label="Breadcrumb" class="breadcrumb-nav">
+  <ol class="breadcrumb-nav-list">
+    <li class="breadcrumb-nav-list-item"><a href="/reference.html">Reference</a></li>
+    <li class="breadcrumb-nav-list-item"><span>API Reference</span></li>
+  </ol>
+</nav>
+
+
+      <div id="main-content" class="main-content">
+        <main>
+          
+            <h1 id="neutrx-api-reference">
+  
+  
+    <a href="#neutrx-api-reference" class="anchor-heading" aria-labelledby="neutrx-api-reference"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Neutrx API Reference
+  
+  
+</h1>
+    
+<h2 id="import">
+  
+  
+    <a href="#import" class="anchor-heading" aria-labelledby="import"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Import
+  
+  
+</h2>
+    
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">import</span> <span class="nx">neutrx</span><span class="p">,</span> <span class="p">{</span>
+  <span class="nx">HttpAdapter</span><span class="p">,</span>
+  <span class="nx">NeutrxError</span><span class="p">,</span>
+  <span class="nx">NeutrxHTTPError</span><span class="p">,</span>
+  <span class="nx">NeutrxHeaders</span><span class="p">,</span>
+  <span class="nx">isNeutrxError</span><span class="p">,</span>
+<span class="p">}</span> <span class="k">from</span> <span class="dl">'</span><span class="s1">neutrx</span><span class="dl">'</span><span class="p">;</span>
+</code></pre></div></div>
+<h2 id="client-creation">
+  
+  
+    <a href="#client-creation" class="anchor-heading" aria-labelledby="client-creation"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Client Creation
+  
+  
+</h2>
+    
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">const</span> <span class="nx">api</span> <span class="o">=</span> <span class="nx">neutrx</span><span class="p">.</span><span class="nf">create</span><span class="p">({</span>
+  <span class="na">baseURL</span><span class="p">:</span> <span class="dl">'</span><span class="s1">https://api.example.com</span><span class="dl">'</span><span class="p">,</span>
+  <span class="na">timeout</span><span class="p">:</span> <span class="mi">30</span><span class="nx">_000</span><span class="p">,</span>
+  <span class="na">connectTimeout</span><span class="p">:</span> <span class="mi">10</span><span class="nx">_000</span><span class="p">,</span>
+<span class="p">});</span>
+</code></pre></div></div>
+
+<p>The default export is callable:</p>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">await</span> <span class="nf">neutrx</span><span class="p">(</span><span class="dl">'</span><span class="s1">https://api.example.com/health</span><span class="dl">'</span><span class="p">);</span>
+<span class="k">await</span> <span class="nf">neutrx</span><span class="p">({</span> <span class="na">url</span><span class="p">:</span> <span class="dl">'</span><span class="s1">https://api.example.com/health</span><span class="dl">'</span><span class="p">,</span> <span class="na">method</span><span class="p">:</span> <span class="dl">'</span><span class="s1">GET</span><span class="dl">'</span> <span class="p">});</span>
+</code></pre></div></div>
+
+<p>CommonJS:</p>
+
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">const</span> <span class="p">{</span> <span class="na">default</span><span class="p">:</span> <span class="nx">neutrx</span><span class="p">,</span> <span class="nx">isNeutrxError</span> <span class="p">}</span> <span class="o">=</span> <span class="nf">require</span><span class="p">(</span><span class="dl">'</span><span class="s1">neutrx</span><span class="dl">'</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Global defaults:</p>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">neutrx</span><span class="p">.</span><span class="nx">defaults</span><span class="p">.</span><span class="nx">baseURL</span> <span class="o">=</span> <span class="dl">'</span><span class="s1">https://api.example.com</span><span class="dl">'</span><span class="p">;</span>
+<span class="nx">neutrx</span><span class="p">.</span><span class="nx">defaults</span><span class="p">.</span><span class="nx">headers</span> <span class="o">=</span> <span class="p">{</span> <span class="dl">'</span><span class="s1">X-Service</span><span class="dl">'</span><span class="p">:</span> <span class="dl">'</span><span class="s1">billing</span><span class="dl">'</span> <span class="p">};</span>
+</code></pre></div></div>
+<h2 id="methods">
+  
+  
+    <a href="#methods" class="anchor-heading" aria-labelledby="methods"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Methods
+  
+  
+</h2>
+    
+
+<p>Every method funnels through <code class="language-plaintext highlighter-rouge">request()</code> and returns a <code class="language-plaintext highlighter-rouge">Promise&lt;NeutrxResponse&lt;T&gt;&gt;</code> (except the streaming/generator/utility helpers noted below). Generic <code class="language-plaintext highlighter-rouge">T</code> types <code class="language-plaintext highlighter-rouge">response.data</code>.</p>
+<h3 id="verb-methods">
+  
+  
+    <a href="#verb-methods" class="anchor-heading" aria-labelledby="verb-methods"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Verb methods
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">request(config)</code></td>
+      <td>The single funnel. Takes a full config object (<code class="language-plaintext highlighter-rouge">url</code>, <code class="language-plaintext highlighter-rouge">method</code>, <code class="language-plaintext highlighter-rouge">data</code>, …). All other verbs delegate to it.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">get(url, config?)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">GET</code>. No body. Use for reads; deduplicated and cacheable by default.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">post(url, data, config?)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">POST</code>. <code class="language-plaintext highlighter-rouge">data</code> becomes the body (JSON-encoded for plain objects). Not retried unless <code class="language-plaintext highlighter-rouge">idempotencyKey</code> is set.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">put(url, data, config?)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">PUT</code>. Full-resource replace. Retried by default (<code class="language-plaintext highlighter-rouge">retryMethods</code>).</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">patch(url, data, config?)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">PATCH</code>. Partial update. Not retried unless <code class="language-plaintext highlighter-rouge">idempotencyKey</code> is set.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">delete(url, config?)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">DELETE</code>. Optional body via <code class="language-plaintext highlighter-rouge">config.data</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">head(url, config?)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HEAD</code>. Headers only, no body returned.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">options(url, config?)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OPTIONS</code>. Preflight/capability probe.</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3 id="body-encoding-helpers">
+  
+  
+    <a href="#body-encoding-helpers" class="anchor-heading" aria-labelledby="body-encoding-helpers"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Body-encoding helpers
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>Encoding</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">postForm</code> / <code class="language-plaintext highlighter-rouge">putForm</code> / <code class="language-plaintext highlighter-rouge">patchForm</code></td>
+      <td><code class="language-plaintext highlighter-rouge">multipart/form-data</code>. Node serializes plain objects to a multipart body; browser-like runtimes convert to <code class="language-plaintext highlighter-rouge">FormData</code>. Use for file uploads with fields.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">postUrlEncoded</code> / <code class="language-plaintext highlighter-rouge">putUrlEncoded</code> / <code class="language-plaintext highlighter-rouge">patchUrlEncoded</code></td>
+      <td><code class="language-plaintext highlighter-rouge">application/x-www-form-urlencoded</code>. Serializes the object to a query-string body.</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3 id="streaming--large-transfers">
+  
+  
+    <a href="#streaming--large-transfers" class="anchor-heading" aria-labelledby="streaming--large-transfers"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Streaming &amp; large transfers
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">upload(url, data, config?)</code></td>
+      <td>Upload with <code class="language-plaintext highlighter-rouge">onUploadProgress</code> events; streams/buffers a body.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">download(url, config?)</code></td>
+      <td>Download with <code class="language-plaintext highlighter-rouge">onDownloadProgress</code> events; pairs with <code class="language-plaintext highlighter-rouge">responseType: 'buffer'</code> / <code class="language-plaintext highlighter-rouge">'stream'</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">paginate(url, options?)</code></td>
+      <td>Async generator yielding pages — <code class="language-plaintext highlighter-rouge">for await (const page of api.paginate(...))</code>. See <a href="/pagination.html">Pagination</a>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">sse(url, handlers?)</code></td>
+      <td>Server-Sent Events stream; <code class="language-plaintext highlighter-rouge">handlers</code> receive parsed events.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">ws(url, options?)</code></td>
+      <td>Opens a WebSocket through the same client defaults/hooks. See <a href="#websocket">WebSocket</a>.</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3 id="utility--cache-control">
+  
+  
+    <a href="#utility--cache-control" class="anchor-heading" aria-labelledby="utility--cache-control"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Utility &amp; cache control
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">getUri(config)</code></td>
+      <td>Build the final URL without sending. See <a href="#utility-methods">Utility Methods</a>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">clearCache(pattern?)</code></td>
+      <td>Remove all cached responses (or those matching <code class="language-plaintext highlighter-rouge">pattern</code>).</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">invalidateCache(pattern?)</code></td>
+      <td>Remove cached entries whose key or final URL matches a string/regex.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">deleteCacheEntry(configOrUrl)</code></td>
+      <td>Remove the cache entry for one specific final URL.</td>
+    </tr>
+  </tbody>
+</table></div>
+<h2 id="utility-methods">
+  
+  
+    <a href="#utility-methods" class="anchor-heading" aria-labelledby="utility-methods"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Utility Methods
+  
+  
+</h2>
+    
+
+<p><code class="language-plaintext highlighter-rouge">getUri(config)</code> builds the final request URL without dispatching. It applies <code class="language-plaintext highlighter-rouge">baseURL</code>, <code class="language-plaintext highlighter-rouge">allowAbsoluteUrls</code>, <code class="language-plaintext highlighter-rouge">params</code>, and <code class="language-plaintext highlighter-rouge">paramsSerializer</code>, and it preserves existing query strings and hash fragments:</p>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">api</span><span class="p">.</span><span class="nf">getUri</span><span class="p">({</span> <span class="na">url</span><span class="p">:</span> <span class="dl">'</span><span class="s1">/users?active=true#team</span><span class="dl">'</span><span class="p">,</span> <span class="na">params</span><span class="p">:</span> <span class="p">{</span> <span class="na">page</span><span class="p">:</span> <span class="mi">2</span> <span class="p">}</span> <span class="p">});</span>
+<span class="c1">// "/users?active=true&amp;page=2#team" or with baseURL, "https://api.example.com/users?active=true&amp;page=2#team"</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">isNeutrxError(error)</code> and <code class="language-plaintext highlighter-rouge">neutrx.isNeutrxError(error)</code> narrow errors to Neutrx’s branded error classes. <code class="language-plaintext highlighter-rouge">isCancel(error)</code> and <code class="language-plaintext highlighter-rouge">neutrx.isCancel(error)</code> detect the <code class="language-plaintext highlighter-rouge">CancelToken</code> migration bridge.</p>
+
+<p><code class="language-plaintext highlighter-rouge">clearCache()</code> removes all cached responses, <code class="language-plaintext highlighter-rouge">invalidateCache(pattern)</code> removes cached entries whose internal key or final URL matches a string or regular expression, and <code class="language-plaintext highlighter-rouge">deleteCacheEntry(configOrUrl)</code> removes the entry for a specific final URL.</p>
+
+<p><code class="language-plaintext highlighter-rouge">postForm()</code>, <code class="language-plaintext highlighter-rouge">putForm()</code>, and <code class="language-plaintext highlighter-rouge">patchForm()</code> are multipart form helpers. In Node, plain objects are serialized as multipart bodies by the Node HTTP adapter. In browser and browser-like runtimes, plain objects are converted to <code class="language-plaintext highlighter-rouge">FormData</code> where the platform provides it.</p>
+<h2 id="request-config">
+  
+  
+    <a href="#request-config" class="anchor-heading" aria-labelledby="request-config"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Request Config
+  
+  
+</h2>
+    
+
+<p>Config merges in three layers: library <code class="language-plaintext highlighter-rouge">neutrx.defaults</code> → instance defaults (<code class="language-plaintext highlighter-rouge">neutrx.create({...})</code>) → per-request <code class="language-plaintext highlighter-rouge">config</code>. Per-request wins.</p>
+<h3 id="target--url">
+  
+  
+    <a href="#target--url" class="anchor-heading" aria-labelledby="target--url"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Target &amp; URL
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">url</code></td>
+      <td>Request path or absolute URL. Joined onto <code class="language-plaintext highlighter-rouge">baseURL</code> unless absolute and allowed.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">baseURL</code></td>
+      <td>Prefix applied to relative <code class="language-plaintext highlighter-rouge">url</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">allowAbsoluteUrls</code></td>
+      <td>When <code class="language-plaintext highlighter-rouge">false</code>, absolute-looking <code class="language-plaintext highlighter-rouge">url</code>s are still forced through <code class="language-plaintext highlighter-rouge">baseURL</code>. Default <code class="language-plaintext highlighter-rouge">true</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">method</code></td>
+      <td>HTTP verb. Set automatically by the verb helpers.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">params</code></td>
+      <td>Query params object, appended to the URL.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">paramsSerializer</code></td>
+      <td>Custom function to encode <code class="language-plaintext highlighter-rouge">params</code> into a query string.</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3 id="headers--auth">
+  
+  
+    <a href="#headers--auth" class="anchor-heading" aria-labelledby="headers--auth"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Headers &amp; auth
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">headers</code></td>
+      <td>Plain object or <code class="language-plaintext highlighter-rouge">NeutrxHeaders</code>. Normalized to <code class="language-plaintext highlighter-rouge">NeutrxHeaders</code> at request start.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">auth</code></td>
+      <td>Basic auth <code class="language-plaintext highlighter-rouge">{ username, password }</code>; sets the <code class="language-plaintext highlighter-rouge">Authorization</code> header.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">idempotencyKey</code></td>
+      <td>Value for the idempotency header; also makes <code class="language-plaintext highlighter-rouge">POST</code>/<code class="language-plaintext highlighter-rouge">PATCH</code> retryable.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">idempotencyKeyHeader</code></td>
+      <td>Header name for the key. Default <code class="language-plaintext highlighter-rouge">Idempotency-Key</code>.</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3 id="body--data-transform">
+  
+  
+    <a href="#body--data-transform" class="anchor-heading" aria-labelledby="body--data-transform"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Body &amp; data transform
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">data</code></td>
+      <td>Request body. Plain objects are JSON-encoded by default.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">parseJson</code> / <code class="language-plaintext highlighter-rouge">stringifyJson</code></td>
+      <td>Override the JSON parse/serialize functions.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">transformRequest</code></td>
+      <td>Function(s) run over the body before sending.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">transformResponse</code></td>
+      <td>Function(s) run over the raw body after receiving, before <code class="language-plaintext highlighter-rouge">schema</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">schema</code></td>
+      <td>Validate response data; replaces <code class="language-plaintext highlighter-rouge">data</code> or throws <code class="language-plaintext highlighter-rouge">NeutrxValidationError</code>. See <a href="#response-schema-validation">Response Schema Validation</a>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">validation</code></td>
+      <td>Plugin-driven request/response validation (<code class="language-plaintext highlighter-rouge">ValidationPlugin</code>).</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3 id="timeouts--cancellation">
+  
+  
+    <a href="#timeouts--cancellation" class="anchor-heading" aria-labelledby="timeouts--cancellation"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Timeouts &amp; cancellation
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">timeout</code></td>
+      <td>Total request deadline in ms.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">connectTimeout</code></td>
+      <td>Connection-establishment deadline in ms.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">signal</code></td>
+      <td><code class="language-plaintext highlighter-rouge">AbortSignal</code> to cancel the request. Preferred.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cancelToken</code></td>
+      <td>Axios-style cancel bridge for migration; prefer <code class="language-plaintext highlighter-rouge">signal</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">transitional.clarifyTimeoutError</code></td>
+      <td>When <code class="language-plaintext highlighter-rouge">true</code>, timeout errors use <code class="language-plaintext highlighter-rouge">ETIMEDOUT</code> instead of <code class="language-plaintext highlighter-rouge">ECONNABORTED</code>.</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3 id="response-handling--limits">
+  
+  
+    <a href="#response-handling--limits" class="anchor-heading" aria-labelledby="response-handling--limits"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Response handling &amp; limits
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">responseType</code></td>
+      <td><code class="language-plaintext highlighter-rouge">'json'</code> (default), <code class="language-plaintext highlighter-rouge">'text'</code>, <code class="language-plaintext highlighter-rouge">'buffer'</code>, <code class="language-plaintext highlighter-rouge">'stream'</code>, etc.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">responseEncoding</code></td>
+      <td>Text decoding charset for buffered text.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">validateStatus</code></td>
+      <td>Predicate deciding which status codes resolve vs throw.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">throwHttpErrors</code></td>
+      <td>When <code class="language-plaintext highlighter-rouge">false</code>, non-2xx responses resolve instead of throwing.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">maxRedirects</code></td>
+      <td>Max redirect hops to follow.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">maxContentLength</code></td>
+      <td>Max response body size in bytes.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">maxBodyLength</code></td>
+      <td>Max request body size in bytes.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">decompress</code></td>
+      <td>(Node only) <code class="language-plaintext highlighter-rouge">false</code> preserves compressed response bytes.</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3 id="transport--adapter">
+  
+  
+    <a href="#transport--adapter" class="anchor-heading" aria-labelledby="transport--adapter"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Transport &amp; adapter
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">adapter</code></td>
+      <td><code class="language-plaintext highlighter-rouge">'http'</code>, <code class="language-plaintext highlighter-rouge">'fetch'</code>, <code class="language-plaintext highlighter-rouge">'http2'</code>, <code class="language-plaintext highlighter-rouge">HttpAdapter</code>, or a custom <code class="language-plaintext highlighter-rouge">NeutrxAdapter</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">fetch</code></td>
+      <td>Custom <code class="language-plaintext highlighter-rouge">fetch</code> implementation for the fetch adapter.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">httpVersion</code></td>
+      <td><code class="language-plaintext highlighter-rouge">1</code> or <code class="language-plaintext highlighter-rouge">2</code>. <code class="language-plaintext highlighter-rouge">2</code> routes through <code class="language-plaintext highlighter-rouge">node:http2</code>. See <a href="#http2">HTTP/2</a>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">serviceDiscovery</code></td>
+      <td>Resolver + strategy for relative URLs. See <a href="#service-discovery">Service Discovery</a>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">proxy</code></td>
+      <td>Proxy settings (Node, HTTP/1.1).</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">tls</code></td>
+      <td>TLS options (CA, cert, key, <code class="language-plaintext highlighter-rouge">rejectUnauthorized</code>).</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">lookup</code></td>
+      <td>Custom DNS lookup function.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">httpAgent</code> / <code class="language-plaintext highlighter-rouge">httpsAgent</code></td>
+      <td>(Node) custom agents for connection pooling.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">socketPath</code></td>
+      <td>(Node only) Unix domain socket path.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">beforeRedirect</code></td>
+      <td>Hook run after Neutrx validates each redirect hop.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">maxRate</code></td>
+      <td>(Node only) bandwidth cap in bytes/s, or <code class="language-plaintext highlighter-rouge">[upload, download]</code>; <code class="language-plaintext highlighter-rouge">0</code> = uncapped.</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3 id="safety-resilience--observability">
+  
+  
+    <a href="#safety-resilience--observability" class="anchor-heading" aria-labelledby="safety-resilience--observability"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Safety, resilience &amp; observability
+  
+  
+</h3>
+    
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">security</code></td>
+      <td>SSRF/host/HTTPS controls + rate limiting. See <a href="#security-config">Security Config</a>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">egressPolicy</code></td>
+      <td>Outbound egress allowlist. See <a href="#egress-policy">Egress Policy</a>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">resilience</code></td>
+      <td>Retry, circuit breaker, bulkhead. See <a href="#resilience-config">Resilience Config</a>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">performance</code></td>
+      <td>Caching + request dedup. See <a href="#performance-config">Performance Config</a>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">instrumentation</code></td>
+      <td>Metrics/telemetry hooks.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">onUploadProgress</code> / <code class="language-plaintext highlighter-rouge">onDownloadProgress</code></td>
+      <td>Progress callbacks (<code class="language-plaintext highlighter-rouge">ProgressEvent</code>).</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<p>Progress events include <code class="language-plaintext highlighter-rouge">loaded</code>, <code class="language-plaintext highlighter-rouge">total</code>, <code class="language-plaintext highlighter-rouge">percent</code>, <code class="language-plaintext highlighter-rouge">progress</code>, <code class="language-plaintext highlighter-rouge">bytes</code>, <code class="language-plaintext highlighter-rouge">rate</code>, <code class="language-plaintext highlighter-rouge">estimated</code>, and <code class="language-plaintext highlighter-rouge">upload</code> or <code class="language-plaintext highlighter-rouge">download</code>.</p>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">import</span> <span class="kd">type</span> <span class="p">{</span> <span class="nx">ProgressEvent</span> <span class="p">}</span> <span class="k">from</span> <span class="dl">'</span><span class="s1">neutrx</span><span class="dl">'</span><span class="p">;</span>
+
+<span class="kd">function</span> <span class="nf">renderProgress</span><span class="p">(</span><span class="nx">event</span><span class="p">:</span> <span class="nx">ProgressEvent</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kd">const</span> <span class="nx">percent</span> <span class="o">=</span> <span class="nx">event</span><span class="p">.</span><span class="nx">percent</span> <span class="o">===</span> <span class="kc">undefined</span> <span class="p">?</span> <span class="dl">'</span><span class="s1">unknown</span><span class="dl">'</span> <span class="p">:</span> <span class="s2">`</span><span class="p">${</span><span class="nx">event</span><span class="p">.</span><span class="nx">percent</span><span class="p">.</span><span class="nf">toFixed</span><span class="p">(</span><span class="mi">1</span><span class="p">)}</span><span class="s2">%`</span><span class="p">;</span>
+  <span class="kd">const</span> <span class="nx">eta</span> <span class="o">=</span> <span class="nx">event</span><span class="p">.</span><span class="nx">estimated</span> <span class="o">===</span> <span class="kc">undefined</span> <span class="p">?</span> <span class="dl">'</span><span class="s1">unknown</span><span class="dl">'</span> <span class="p">:</span> <span class="s2">`</span><span class="p">${</span><span class="nx">event</span><span class="p">.</span><span class="nx">estimated</span><span class="p">.</span><span class="nf">toFixed</span><span class="p">(</span><span class="mi">1</span><span class="p">)}</span><span class="s2">s`</span><span class="p">;</span>
+  <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="s2">`</span><span class="p">${</span><span class="nx">percent</span><span class="p">}</span><span class="s2"> complete, +</span><span class="p">${</span><span class="nx">event</span><span class="p">.</span><span class="nx">bytes</span><span class="p">}</span><span class="s2"> bytes, </span><span class="p">${</span><span class="nx">event</span><span class="p">.</span><span class="nx">rate</span><span class="p">}</span><span class="s2"> B/s, eta </span><span class="p">${</span><span class="nx">eta</span><span class="p">}</span><span class="s2">`</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="k">await</span> <span class="nx">api</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="dl">'</span><span class="s1">/exports/monthly.csv</span><span class="dl">'</span><span class="p">,</span> <span class="p">{</span>
+  <span class="na">responseType</span><span class="p">:</span> <span class="dl">'</span><span class="s1">buffer</span><span class="dl">'</span><span class="p">,</span>
+  <span class="na">onDownloadProgress</span><span class="p">:</span> <span class="nx">renderProgress</span><span class="p">,</span>
+<span class="p">});</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">bytes</code> is the delta since the previous event for that request direction. <code class="language-plaintext highlighter-rouge">rate</code> is bytes per second from the previous event. <code class="language-plaintext highlighter-rouge">estimated</code> is only present when Neutrx knows <code class="language-plaintext highlighter-rouge">total</code> and has a positive rate. Node HTTP can measure buffered bodies, Node streams, buffered responses, and response streams as callers consume them. Fetch-based adapters depend on platform <code class="language-plaintext highlighter-rouge">ReadableStream</code> support. Browser <code class="language-plaintext highlighter-rouge">FormData</code>, opaque platform-managed request bodies, missing <code class="language-plaintext highlighter-rouge">Content-Length</code>, and runtimes without readable response streams may only produce a final event or omit <code class="language-plaintext highlighter-rouge">total</code>, <code class="language-plaintext highlighter-rouge">percent</code>, and <code class="language-plaintext highlighter-rouge">estimated</code>.</p>
+
+<p><code class="language-plaintext highlighter-rouge">security.rateLimit</code> limits request count over time. <code class="language-plaintext highlighter-rouge">maxRate</code> limits Node HTTP upload/download bandwidth over time; pass <code class="language-plaintext highlighter-rouge">[uploadBytesPerSecond, downloadBytesPerSecond]</code> and use <code class="language-plaintext highlighter-rouge">0</code> for an uncapped direction.</p>
+
+<p>Adapters can be selected with <code class="language-plaintext highlighter-rouge">adapter: 'http'</code>, <code class="language-plaintext highlighter-rouge">adapter: 'fetch'</code>, <code class="language-plaintext highlighter-rouge">adapter: 'http2'</code>, constants such as <code class="language-plaintext highlighter-rouge">HttpAdapter</code>, or a custom <code class="language-plaintext highlighter-rouge">NeutrxAdapter</code> function. Node uses HTTP by default; browser-like runtimes use fetch.</p>
+
+<p>Axios-compatible migration options include <code class="language-plaintext highlighter-rouge">allowAbsoluteUrls</code>, <code class="language-plaintext highlighter-rouge">beforeRedirect</code>, <code class="language-plaintext highlighter-rouge">decompress</code>, <code class="language-plaintext highlighter-rouge">responseEncoding</code>, and <code class="language-plaintext highlighter-rouge">transitional.clarifyTimeoutError</code>. <code class="language-plaintext highlighter-rouge">allowAbsoluteUrls: false</code> forces absolute-looking request URLs through <code class="language-plaintext highlighter-rouge">baseURL</code>; <code class="language-plaintext highlighter-rouge">beforeRedirect</code> runs after Neutrx validates and prepares the next redirect hop; <code class="language-plaintext highlighter-rouge">decompress: false</code> preserves compressed bytes; <code class="language-plaintext highlighter-rouge">responseEncoding</code> controls buffered text decoding; <code class="language-plaintext highlighter-rouge">transitional.clarifyTimeoutError: true</code> switches timeout error codes from <code class="language-plaintext highlighter-rouge">ECONNABORTED</code> to <code class="language-plaintext highlighter-rouge">ETIMEDOUT</code>.</p>
+
+<p>Neutrx-specific options include backend safety and resilience controls such as <code class="language-plaintext highlighter-rouge">security</code>, <code class="language-plaintext highlighter-rouge">egressPolicy</code>, <code class="language-plaintext highlighter-rouge">resilience</code>, <code class="language-plaintext highlighter-rouge">performance</code>, <code class="language-plaintext highlighter-rouge">instrumentation</code>, <code class="language-plaintext highlighter-rouge">serviceDiscovery</code>, <code class="language-plaintext highlighter-rouge">tls</code>, <code class="language-plaintext highlighter-rouge">socketPath</code>, <code class="language-plaintext highlighter-rouge">maxRate</code>, <code class="language-plaintext highlighter-rouge">schema</code>, <code class="language-plaintext highlighter-rouge">validation</code>, and <code class="language-plaintext highlighter-rouge">idempotencyKey</code>.</p>
+
+<p>Custom adapters receive the fully prepared <code class="language-plaintext highlighter-rouge">NeutrxRequestConfig</code> and return a <code class="language-plaintext highlighter-rouge">RawHttpResponse</code>. Interceptors, retries, circuit breaker, cache, metrics, response parsing, and redirect policy stay in the client lifecycle outside the adapter.</p>
+
+<p>Responses include <code class="language-plaintext highlighter-rouge">request</code> when the adapter can expose a safe transport reference: Node HTTP returns <code class="language-plaintext highlighter-rouge">ClientRequest</code>, fetch returns <code class="language-plaintext highlighter-rouge">Request</code> where possible.</p>
+
+<p>Use <code class="language-plaintext highlighter-rouge">createSecureAdapter()</code> for custom adapters that should reject URL mutation and redirect responses outside Neutrx redirect policy.</p>
+
+<p><code class="language-plaintext highlighter-rouge">idempotencyKey</code> sets <code class="language-plaintext highlighter-rouge">Idempotency-Key</code>. It also allows retrying <code class="language-plaintext highlighter-rouge">POST</code> and <code class="language-plaintext highlighter-rouge">PATCH</code> when retry policy says the failure is retryable.</p>
+<h2 id="response-schema-validation">
+  
+  
+    <a href="#response-schema-validation" class="anchor-heading" aria-labelledby="response-schema-validation"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Response Schema Validation
+  
+  
+</h2>
+    
+
+<p><code class="language-plaintext highlighter-rouge">schema</code> validates parsed and transformed response data before a successful response is returned. Validators may be Zod-like <code class="language-plaintext highlighter-rouge">safeParse</code>, <code class="language-plaintext highlighter-rouge">parse</code>, <code class="language-plaintext highlighter-rouge">validate</code>, TypeBox-style <code class="language-plaintext highlighter-rouge">Check/Errors</code>, or function validators. Successful schemas can return parsed data, which replaces <code class="language-plaintext highlighter-rouge">response.data</code>; failures throw <code class="language-plaintext highlighter-rouge">NeutrxValidationError</code> with normalized <code class="language-plaintext highlighter-rouge">issues</code>.</p>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">const</span> <span class="nx">userSchema</span> <span class="o">=</span> <span class="p">{</span>
+  <span class="nf">parse</span><span class="p">(</span><span class="na">value</span><span class="p">:</span> <span class="nx">unknown</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if </span><span class="p">(</span><span class="nx">value</span> <span class="o">&amp;&amp;</span> <span class="k">typeof</span> <span class="nx">value</span> <span class="o">===</span> <span class="dl">'</span><span class="s1">object</span><span class="dl">'</span> <span class="o">&amp;&amp;</span> <span class="dl">'</span><span class="s1">id</span><span class="dl">'</span> <span class="k">in</span> <span class="nx">value</span><span class="p">)</span> <span class="p">{</span>
+      <span class="k">return</span> <span class="nx">value</span> <span class="kd">as </span><span class="p">{</span> <span class="k">readonly</span> <span class="na">id</span><span class="p">:</span> <span class="kr">string</span> <span class="p">};</span>
+    <span class="p">}</span>
+    <span class="k">throw</span> <span class="nb">Object</span><span class="p">.</span><span class="nf">assign</span><span class="p">(</span><span class="k">new</span> <span class="nc">Error</span><span class="p">(</span><span class="dl">'</span><span class="s1">invalid user</span><span class="dl">'</span><span class="p">),</span> <span class="p">{</span>
+      <span class="na">issues</span><span class="p">:</span> <span class="p">[{</span> <span class="na">path</span><span class="p">:</span> <span class="p">[</span><span class="dl">'</span><span class="s1">id</span><span class="dl">'</span><span class="p">],</span> <span class="na">message</span><span class="p">:</span> <span class="dl">'</span><span class="s1">id is required</span><span class="dl">'</span> <span class="p">}],</span>
+    <span class="p">});</span>
+  <span class="p">},</span>
+<span class="p">};</span>
+
+<span class="kd">const</span> <span class="nx">response</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">api</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="dl">'</span><span class="s1">/users/1</span><span class="dl">'</span><span class="p">,</span> <span class="p">{</span> <span class="na">schema</span><span class="p">:</span> <span class="nx">userSchema</span> <span class="p">});</span>
+<span class="nx">response</span><span class="p">.</span><span class="nx">data</span><span class="p">.</span><span class="nx">id</span><span class="p">;</span>
+
+<span class="k">await</span> <span class="nx">api</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="dl">'</span><span class="s1">/users/1</span><span class="dl">'</span><span class="p">,</span> <span class="p">{</span> <span class="na">schema</span><span class="p">:</span> <span class="kc">false</span> <span class="p">});</span> <span class="c1">// disables a client default schema</span>
+</code></pre></div></div>
+<h2 id="service-discovery">
+  
+  
+    <a href="#service-discovery" class="anchor-heading" aria-labelledby="service-discovery"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Service Discovery
+  
+  
+</h2>
+    
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">const</span> <span class="nx">api</span> <span class="o">=</span> <span class="nx">neutrx</span><span class="p">.</span><span class="nf">create</span><span class="p">({</span>
+  <span class="na">serviceDiscovery</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">resolver</span><span class="p">:</span> <span class="p">[</span><span class="dl">'</span><span class="s1">https://api-a.internal.example</span><span class="dl">'</span><span class="p">,</span> <span class="dl">'</span><span class="s1">https://api-b.internal.example</span><span class="dl">'</span><span class="p">],</span>
+    <span class="na">strategy</span><span class="p">:</span> <span class="dl">'</span><span class="s1">round-robin</span><span class="dl">'</span><span class="p">,</span>
+  <span class="p">},</span>
+<span class="p">});</span>
+
+<span class="k">await</span> <span class="nx">api</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="dl">'</span><span class="s1">/health</span><span class="dl">'</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Resolvers can be static arrays or async functions. Discovery applies to relative request URLs and the selected endpoint is exposed as <code class="language-plaintext highlighter-rouge">config.serviceEndpoint</code> for adapters, hooks, and telemetry.</p>
+<h2 id="security-config">
+  
+  
+    <a href="#security-config" class="anchor-heading" aria-labelledby="security-config"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Security Config
+  
+  
+</h2>
+    
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">security</span><span class="p">:</span> <span class="p">{</span>
+  <span class="nl">profile</span><span class="p">:</span> <span class="dl">'</span><span class="s1">strict</span><span class="dl">'</span> <span class="o">|</span> <span class="dl">'</span><span class="s1">standard</span><span class="dl">'</span> <span class="o">|</span> <span class="dl">'</span><span class="s1">legacy</span><span class="dl">'</span><span class="p">,</span>
+  <span class="nx">allowedHosts</span><span class="p">:</span> <span class="p">[</span><span class="dl">'</span><span class="s1">api.example.com</span><span class="dl">'</span><span class="p">],</span>
+  <span class="nx">deniedHosts</span><span class="p">:</span> <span class="p">[</span><span class="dl">'</span><span class="s1">*.blocked.example</span><span class="dl">'</span><span class="p">],</span>
+  <span class="nx">enforceHTTPS</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">enableSSRFProtection</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">blockPrivateIPs</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">blockMetadataIPs</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<h2 id="egress-policy">
+  
+  
+    <a href="#egress-policy" class="anchor-heading" aria-labelledby="egress-policy"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Egress Policy
+  
+  
+</h2>
+    
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">egressPolicy</span><span class="p">:</span> <span class="p">{</span>
+  <span class="nl">mode</span><span class="p">:</span> <span class="dl">'</span><span class="s1">webhook-target</span><span class="dl">'</span><span class="p">,</span>
+  <span class="nx">allowedProtocols</span><span class="p">:</span> <span class="p">[</span><span class="dl">'</span><span class="s1">https</span><span class="dl">'</span><span class="p">],</span>
+  <span class="nx">allowedPorts</span><span class="p">:</span> <span class="p">[</span><span class="mi">443</span><span class="p">],</span>
+  <span class="nx">requirePublicDns</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">blockCloudMetadata</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">api.getEgressPolicy()</code> returns safe policy audit data.</p>
+<h2 id="resilience-config">
+  
+  
+    <a href="#resilience-config" class="anchor-heading" aria-labelledby="resilience-config"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Resilience Config
+  
+  
+</h2>
+    
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">resilience</span><span class="p">:</span> <span class="p">{</span>
+  <span class="nl">enableRetry</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">maxRetries</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+  <span class="nx">retryStrategy</span><span class="p">:</span> <span class="dl">'</span><span class="s1">exponential</span><span class="dl">'</span><span class="p">,</span>
+  <span class="nx">retryDelay</span><span class="p">:</span> <span class="mi">250</span><span class="p">,</span>
+  <span class="nx">maxRetryDelay</span><span class="p">:</span> <span class="mi">5000</span><span class="p">,</span>
+  <span class="nx">retryJitter</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">retryMethods</span><span class="p">:</span> <span class="p">[</span><span class="dl">'</span><span class="s1">GET</span><span class="dl">'</span><span class="p">,</span> <span class="dl">'</span><span class="s1">HEAD</span><span class="dl">'</span><span class="p">,</span> <span class="dl">'</span><span class="s1">OPTIONS</span><span class="dl">'</span><span class="p">,</span> <span class="dl">'</span><span class="s1">PUT</span><span class="dl">'</span><span class="p">,</span> <span class="dl">'</span><span class="s1">DELETE</span><span class="dl">'</span><span class="p">],</span>
+  <span class="nx">retryBudget</span><span class="p">:</span> <span class="p">{</span>
+    <span class="nl">maxRetries</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span>
+    <span class="nx">windowMs</span><span class="p">:</span> <span class="mi">60</span><span class="nx">_000</span><span class="p">,</span>
+    <span class="nx">scope</span><span class="p">:</span> <span class="dl">'</span><span class="s1">origin</span><span class="dl">'</span><span class="p">,</span>
+    <span class="k">namespace</span><span class="p">:</span> <span class="dl">'</span><span class="s1">billing-api</span><span class="dl">'</span><span class="p">,</span>
+    <span class="nx">store</span><span class="p">:</span> <span class="nx">sharedRetryBudgetStore</span><span class="p">,</span>
+  <span class="p">},</span>
+  <span class="nx">adaptiveConcurrency</span><span class="p">:</span> <span class="p">{</span> <span class="nl">enabled</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span> <span class="nx">initialLimit</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span> <span class="nx">maxLimit</span><span class="p">:</span> <span class="mi">50</span> <span class="p">},</span>
+  <span class="nx">enableCircuitBreaker</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">failureThreshold</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+  <span class="nx">successThreshold</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+  <span class="nx">circuitTimeout</span><span class="p">:</span> <span class="mi">30</span><span class="nx">_000</span><span class="p">,</span>
+  <span class="nx">circuitBreakerStorage</span><span class="p">:</span> <span class="p">{</span>
+    <span class="nl">store</span><span class="p">:</span> <span class="nx">sharedCircuitStateStore</span><span class="p">,</span>
+    <span class="nx">scope</span><span class="p">:</span> <span class="dl">'</span><span class="s1">origin</span><span class="dl">'</span><span class="p">,</span>
+    <span class="k">namespace</span><span class="p">:</span> <span class="dl">'</span><span class="s1">billing-api</span><span class="dl">'</span><span class="p">,</span>
+  <span class="p">},</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Shared stores are interfaces only. Core stays zero-dependency; Redis or database-backed stores belong in optional packages or application code.</p>
+<h2 id="performance-config">
+  
+  
+    <a href="#performance-config" class="anchor-heading" aria-labelledby="performance-config"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Performance Config
+  
+  
+</h2>
+    
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">performance</span><span class="p">:</span> <span class="p">{</span>
+  <span class="nl">enableCaching</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">deduplicateRequests</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">deduplicateRequestKey</span><span class="p">:</span> <span class="nx">config</span> <span class="o">=&gt;</span> <span class="s2">`</span><span class="p">${</span><span class="nx">config</span><span class="p">.</span><span class="nx">method</span><span class="p">}</span><span class="s2">:</span><span class="p">${</span><span class="nx">config</span><span class="p">.</span><span class="nx">url</span><span class="p">}</span><span class="s2">:</span><span class="p">${</span><span class="nx">config</span><span class="p">.</span><span class="nx">headers</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="dl">'</span><span class="s1">X-Tenant-ID</span><span class="dl">'</span><span class="p">)</span> <span class="o">??</span> <span class="dl">''</span><span class="p">}</span><span class="s2">`</span><span class="p">,</span>
+  <span class="nx">deduplicateMethods</span><span class="p">:</span> <span class="p">[</span><span class="dl">'</span><span class="s1">GET</span><span class="dl">'</span><span class="p">,</span> <span class="dl">'</span><span class="s1">HEAD</span><span class="dl">'</span><span class="p">],</span>
+  <span class="nx">deduplicateHeaders</span><span class="p">:</span> <span class="p">[</span><span class="dl">'</span><span class="s1">accept</span><span class="dl">'</span><span class="p">,</span> <span class="dl">'</span><span class="s1">authorization</span><span class="dl">'</span><span class="p">,</span> <span class="dl">'</span><span class="s1">range</span><span class="dl">'</span><span class="p">],</span>
+  <span class="nx">cacheStrategy</span><span class="p">:</span> <span class="dl">'</span><span class="s1">swr</span><span class="dl">'</span><span class="p">,</span>
+  <span class="nx">cacheTTL</span><span class="p">:</span> <span class="mi">300</span><span class="nx">_000</span><span class="p">,</span>
+  <span class="nx">revalidateAfter</span><span class="p">:</span> <span class="mi">60</span><span class="nx">_000</span><span class="p">,</span>
+  <span class="nx">cacheStaleMax</span><span class="p">:</span> <span class="mi">1</span><span class="nx">_500_000</span><span class="p">,</span>
+  <span class="nx">cacheMaxSize</span><span class="p">:</span> <span class="mi">500</span><span class="p">,</span>
+  <span class="nx">respectCacheHeaders</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+  <span class="nx">onRevalidate</span><span class="p">:</span> <span class="nx">event</span> <span class="o">=&gt;</span> <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="nx">event</span><span class="p">.</span><span class="nx">url</span><span class="p">,</span> <span class="nx">event</span><span class="p">.</span><span class="nx">updated</span><span class="p">),</span>
+  <span class="nx">cacheAdapter</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Cache strategies are <code class="language-plaintext highlighter-rouge">max-age</code>, <code class="language-plaintext highlighter-rouge">swr</code>, and <code class="language-plaintext highlighter-rouge">network-first</code>. SWR marks stale hits with <code class="language-plaintext highlighter-rouge">response.cached = true</code> and <code class="language-plaintext highlighter-rouge">response.stale = true</code>, returns them immediately, and refreshes the entry in the background. <code class="language-plaintext highlighter-rouge">ttl</code> and <code class="language-plaintext highlighter-rouge">stale-while-revalidate</code> remain compatibility aliases.</p>
+
+<p>Request deduplication defaults to enabled for identical inflight <code class="language-plaintext highlighter-rouge">GET</code> and <code class="language-plaintext highlighter-rouge">HEAD</code> requests only. Set <code class="language-plaintext highlighter-rouge">deduplicateRequests: false</code> to disable it. Other methods require explicit <code class="language-plaintext highlighter-rouge">deduplicateMethods</code> opt-in and an application-safe custom key.</p>
+<h2 id="http2">
+  
+  
+    <a href="#http2" class="anchor-heading" aria-labelledby="http2"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> HTTP/2
+  
+  
+</h2>
+    
+
+<p>Use <code class="language-plaintext highlighter-rouge">httpVersion: 2</code> or <code class="language-plaintext highlighter-rouge">adapter: 'http2'</code> to send requests through Node’s <code class="language-plaintext highlighter-rouge">node:http2</code> transport:</p>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">const</span> <span class="nx">api</span> <span class="o">=</span> <span class="nx">neutrx</span><span class="p">.</span><span class="nf">create</span><span class="p">({</span>
+  <span class="na">baseURL</span><span class="p">:</span> <span class="dl">'</span><span class="s1">https://api.example.com</span><span class="dl">'</span><span class="p">,</span>
+  <span class="na">httpVersion</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+  <span class="na">http2Options</span><span class="p">:</span> <span class="p">{</span>
+    <span class="na">sessionTimeout</span><span class="p">:</span> <span class="mi">60</span><span class="nx">_000</span><span class="p">,</span>
+    <span class="na">maxSessions</span><span class="p">:</span> <span class="mi">50</span><span class="p">,</span>
+    <span class="na">maxConcurrentStreams</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span>
+  <span class="p">},</span>
+<span class="p">});</span>
+</code></pre></div></div>
+
+<p>HTTP/2 sessions are reused by origin and compatible TLS settings. <code class="language-plaintext highlighter-rouge">http2Options.sessionTimeout</code> closes idle sessions, <code class="language-plaintext highlighter-rouge">maxSessions</code> bounds the shared session pool, and <code class="language-plaintext highlighter-rouge">maxConcurrentStreams</code> caps active streams per session alongside the server’s remote setting. <code class="language-plaintext highlighter-rouge">getHttp2SessionStats()</code> reports active streams, session count, closed/destroyed flags, and remote stream limits. GOAWAY closes the affected session so the next request opens a fresh one.</p>
+
+<p>The HTTP/2 adapter preserves Neutrx redirect handling and supports buffered and stream upload/download progress when byte counts are available. It does not support proxies, Unix <code class="language-plaintext highlighter-rouge">socketPath</code>, custom HTTP agents, or <code class="language-plaintext highlighter-rouge">maxRate</code>, and it does not silently fall back to HTTP/1.1 when HTTP/2 negotiation fails. Select <code class="language-plaintext highlighter-rouge">adapter: 'http'</code> or <code class="language-plaintext highlighter-rouge">httpVersion: 1</code> for HTTP/1.1 behavior.</p>
+<h2 id="websocket">
+  
+  
+    <a href="#websocket" class="anchor-heading" aria-labelledby="websocket"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> WebSocket
+  
+  
+</h2>
+    
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">const</span> <span class="nx">socket</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">api</span><span class="p">.</span><span class="nx">ws</span><span class="o">&lt;</span><span class="p">{</span> <span class="na">type</span><span class="p">:</span> <span class="kr">string</span> <span class="p">}</span><span class="o">&gt;</span><span class="p">(</span><span class="dl">'</span><span class="s1">/realtime</span><span class="dl">'</span><span class="p">,</span> <span class="p">{</span>
+  <span class="na">headers</span><span class="p">:</span> <span class="p">{</span> <span class="na">Authorization</span><span class="p">:</span> <span class="dl">'</span><span class="s1">Bearer service-token</span><span class="dl">'</span> <span class="p">},</span>
+  <span class="na">reconnect</span><span class="p">:</span> <span class="p">{</span> <span class="na">attempts</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="na">delay</span><span class="p">:</span> <span class="mi">500</span><span class="p">,</span> <span class="na">backoff</span><span class="p">:</span> <span class="dl">'</span><span class="s1">exponential</span><span class="dl">'</span><span class="p">,</span> <span class="na">maxDelay</span><span class="p">:</span> <span class="mi">10</span><span class="nx">_000</span> <span class="p">},</span>
+  <span class="na">parseMessage</span><span class="p">:</span> <span class="nx">data</span> <span class="o">=&gt;</span> <span class="nx">JSON</span><span class="p">.</span><span class="nf">parse</span><span class="p">(</span><span class="nc">String</span><span class="p">(</span><span class="nx">data</span><span class="p">))</span> <span class="kd">as </span><span class="p">{</span> <span class="na">type</span><span class="p">:</span> <span class="kr">string</span> <span class="p">},</span>
+  <span class="na">onMessage</span><span class="p">:</span> <span class="nx">message</span> <span class="o">=&gt;</span> <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="nx">message</span><span class="p">.</span><span class="kd">type</span><span class="p">),</span>
+<span class="p">});</span>
+
+<span class="nx">socket</span><span class="p">.</span><span class="nf">send</span><span class="p">(</span><span class="dl">'</span><span class="s1">hello</span><span class="dl">'</span><span class="p">);</span>
+<span class="nx">socket</span><span class="p">.</span><span class="nf">close</span><span class="p">();</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">api.ws()</code> prepares a <code class="language-plaintext highlighter-rouge">GET</code> upgrade request through the same client defaults as HTTP calls: <code class="language-plaintext highlighter-rouge">baseURL</code>, params, default headers, basic auth, service discovery, plugin <code class="language-plaintext highlighter-rouge">beforeRequest</code> hooks, and request interceptors run before the connection is opened. <code class="language-plaintext highlighter-rouge">http:</code> and <code class="language-plaintext highlighter-rouge">https:</code> URLs are converted to <code class="language-plaintext highlighter-rouge">ws:</code> and <code class="language-plaintext highlighter-rouge">wss:</code> for the actual WebSocket target.</p>
+
+<p>Node performs the upgrade directly and sends prepared headers, including <code class="language-plaintext highlighter-rouge">Authorization</code>, during the handshake. Browser builds use native <code class="language-plaintext highlighter-rouge">WebSocket</code>; browsers do not expose custom handshake headers, so header mutations are available to hooks/interceptors but cannot be sent by the platform constructor.</p>
+
+<p>Reconnect is opt-in. Use <code class="language-plaintext highlighter-rouge">reconnect: true</code> for bounded exponential reconnect defaults, or pass <code class="language-plaintext highlighter-rouge">{ attempts, delay, backoff, maxDelay }</code>. <code class="language-plaintext highlighter-rouge">backoff</code> may be <code class="language-plaintext highlighter-rouge">fixed</code>, <code class="language-plaintext highlighter-rouge">linear</code>, <code class="language-plaintext highlighter-rouge">exponential</code>, or a function that receives the one-based reconnect attempt.</p>
+<h2 id="interceptors">
+  
+  
+    <a href="#interceptors" class="anchor-heading" aria-labelledby="interceptors"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Interceptors
+  
+  
+</h2>
+    
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">const</span> <span class="nx">id</span> <span class="o">=</span> <span class="nx">api</span><span class="p">.</span><span class="nx">interceptors</span><span class="p">.</span><span class="nx">request</span><span class="p">.</span><span class="nf">use</span><span class="p">(</span>
+  <span class="nx">config</span> <span class="o">=&gt;</span> <span class="nx">config</span><span class="p">,</span>
+  <span class="kc">undefined</span><span class="p">,</span>
+  <span class="p">{</span>
+    <span class="na">synchronous</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span>
+    <span class="na">runWhen</span><span class="p">:</span> <span class="nx">config</span> <span class="o">=&gt;</span> <span class="nx">config</span><span class="p">.</span><span class="nx">method</span> <span class="o">===</span> <span class="dl">'</span><span class="s1">GET</span><span class="dl">'</span><span class="p">,</span>
+  <span class="p">}</span>
+<span class="p">);</span>
+<span class="nx">api</span><span class="p">.</span><span class="nx">interceptors</span><span class="p">.</span><span class="nx">request</span><span class="p">.</span><span class="nf">eject</span><span class="p">(</span><span class="nx">id</span><span class="p">);</span>
+<span class="nx">api</span><span class="p">.</span><span class="nx">interceptors</span><span class="p">.</span><span class="nx">request</span><span class="p">.</span><span class="nf">clear</span><span class="p">();</span>
+
+<span class="nx">api</span><span class="p">.</span><span class="nx">interceptors</span><span class="p">.</span><span class="nx">response</span><span class="p">.</span><span class="nf">use</span><span class="p">(</span><span class="nx">response</span> <span class="o">=&gt;</span> <span class="nx">response</span><span class="p">,</span> <span class="nx">error</span> <span class="o">=&gt;</span> <span class="nx">error</span><span class="p">);</span>
+<span class="nx">api</span><span class="p">.</span><span class="nx">interceptors</span><span class="p">.</span><span class="nx">response</span><span class="p">.</span><span class="nf">clear</span><span class="p">();</span>
+</code></pre></div></div>
+<h2 id="plugins">
+  
+  
+    <a href="#plugins" class="anchor-heading" aria-labelledby="plugins"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Plugins
+  
+  
+</h2>
+    
+
+<p>Register with <code class="language-plaintext highlighter-rouge">api.use(Plugin)</code>. Built-in plugins (zero added runtime dependency):</p>
+
+<div class="table-wrapper"><table>
+  <thead>
+    <tr>
+      <th>Plugin</th>
+      <th>What it does</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">OAuth2Plugin</code></td>
+      <td>Client-credentials OAuth2. Fetches a bearer token from <code class="language-plaintext highlighter-rouge">tokenURL</code>, caches it, refreshes ~30s before expiry, and injects <code class="language-plaintext highlighter-rouge">Authorization: Bearer …</code> on every request. Configure via <code class="language-plaintext highlighter-rouge">api.configureOAuth2({...})</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">GraphQLPlugin</code></td>
+      <td>Adds <code class="language-plaintext highlighter-rouge">api.gql(endpoint, query, variables?, options?)</code> — <code class="language-plaintext highlighter-rouge">POST</code>s <code class="language-plaintext highlighter-rouge">{ query, variables, operationName }</code>, unwraps <code class="language-plaintext highlighter-rouge">data</code>, and throws on a non-empty <code class="language-plaintext highlighter-rouge">errors</code> array.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">MockPlugin</code></td>
+      <td>In-process mocking. <code class="language-plaintext highlighter-rouge">api.mock.enable().register(urlPatternOrRegex, { status, data, … })</code> short-circuits matching requests with a mock response (optional <code class="language-plaintext highlighter-rouge">delay</code>) without hitting the network. For tests/demos.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">ValidationPlugin</code></td>
+      <td>Request- and response-body validation through <code class="language-plaintext highlighter-rouge">config.validation</code>. See note below.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">WebSocketPlugin</code></td>
+      <td>Compatibility shim only; prefer <code class="language-plaintext highlighter-rouge">api.ws(url, options)</code> directly.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">LogPlugin</code></td>
+      <td>Structured success/error log entries to the logger set via <code class="language-plaintext highlighter-rouge">api.setLogger(...)</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">OtelPlugin</code></td>
+      <td>OpenTelemetry bridge (spans + context propagation) using a host-installed <code class="language-plaintext highlighter-rouge">@opentelemetry/api</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">TraceContextPlugin</code></td>
+      <td>Dependency-free W3C Trace Context + B3 propagation headers.</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<p>See <a href="/plugins.html">Plugins</a> for full configuration and examples of each.</p>
+
+<p><code class="language-plaintext highlighter-rouge">OAuth2Plugin</code> refreshes lazily on the next request after the token nears expiry; token requests are sent with <code class="language-plaintext highlighter-rouge">skipOAuth: true</code> so they don’t recurse. Set <code class="language-plaintext highlighter-rouge">skipOAuth: true</code> on any request that must not carry the injected bearer token.</p>
+
+<p><code class="language-plaintext highlighter-rouge">GraphQLPlugin</code> errors are thrown as an <code class="language-plaintext highlighter-rouge">Error</code> carrying <code class="language-plaintext highlighter-rouge">graphQLErrors</code> (the response <code class="language-plaintext highlighter-rouge">errors</code> array) and any partial <code class="language-plaintext highlighter-rouge">data</code>. Successful results expose <code class="language-plaintext highlighter-rouge">extensions</code> when the server returns them.</p>
+
+<p><code class="language-plaintext highlighter-rouge">MockPlugin</code> matches string patterns by URL substring and <code class="language-plaintext highlighter-rouge">RegExp</code> patterns by <code class="language-plaintext highlighter-rouge">test()</code>; the first registered match wins. Call <code class="language-plaintext highlighter-rouge">api.mock.disable()</code> or <code class="language-plaintext highlighter-rouge">api.mock.clear()</code> to stop mocking.</p>
+
+<p>Factory plugins (from <code class="language-plaintext highlighter-rouge">neutrx/plugins</code> or the Node entry):</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">createAwsSigV4Plugin(options)</code> — AWS Signature V4 request signing (Node only). See <a href="/plugins.html#aws-sigv4-node-only">Plugins → AWS SigV4</a>.</li>
+  <li><code class="language-plaintext highlighter-rouge">createHarRecorder(options)</code> — capture traffic as a HAR 1.2 log with secret redaction. See <a href="/plugins.html#har-recording">Plugins → HAR Recording</a>.</li>
+  <li><code class="language-plaintext highlighter-rouge">createOtelPlugin(options)</code> / <code class="language-plaintext highlighter-rouge">createTraceContextPlugin(options)</code> — configurable variants of the built-ins above.</li>
+</ul>
+
+<p><code class="language-plaintext highlighter-rouge">ValidationPlugin</code> reads <code class="language-plaintext highlighter-rouge">config.validation.request</code> before dispatch and <code class="language-plaintext highlighter-rouge">config.validation.response</code> after parsing. Use the first-class <code class="language-plaintext highlighter-rouge">schema</code> option for normal response validation; use the plugin when request-body validation or central plugin hooks are needed. Validators may be functions or schema-like objects with <code class="language-plaintext highlighter-rouge">safeParse</code>, <code class="language-plaintext highlighter-rouge">parse</code>, <code class="language-plaintext highlighter-rouge">validate</code>, or TypeBox-style <code class="language-plaintext highlighter-rouge">Check</code>/<code class="language-plaintext highlighter-rouge">Errors</code>. Failures throw <code class="language-plaintext highlighter-rouge">NeutrxValidationError</code>.</p>
+
+<p><code class="language-plaintext highlighter-rouge">WebSocketPlugin</code> is retained as a compatibility plugin; <code class="language-plaintext highlighter-rouge">api.ws(url, options)</code> is available directly on clients.</p>
+
+<p><code class="language-plaintext highlighter-rouge">LogPlugin</code> writes structured request success and error entries to any logger installed with <code class="language-plaintext highlighter-rouge">api.setLogger(logger)</code>. Success URLs omit query strings; error entries use the redacted <code class="language-plaintext highlighter-rouge">toStructuredError()</code> representation.</p>
+
+<p><code class="language-plaintext highlighter-rouge">OtelPlugin</code> enables the built-in OpenTelemetry bridge through <code class="language-plaintext highlighter-rouge">api.use(OtelPlugin)</code> without adding a runtime dependency to Neutrx. It creates a client span, propagates that span’s context, records retry-attempt events, and attaches safe HTTP and Neutrx attributes.</p>
+
+<p><code class="language-plaintext highlighter-rouge">TraceContextPlugin</code> provides dependency-free W3C Trace Context and B3 propagation. The resolved identity is available on <code class="language-plaintext highlighter-rouge">response.traceContext</code> and typed errors.</p>
+<h2 id="distributed-state">
+  
+  
+    <a href="#distributed-state" class="anchor-heading" aria-labelledby="distributed-state"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Distributed State
+  
+  
+</h2>
+    
+
+<p>A single <code class="language-plaintext highlighter-rouge">StateAdapter&lt;T&gt;</code> key/value backend can power cross-process rate-limit and circuit-breaker state. See <a href="/config-reference.html#distributed-state-stateadapter">Config Reference → Distributed State</a> for the full guide.</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">StateAdapter&lt;T&gt;</code> — generic contract: <code class="language-plaintext highlighter-rouge">get</code> / <code class="language-plaintext highlighter-rouge">set(key, value, ttlMs?)</code> / optional <code class="language-plaintext highlighter-rouge">delete</code> / <code class="language-plaintext highlighter-rouge">keys</code> / <code class="language-plaintext highlighter-rouge">clear</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">MemoryStateAdapter&lt;T&gt;</code> — in-process reference impl (Map-backed, TTL-aware, single-process).</li>
+  <li><code class="language-plaintext highlighter-rouge">RedisStateAdapter&lt;T&gt;</code> — distributed backend over a <strong>user-supplied</strong> <code class="language-plaintext highlighter-rouge">ioredis</code> / <code class="language-plaintext highlighter-rouge">node-redis</code> client (Node only, zero added dependency).</li>
+  <li><code class="language-plaintext highlighter-rouge">namespaceAdapter(adapter, prefix)</code> — prefix keys so one backend hosts many logical namespaces.</li>
+  <li><code class="language-plaintext highlighter-rouge">circuitStoreFromAdapter(adapter)</code> / <code class="language-plaintext highlighter-rouge">rateLimitStoreFromAdapter(adapter)</code> — bridge an adapter into <code class="language-plaintext highlighter-rouge">resilience.circuitBreakerStorage.store</code> and <code class="language-plaintext highlighter-rouge">security.rateLimit.storage.store</code>.</li>
+</ul>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">import</span> <span class="nx">Redis</span> <span class="k">from</span> <span class="dl">'</span><span class="s1">ioredis</span><span class="dl">'</span><span class="p">;</span>
+<span class="k">import</span> <span class="p">{</span> <span class="nx">RedisStateAdapter</span><span class="p">,</span> <span class="nx">circuitStoreFromAdapter</span><span class="p">,</span> <span class="nx">rateLimitStoreFromAdapter</span> <span class="p">}</span> <span class="k">from</span> <span class="dl">'</span><span class="s1">neutrx</span><span class="dl">'</span><span class="p">;</span>
+
+<span class="kd">const</span> <span class="nx">shared</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">RedisStateAdapter</span><span class="p">({</span> <span class="na">client</span><span class="p">:</span> <span class="k">new</span> <span class="nc">Redis</span><span class="p">(</span><span class="nx">process</span><span class="p">.</span><span class="nx">env</span><span class="p">.</span><span class="nx">REDIS_URL</span><span class="p">),</span> <span class="na">keyPrefix</span><span class="p">:</span> <span class="dl">'</span><span class="s1">neutrx:</span><span class="dl">'</span> <span class="p">});</span>
+<span class="kd">const</span> <span class="nx">api</span> <span class="o">=</span> <span class="nx">neutrx</span><span class="p">.</span><span class="nf">create</span><span class="p">({</span>
+  <span class="na">resilience</span><span class="p">:</span> <span class="p">{</span> <span class="na">circuitBreakerStorage</span><span class="p">:</span> <span class="p">{</span> <span class="na">store</span><span class="p">:</span> <span class="nf">circuitStoreFromAdapter</span><span class="p">(</span><span class="nx">shared</span><span class="p">)</span> <span class="p">}</span> <span class="p">},</span>
+  <span class="na">security</span><span class="p">:</span> <span class="p">{</span> <span class="na">rateLimit</span><span class="p">:</span> <span class="p">{</span> <span class="na">enabled</span><span class="p">:</span> <span class="kc">true</span><span class="p">,</span> <span class="na">storage</span><span class="p">:</span> <span class="p">{</span> <span class="na">store</span><span class="p">:</span> <span class="nf">rateLimitStoreFromAdapter</span><span class="p">(</span><span class="nx">shared</span><span class="p">)</span> <span class="p">}</span> <span class="p">}</span> <span class="p">},</span>
+<span class="p">});</span>
+</code></pre></div></div>
+<h2 id="request-batching-dataloader">
+  
+  
+    <a href="#request-batching-dataloader" class="anchor-heading" aria-labelledby="request-batching-dataloader"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Request Batching (DataLoader)
+  
+  
+</h2>
+    
+
+<p><code class="language-plaintext highlighter-rouge">DataLoader&lt;K, V&gt;</code> is an opt-in utility that coalesces many <code class="language-plaintext highlighter-rouge">.load(key)</code> calls in the same tick into one batch function call and memoizes per key. Nothing in the request pipeline uses it unless you wire it. See <a href="/data-loader.html">DataLoader</a>.</p>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">import</span> <span class="p">{</span> <span class="nx">DataLoader</span> <span class="p">}</span> <span class="k">from</span> <span class="dl">'</span><span class="s1">neutrx</span><span class="dl">'</span><span class="p">;</span>
+
+<span class="kd">const</span> <span class="nx">users</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">DataLoader</span><span class="o">&lt;</span><span class="kr">string</span><span class="p">,</span> <span class="nx">User</span><span class="o">&gt;</span><span class="p">(</span><span class="k">async</span> <span class="nx">ids</span> <span class="o">=&gt;</span> <span class="p">{</span>
+  <span class="kd">const</span> <span class="p">{</span> <span class="nx">data</span> <span class="p">}</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">api</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="dl">'</span><span class="s1">/users</span><span class="dl">'</span><span class="p">,</span> <span class="p">{</span> <span class="na">params</span><span class="p">:</span> <span class="p">{</span> <span class="na">ids</span><span class="p">:</span> <span class="nx">ids</span><span class="p">.</span><span class="nf">join</span><span class="p">(</span><span class="dl">'</span><span class="s1">,</span><span class="dl">'</span><span class="p">)</span> <span class="p">}</span> <span class="p">});</span>
+  <span class="k">return</span> <span class="nx">ids</span><span class="p">.</span><span class="nf">map</span><span class="p">(</span><span class="nx">id</span> <span class="o">=&gt;</span> <span class="nx">data</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="nx">u</span> <span class="o">=&gt;</span> <span class="nx">u</span><span class="p">.</span><span class="nx">id</span> <span class="o">===</span> <span class="nx">id</span><span class="p">)</span> <span class="o">??</span> <span class="k">new</span> <span class="nc">Error</span><span class="p">(</span><span class="s2">`no user </span><span class="p">${</span><span class="nx">id</span><span class="p">}</span><span class="s2">`</span><span class="p">));</span>
+<span class="p">});</span>
+
+<span class="kd">const</span> <span class="p">[</span><span class="nx">a</span><span class="p">,</span> <span class="nx">b</span><span class="p">]</span> <span class="o">=</span> <span class="k">await</span> <span class="nb">Promise</span><span class="p">.</span><span class="nf">all</span><span class="p">([</span><span class="nx">users</span><span class="p">.</span><span class="nf">load</span><span class="p">(</span><span class="dl">'</span><span class="s1">1</span><span class="dl">'</span><span class="p">),</span> <span class="nx">users</span><span class="p">.</span><span class="nf">load</span><span class="p">(</span><span class="dl">'</span><span class="s1">2</span><span class="dl">'</span><span class="p">)]);</span> <span class="c1">// one HTTP call</span>
+</code></pre></div></div>
+<h2 id="headers">
+  
+  
+    <a href="#headers" class="anchor-heading" aria-labelledby="headers"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Headers
+  
+  
+</h2>
+    
+
+<p>Request and client configs accept either a plain header object or <code class="language-plaintext highlighter-rouge">NeutrxHeaders</code>. Neutrx converts both to an internal <code class="language-plaintext highlighter-rouge">NeutrxHeaders</code> instance at request start, before request hooks and interceptors run.</p>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">await</span> <span class="nx">api</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="dl">'</span><span class="s1">/plain</span><span class="dl">'</span><span class="p">,</span> <span class="p">{</span>
+  <span class="na">headers</span><span class="p">:</span> <span class="p">{</span> <span class="na">Authorization</span><span class="p">:</span> <span class="dl">'</span><span class="s1">Bearer secret</span><span class="dl">'</span> <span class="p">},</span>
+<span class="p">});</span>
+
+<span class="kd">const</span> <span class="nx">headers</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">NeutrxHeaders</span><span class="p">({</span> <span class="na">Authorization</span><span class="p">:</span> <span class="dl">'</span><span class="s1">Bearer secret</span><span class="dl">'</span> <span class="p">});</span>
+<span class="nx">headers</span><span class="p">.</span><span class="nf">setContentType</span><span class="p">(</span><span class="dl">'</span><span class="s1">application/json</span><span class="dl">'</span><span class="p">);</span>
+<span class="nx">headers</span><span class="p">.</span><span class="nf">setAuthorization</span><span class="p">(</span><span class="kc">false</span><span class="p">);</span>
+<span class="nx">headers</span><span class="p">.</span><span class="nf">setUserAgent</span><span class="p">(</span><span class="dl">'</span><span class="s1">billing-service/1.0</span><span class="dl">'</span><span class="p">);</span>
+<span class="nx">headers</span><span class="p">.</span><span class="nf">normalize</span><span class="p">();</span>
+<span class="k">for </span><span class="p">(</span><span class="kd">const</span> <span class="p">[</span><span class="nx">name</span><span class="p">,</span> <span class="nx">value</span><span class="p">]</span> <span class="k">of</span> <span class="nx">headers</span><span class="p">)</span> <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="nx">name</span><span class="p">,</span> <span class="nx">value</span><span class="p">);</span>
+<span class="nx">headers</span><span class="p">.</span><span class="nf">redactSensitive</span><span class="p">();</span>
+
+<span class="k">await</span> <span class="nx">api</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="dl">'</span><span class="s1">/class</span><span class="dl">'</span><span class="p">,</span> <span class="p">{</span> <span class="nx">headers</span> <span class="p">});</span>
+</code></pre></div></div>
+
+<p>Header names are case-insensitive. Calling <code class="language-plaintext highlighter-rouge">set(name, false)</code> stores a non-emitted sentinel that blocks automatic overwrites such as inferred <code class="language-plaintext highlighter-rouge">Content-Type</code>; calling <code class="language-plaintext highlighter-rouge">set(name, null)</code> deletes the header.</p>
+<h2 id="errors">
+  
+  
+    <a href="#errors" class="anchor-heading" aria-labelledby="errors"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Errors
+  
+  
+</h2>
+    
+
+<p>All Neutrx errors are branded:</p>
+
+<div class="language-ts highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span> <span class="p">{</span>
+  <span class="k">await</span> <span class="nx">api</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="dl">'</span><span class="s1">/missing</span><span class="dl">'</span><span class="p">);</span>
+<span class="p">}</span> <span class="k">catch </span><span class="p">(</span><span class="nx">error</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">if </span><span class="p">(</span><span class="nf">isNeutrxError</span><span class="p">(</span><span class="nx">error</span><span class="p">))</span> <span class="p">{</span>
+    <span class="nx">console</span><span class="p">.</span><span class="nf">error</span><span class="p">(</span><span class="nx">error</span><span class="p">.</span><span class="nx">code</span><span class="p">,</span> <span class="nx">error</span><span class="p">.</span><span class="nf">toJSON</span><span class="p">());</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>HTTP failures throw <code class="language-plaintext highlighter-rouge">NeutrxHTTPError</code> subclasses unless <code class="language-plaintext highlighter-rouge">validateStatus</code> accepts the status or <code class="language-plaintext highlighter-rouge">throwHttpErrors: false</code> is set.</p>
+
+<p>Typed errors expose a stable <code class="language-plaintext highlighter-rouge">category</code>, request and trace identity, retryability, and a redacted <code class="language-plaintext highlighter-rouge">toJSON()</code> representation. <code class="language-plaintext highlighter-rouge">toStructuredError(error)</code> safely normalizes non-Neutrx errors for structured logging.</p>
+
+          
+
+          
+            
+          
+        </main>
+        
+<hr>
+<footer>
+  
+    <p><a href="#top" id="back-to-top">Back to top</a></p>
+  
+
+  <!-- Main-content page footer. Replaces Just the Docs' default edit-link/timestamp footer. -->
+<div class="footer-custom">
+  <p class="footer-custom__line">
+    <strong>Neutrx</strong> — security-first, zero-runtime-dependency HTTP client for Node.js 18+.
+  </p>
+  <p class="footer-custom__links">
+    <a href="https://github.com/Xenial-Devil/neutrx">GitHub</a>
+    <span aria-hidden="true">·</span>
+    <a href="https://www.npmjs.com/package/neutrx">npm</a>
+    <span aria-hidden="true">·</span>
+    <a href="https://github.com/Xenial-Devil/neutrx/blob/main/LICENSE">MIT License</a>
+  </p>
+  <p class="footer-custom__copy">
+    Released under the MIT License. &copy; 2026 Neutrx contributors.
+  </p>
+</div>
+
+
+  <div class="d-md-none mt-4 fs-2">
+    
+    
+      <p class="text-small text-grey-dk-000 mb-0">Released under the MIT License. &copy; Neutrx contributors.</p>
+
+    
+  </div>
+</footer>
+
+      </div>
+    </div>
+    
+      
+
+<div class="search-overlay"></div>
+
+    
+  </div>
+
+  
+</body>
+</html>
+

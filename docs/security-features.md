@@ -184,4 +184,3 @@ A `strict` profile in a browser is **not** a Node-equivalent egress boundary: br
 - [Security Model](security-model.md) · [Security Guide](security.md)
 - [Secure Egress](secure-egress.md) · [Adapter Security Contract](adapter-security-contract.md)
 - [Errors](errors.md)
-</content>
