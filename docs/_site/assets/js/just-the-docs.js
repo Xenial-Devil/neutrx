@@ -337,7 +337,7 @@ function searchLoaded(index, docs) {
         resultLink.appendChild(resultPreviews);
 
         var content = doc.content;
-        for (var j = 0; j < Math.min(previewPositions.length, 4); j++) {
+        for (var j = 0; j < Math.min(previewPositions.length, 4/); j++) {
           var position = previewPositions[j];
 
           var resultPreview = document.createElement('div');
