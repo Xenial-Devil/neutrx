@@ -1,5 +1,6 @@
 ---
 title: Auth Token
+description: "Attach service tokens and request-scoped bearer tokens in Neutrx while keeping per-client defaults and per-request overrides clear."
 parent: Examples
 nav_order: 2
 ---

@@ -1,5 +1,6 @@
 ---
 title: Full-Stack Frontend Migration
+description: "Choose Neutrx Node, browser, and fetch adapters for full-stack migrations while handling headers, defaults, interceptors, progress, and runtime limits."
 parent: Migration
 nav_order: 3
 ---

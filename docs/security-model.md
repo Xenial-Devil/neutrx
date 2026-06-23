@@ -1,5 +1,6 @@
 ---
 title: Security
+description: "Understand the Neutrx security model for SSRF protection, redirect safety, redaction, Unix sockets, runtime limits, and security profiles."
 nav_order: 4
 has_children: true
 ---

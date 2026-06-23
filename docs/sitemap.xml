@@ -1,0 +1,28 @@
+---
+layout: null
+permalink: /sitemap.xml
+sitemap: false
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{%- assign seo_pages = site.pages | where_exp: "doc", "doc.sitemap != false" -%}
+{%- for doc in seo_pages -%}
+  {%- assign ext = doc.path | split: "." | last -%}
+  {%- unless doc.path contains "_site/" or doc.url contains "/assets/" or ext == "json" or ext == "css" or ext == "js" or ext == "map" or ext == "ico" or ext == "svg" -%}
+  <url>
+    <loc>{{ doc.url | absolute_url | xml_escape }}</loc>
+    <lastmod>{{ site.time | date_to_xmlschema }}</lastmod>
+    {%- if doc.url == "/" -%}
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    {%- elsif doc.parent -%}
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+    {%- else -%}
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    {%- endif -%}
+  </url>
+  {%- endunless -%}
+{%- endfor -%}
+</urlset>

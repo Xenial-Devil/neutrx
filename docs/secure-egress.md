@@ -1,5 +1,6 @@
 ---
 title: Secure Egress
+description: "Design Neutrx secure egress policies for webhooks, public APIs, and internal service clients using allowed hosts, CIDRs, ports, and audit output."
 parent: Security
 nav_order: 3
 ---

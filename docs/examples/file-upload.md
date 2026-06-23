@@ -1,5 +1,6 @@
 ---
 title: File Upload
+description: "Upload files with Neutrx form helpers in Node.js or browser-style runtimes while preserving headers, body serialization, and response handling."
 parent: Examples
 nav_order: 3
 ---

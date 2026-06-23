@@ -1,5 +1,6 @@
 ---
 title: Release Testing
+description: "Run the Neutrx release testing checklist for package compatibility, runtime support, HTTP behavior, security, resilience, observability, and browser limits."
 parent: Reference
 nav_order: 4
 ---

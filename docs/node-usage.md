@@ -1,5 +1,6 @@
 ---
 title: Node Usage
+description: "Use Neutrx in Node.js backend services with secure clients, request helpers, HTTP/2, TLS pinning, Unix sockets, progress, and bandwidth limits."
 parent: Guides
 nav_order: 1
 ---

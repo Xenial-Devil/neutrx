@@ -1,5 +1,6 @@
 ---
 title: Release Security
+description: "Review Neutrx release security controls for publishing posture, changelogs, GitHub releases, package contents, and dependency rules."
 parent: Reference
 nav_order: 5
 ---

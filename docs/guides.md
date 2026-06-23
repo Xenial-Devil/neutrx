@@ -1,5 +1,6 @@
 ---
 title: Guides
+description: "Guides for secure Node.js HTTP clients with Neutrx, covering runtime setup, security, resilience, caching, plugins, and observability."
 nav_order: 3
 has_children: true
 ---

@@ -1,5 +1,6 @@
 ---
 title: Bulkhead Isolation
+description: "Limit concurrent outbound calls per origin with Neutrx bulkhead isolation, queueing, adaptive concurrency, and circuit breaker pairing."
 parent: Guides
 nav_order: 6
 ---

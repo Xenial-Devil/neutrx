@@ -1,5 +1,6 @@
 ---
 title: Legacy HTTP Client Migration
+description: "Move from node-fetch, request, got, or custom wrappers to Neutrx with safer defaults, interceptors, typed errors, and migration profiles."
 parent: Migration
 nav_order: 2
 ---

@@ -1,5 +1,6 @@
 ---
 title: Request Batching (DataLoader)
+description: "Batch and cache high-volume key lookups with Neutrx DataLoader-style request batching, key normalization, scheduling, and batch size bounds."
 parent: Guides
 nav_order: 9
 ---

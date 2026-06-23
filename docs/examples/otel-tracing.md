@@ -1,5 +1,6 @@
 ---
 title: OTel Tracing
+description: "Bridge Neutrx requests to OpenTelemetry with client spans, trace context propagation, lifecycle events, and redacted attributes."
 parent: Examples
 nav_order: 5
 ---

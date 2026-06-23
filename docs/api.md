@@ -1,5 +1,6 @@
 ---
 title: API Reference
+description: "Reference Neutrx imports, client creation, request methods, configuration, response validation, security, resilience, performance, plugins, headers, and errors."
 parent: Reference
 nav_order: 1
 ---

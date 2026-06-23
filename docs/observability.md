@@ -1,5 +1,6 @@
 ---
 title: Observability
+description: "Observe Neutrx clients with metrics, latency percentiles, lifecycle events, structured redacted logs, trace context propagation, and OpenTelemetry spans."
 parent: Guides
 nav_order: 11
 ---

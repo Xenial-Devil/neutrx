@@ -1,5 +1,6 @@
 ---
 title: Why Neutrx
+description: "Learn when to choose Neutrx over Axios or native fetch for secure Node.js service-to-service HTTP with SSRF protection, resilience, and observability."
 nav_order: 8
 ---
 

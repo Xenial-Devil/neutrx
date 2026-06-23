@@ -1,5 +1,6 @@
 ---
 title: Plugins
+description: "Extend Neutrx with first-party plugins for logging, trace context, OpenTelemetry, validation, OAuth2, GraphQL, mocking, AWS SigV4, and HAR recording."
 parent: Guides
 nav_order: 10
 ---

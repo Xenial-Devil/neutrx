@@ -1,5 +1,6 @@
 ---
 title: Security Guide
+description: "Configure Neutrx security profiles, SSRF protection, Unix socket policy, secure egress, redirect safety, browser boundaries, and redacted errors."
 parent: Security
 nav_order: 2
 ---

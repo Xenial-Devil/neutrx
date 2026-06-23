@@ -1,5 +1,6 @@
 ---
 title: Config Reference
+description: "Explore every Neutrx configuration block for core requests, security, egress, discovery, WebSocket, resilience, performance, and instrumentation."
 parent: Reference
 nav_order: 2
 ---

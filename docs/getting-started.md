@@ -1,5 +1,6 @@
 ---
 title: Getting Started
+description: "Install Neutrx, send your first request, create secure clients, choose security profiles, handle redacted errors, and add retries or caching."
 nav_order: 2
 ---
 

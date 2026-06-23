@@ -1,10 +1,15 @@
 # GitHub Pages (Jekyll) configuration — served directly from /docs, no local build.
 # Theme is fetched and built by GitHub Pages' own Jekyll pipeline via remote_theme.
 title: Neutrx
-description: Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends.
+tagline: Secure Node.js HTTP client
+description: Security-first TypeScript HTTP client for Node.js 18+ backends with SSRF protection, redirect safety, retries, circuit breaking, OpenTelemetry hooks, and zero runtime dependencies.
+lang: en-US
+locale: en_US
+timezone: UTC
 # Sidebar wordmark — rendered in the .site-header by Just the Docs. baseurl is
 # prepended via `relative_url`, so keep this site-root-relative.
 logo: '/assets/neutrx-logo.svg'
+image: '/assets/neutrx-social.png'
 favicon_ico: '/favicon.ico'
 remote_theme: just-the-docs/just-the-docs
 #theme: just-the-docs
@@ -12,6 +17,26 @@ remote_theme: just-the-docs/just-the-docs
 # Site is published at https://<owner>.github.io/neutrx/
 url: 'https://xenial-devil.github.io'
 baseurl: '/neutrx'
+repository: Xenial-Devil/neutrx
+
+author:
+    name: Neutrx contributors
+    url: 'https://github.com/Xenial-Devil/neutrx/graphs/contributors'
+
+social:
+    name: Neutrx
+    links:
+        - 'https://github.com/Xenial-Devil/neutrx'
+        - 'https://www.npmjs.com/package/neutrx'
+
+defaults:
+    -
+        scope:
+            path: ''
+            type: pages
+        values:
+            image: '/assets/neutrx-social.png'
+            robots: 'index,follow,max-image-preview:large'
 
 # Silence Dart Sass deprecation noise from the just-the-docs gem's own .scss
 # (darken()/lighten()/@import live in the theme dependency, not our custom.scss).
