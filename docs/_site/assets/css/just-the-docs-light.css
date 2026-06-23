@@ -9324,4 +9324,113 @@ kbd {
   border-color: var(--term-bg);
 }
 
+.faq {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.faq > h2 {
+  margin-top: 0;
+}
+
+.faq-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+  padding: 0.75rem 1rem;
+  margin: 0.6rem 0;
+}
+
+.faq-item[open] {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.faq-q {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+  list-style: none;
+}
+
+.faq-q::-webkit-details-marker {
+  display: none;
+}
+
+.faq-q::before {
+  content: "+";
+  display: inline-block;
+  width: 1.1em;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.faq-item[open] .faq-q::before {
+  content: "−";
+}
+
+.faq-a {
+  margin-top: 0.6rem;
+  color: var(--text-secondary);
+}
+
+.faq-a > :first-child {
+  margin-top: 0;
+}
+
+.faq-a > :last-child {
+  margin-bottom: 0;
+}
+
+.notfound {
+  text-align: center;
+  padding: 2.5rem 0 1rem;
+}
+
+.notfound-code {
+  display: block;
+  font-size: clamp(4.5rem, 18vw, 9rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.notfound-title {
+  margin: 0.5rem auto 0.4rem;
+  max-width: 32ch;
+  font-size: clamp(1.25rem, 4vw, 1.7rem);
+  line-height: 1.25;
+}
+
+.notfound-sub {
+  margin: 0 auto 1.6rem;
+  max-width: 52ch;
+  color: var(--text-secondary);
+}
+
+.notfound .hero-actions {
+  justify-content: center;
+}
+
+.notfound-hint {
+  margin-top: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+.notfound-hint kbd {
+  padding: 0.05em 0.5em;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  font-family: inherit;
+  font-weight: 600;
+}
+
 /*# sourceMappingURL=just-the-docs-light.css.map */

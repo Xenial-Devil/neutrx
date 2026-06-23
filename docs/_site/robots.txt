@@ -1,8 +1,3 @@
----
-layout: null
-permalink: /robots.txt
-sitemap: false
----
 User-agent: *
 Allow: /
 
@@ -41,6 +36,6 @@ User-agent: CCBot
 Allow: /
 
 # LLM-ingestion index (llms.txt standard).
-# {{ '/llms.txt' | absolute_url }}
-# {{ '/llms-full.txt' | absolute_url }}
-Sitemap: {{ '/sitemap.xml' | absolute_url }}
+# https://xenial-devil.github.io/llms.txt
+# https://xenial-devil.github.io/llms-full.txt
+Sitemap: https://xenial-devil.github.io/sitemap.xml

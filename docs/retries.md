@@ -3,6 +3,15 @@ title: Retry Strategies
 description: "Configure Neutrx retries with backoff, jitter, idempotency rules, Retry-After handling, deadlines, shared retry budgets, and observability."
 parent: Guides
 nav_order: 4
+faq:
+  - q: How do I enable retries in Neutrx?
+    a: "Set a `retry` config on the client or per request — for example `neutrx.create({ retry: { attempts: 3 } })`. Neutrx retries only idempotent requests by default and honors `Retry-After` headers."
+  - q: What backoff strategies does Neutrx support?
+    a: "Neutrx supports `exponential`, `linear`, and `fibonacci` backoff, each with optional jitter to avoid thundering-herd retries, plus per-attempt and total deadline budgets."
+  - q: Does Neutrx retry POST requests?
+    a: "By default Neutrx retries only idempotent methods (GET, HEAD, PUT, DELETE, OPTIONS). Retrying non-idempotent methods like POST must be opted into explicitly, since it can duplicate side effects."
+  - q: How do retry budgets prevent retry storms?
+    a: "A shared retry budget caps the fraction of traffic that may be retries across requests, so a failing upstream cannot trigger a self-amplifying retry storm. The circuit breaker and bulkhead add further protection."
 ---
 
 # Retry Strategies
@@ -135,3 +144,5 @@ Retries also surface via the OpenTelemetry attribute `neutrx.retry.count`. See [
 - [Circuit Breaker](circuit-breaker.md) — stop hammering a downed upstream
 - [Bulkhead Isolation](bulkhead-isolation.md) — bound concurrent retries
 - [Config Reference](config-reference.md) — full resilience schema
+
+{% include faq.html %}

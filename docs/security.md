@@ -3,6 +3,15 @@ title: Security Guide
 description: "Configure Neutrx security profiles, SSRF protection, Unix socket policy, secure egress, redirect safety, browser boundaries, and redacted errors."
 parent: Security
 nav_order: 2
+faq:
+  - q: How does Neutrx prevent SSRF attacks?
+    a: "Neutrx validates request targets and blocks requests to private, loopback, link-local, and cloud-metadata IP ranges by default. It pins DNS so a resolved address cannot change between check and connect, and it re-validates the target on every redirect hop."
+  - q: What are the Neutrx security profiles?
+    a: "Neutrx has three canonical profiles: `strict` (tightest controls for untrusted egress), `standard` (the secure default), and `legacy` (permissive, Axios-like behavior for migration). Set one with `neutrx.create({ security: { profile: 'strict' } })`."
+  - q: Does Neutrx redact secrets in errors?
+    a: "Yes. Errors expose a redacting `toJSON()` that strips secrets from URLs, headers, and causes based on the active security profile, so logged or serialized errors do not leak credentials."
+  - q: Are Neutrx security guarantees available in the browser?
+    a: "No. Node-level network controls — SSRF protection, DNS pinning, TLS configuration, and raw sockets — exist only in the Node build. The browser build shares the request API but cannot enforce these guarantees."
 ---
 
 # Neutrx Security Guide
@@ -124,3 +133,5 @@ const local = neutrx.create({
 ```
 
 Keep metadata blocking enabled unless a test explicitly proves it needs to be disabled.
+
+{% include faq.html %}

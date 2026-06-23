@@ -1,0 +1,84 @@
+---
+layout: null
+permalink: /llms-full.txt
+sitemap: false
+---
+# {{ site.title }} — full documentation
+
+> {{ site.description }}
+
+This file concatenates the full text of the Neutrx documentation for ingestion by
+generative engines. Node.js (>=18) is the primary, security-bearing runtime;
+the browser build shares the request API but cannot provide Node-level network
+controls (SSRF/DNS pinning, TLS, sockets). Canonical security profiles: strict,
+standard, legacy. Zero runtime dependencies; only optional peer is @opentelemetry/api.
+
+Source: https://github.com/Xenial-Devil/neutrx | Package: https://www.npmjs.com/package/neutrx | License: MIT
+
+## Project facts
+- Latest version: 1.5.0
+- Runtime: Node.js >=18.0.0 (primary, security-bearing); separate browser build (BrowserNeutrx/BrowserClient)
+- Runtime dependencies: none. Optional peer: @opentelemetry/api (>=1.0.0 <2.0.0), detected lazily
+- Module formats: ESM + CommonJS + .d.ts
+- Install: npm install neutrx
+- Entry points: neutrx, neutrx/node, neutrx/browser, neutrx/plugins, neutrx/errors, neutrx/headers, neutrx/adapters, neutrx/instrumentation
+
+## Core API
+- Default export neutrx is a callable Proxy and an object: neutrx(url, config), verb methods (get, post, put, patch, delete, head, options), neutrx.create(config).
+- NeutrxClient.request(config) is the single funnel all verbs route through.
+- Config layering: library defaults -> instance defaults (create()) -> per-request options.
+- Response shape: { data, status, statusText, headers, config }. Size and timeout limits enforced before resolve.
+
+## Request pipeline (fixed order)
+1. Build config + service discovery
+2. OpenTelemetry span start + trace carrier injection
+3. Plugins beforeRequest (may short-circuit with mockResponse)
+4. SecurityManager.validateRequest -> RateLimiter.checkLimit
+5. Request interceptors
+6. Cache lookup (SWR may revalidate in background)
+7. CircuitBreaker.canRequest
+8. RetryEngine -> Bulkhead -> dedupe -> redirect-following dispatch -> adapter
+9. Parse -> sanitizeResponse -> response interceptors -> plugins afterRequest -> cache set
+10. On error: stale-if-error / network-fallback cache, metrics, circuit recordFailure, OTel fail, plugins onError, error interceptors
+
+## Resilience and performance
+- Retries: exponential, linear, fibonacci backoff with jitter, per-attempt and total deadlines, shared retry budget, Retry-After handling. Idempotent methods retried by default.
+- Circuit breaker: per-origin, states closed/open/half-open, shareable across workers.
+- Bulkhead: per-origin concurrency cap with optional adaptive concurrency.
+- Cache: Cache-Control, stale-while-revalidate, stale-if-error, network-first; custom stores. In-flight deduplication. Async pagination. DataLoader batching.
+
+## First-party plugins (neutrx/plugins)
+OAuth2Plugin, AwsSigV4Plugin (createAwsSigV4Plugin), OtelPlugin (createOtelPlugin), TraceContextPlugin (createTraceContextPlugin), GraphQLPlugin, WebSocketPlugin, ValidationPlugin, LogPlugin, MockPlugin, HarRecorder (createHarRecorder).
+
+## Adapters (neutrx/adapters)
+- nodeHttpAdapter (createNodeHttpAdapter) — HTTP/1.1, enforces target validation, DNS pinning, redirect validation, TLS.
+- http2Adapter (createNodeHttp2Adapter) — HTTP/2.
+- fetchAdapter — browser/edge.
+- createSecureAdapter — wraps a custom adapter to enforce it did not change the URL or smuggle a redirect outside Neutrx's redirect policy.
+- Redirect following is owned by the dispatcher, not the adapter, so SSRF/header-stripping rules apply on every hop.
+
+## State adapters
+MemoryStateAdapter, RedisStateAdapter (circuitStoreFromAdapter, rateLimitStoreFromAdapter, namespaceAdapter) for sharing circuit-breaker and rate-limit state across workers.
+
+## Errors (neutrx/errors)
+Typed hierarchy rooted at NeutrxError with stable code, category, and redacting toJSON(). Subclasses: NeutrxSSRFError, NeutrxHTTPError, NeutrxClientError, NeutrxServerError, NeutrxConnectTimeoutError, NeutrxResponseTimeoutError, NeutrxNetworkError, NeutrxConnectionRefusedError, NeutrxDNSError, NeutrxMaxRetriesError, NeutrxCircuitBreakerError, NeutrxBulkheadError, NeutrxRateLimitError, NeutrxCertPinError, NeutrxRequestSizeError, NeutrxResponseSizeError, NeutrxInjectionError, NeutrxPrototypePollutionError, NeutrxSecurityError, NeutrxValidationError. Narrow with isNeutrxError; normalize unknown errors with toStructuredError.
+
+## Security profiles
+- strict — blockPrivateIPs: true, blockMetadataIPs: true; tightest controls for untrusted/internet-facing egress.
+- standard (default) — secure defaults for typical service-to-service calls; private/metadata IP blocking on.
+- legacy — blockPrivateIPs: false, blockMetadataIPs: false; permissive, Axios-like; use only when verified safe.
+Set with neutrx.create({ security: { profile: 'strict' } }).
+{% assign full_pages = site.html_pages | where_exp: "doc", "doc.sitemap != false" | sort: "nav_order" -%}
+{%- for doc in full_pages -%}
+  {%- assign ext = doc.path | split: "." | last -%}
+  {%- unless doc.path contains "_site/" or doc.url contains "/assets/" or ext == "json" or ext == "css" or ext == "js" or doc.title == nil or doc.url == "/404.html" %}
+
+================================================================================
+# {{ doc.title | strip }}
+URL: {{ doc.url | absolute_url }}
+{% if doc.description %}Summary: {{ doc.description | strip_newlines | strip }}{% endif %}
+================================================================================
+
+{{ doc.content | markdownify | strip_html | normalize_whitespace }}
+  {%- endunless -%}
+{%- endfor %}

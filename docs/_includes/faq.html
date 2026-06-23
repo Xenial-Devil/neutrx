@@ -1,0 +1,17 @@
+{%- comment -%}
+  Renders visible FAQ from page.faq frontmatter (list of { q, a }).
+  Pairs with the FAQPage JSON-LD in head_custom.html — the schema requires the
+  same Q&A to be visible on the page. Drop `{% include faq.html %}` at the
+  bottom of any page that defines `faq:` in its frontmatter.
+{%- endcomment -%}
+{% if page.faq %}
+<section class="faq" aria-labelledby="faq-heading">
+  <h2 id="faq-heading">Frequently asked questions</h2>
+  {% for item in page.faq %}
+  <details class="faq-item">
+    <summary class="faq-q">{{ item.q }}</summary>
+    <div class="faq-a">{{ item.a | markdownify }}</div>
+  </details>
+  {% endfor %}
+</section>
+{% endif %}

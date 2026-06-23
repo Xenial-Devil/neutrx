@@ -1,7 +1,18 @@
 ---
 title: Home
-description: "Neutrx is a security-first TypeScript HTTP client for Node.js 18+ backends with SSRF protection, retries, circuit breaking, OTel hooks, and zero runtime dependencies."
+description: "Neutrx is a security-first TypeScript HTTP client for Node.js 18+ with SSRF protection, retries, circuit breaking, OTel hooks, and zero runtime dependencies."
 nav_order: 1
+faq:
+  - q: What is Neutrx?
+    a: "Neutrx is a security-first, zero-runtime-dependency TypeScript HTTP client for Node.js 18+ backends. It offers Axios-like ergonomics plus built-in SSRF protection, redirect safety, retries, circuit breaking, caching, metrics, and redacted typed errors."
+  - q: How is Neutrx different from Axios?
+    a: "Neutrx adds Node-level security controls Axios does not — SSRF protection, DNS pinning, redirect validation on every hop, TLS controls, and secret-redacting errors — while keeping a familiar request API and shipping zero runtime dependencies."
+  - q: Does Neutrx have any runtime dependencies?
+    a: "No. Neutrx has zero runtime dependencies. The only optional peer is `@opentelemetry/api`, which is detected lazily and never required."
+  - q: Does Neutrx work in the browser?
+    a: "Yes, via a separate browser build that shares the request API. However, Node-level security guarantees (SSRF/DNS pinning, TLS, raw sockets) apply only to the Node build, never the browser build."
+  - q: What Node.js version does Neutrx require?
+    a: "Neutrx requires Node.js 18 or newer. It ships ESM, CommonJS, and `.d.ts` type declarations."
 ---
 
 <div class="hero">
@@ -174,3 +185,5 @@ try {
 - **Node:** `>= 18`
 - **Entry points:** `neutrx`, `neutrx/node`, `neutrx/browser`, `neutrx/plugins`, `neutrx/errors`, `neutrx/headers`, `neutrx/adapters`, `neutrx/instrumentation`
 - [Changelog](https://github.com/Xenial-Devil/neutrx/blob/main/CHANGELOG.md) · [npm](https://www.npmjs.com/package/neutrx) · [Report an issue](https://github.com/Xenial-Devil/neutrx/issues)
+
+{% include faq.html %}

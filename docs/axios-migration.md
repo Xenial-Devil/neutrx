@@ -3,6 +3,15 @@ title: Migration
 description: "Migrate from Axios and legacy HTTP clients to Neutrx while preserving ergonomics and adding backend-focused security, resilience, and observability."
 nav_order: 5
 has_children: true
+faq:
+  - q: How do I migrate from Axios to Neutrx?
+    a: "Most Axios call sites map directly: `axios.get(url)` becomes `neutrx.get(url)`, and `axios.create(config)` becomes `neutrx.create(config)`. The response shape (`data`, `status`, `headers`) matches, so the main work is reviewing security defaults and adjusting the profile."
+  - q: Is Neutrx API-compatible with Axios?
+    a: "Neutrx keeps Axios-like ergonomics — verb methods, `create()`, interceptors, and the `data`/`status`/`headers` response — but it is security-first by default. Permissive Axios behaviors (following any redirect, reaching private IPs) require explicitly choosing the `legacy` profile."
+  - q: What changes when moving from Axios to Neutrx?
+    a: "Neutrx blocks SSRF targets, validates every redirect hop, pins DNS, and redacts secrets in errors by default. Code that relied on those permissive defaults must opt into `legacy` or adjust, which the migration matrix documents case by case."
+  - q: Can I migrate from native fetch or got to Neutrx?
+    a: "Yes. The legacy HTTP client migration guide covers moving from native fetch, got, and node-fetch to Neutrx, mapping their request and response patterns onto Neutrx's secure defaults."
 ---
 
 # Axios Migration Guide
@@ -178,3 +187,5 @@ Retries default to idempotent methods. Use `idempotencyKey` before retrying `POS
 - Move retry loops into `resilience`.
 - Use `isNeutrxError()` and `error.toJSON()` for logs.
 - Verify any `legacy` profile use is temporary and trusted.
+
+{% include faq.html %}
