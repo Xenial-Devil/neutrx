@@ -1,14 +1,1822 @@
-// Custom overrides for the Just the Docs theme (auto-imported by the theme).
+// =============================================================================
+// Neutrx documentation theme — a modern, security-first skin for Just the Docs.
+//
+// Auto-imported by the theme (@import "custom/custom"). All colors are CSS custom
+// properties that flip between light and dark.
+//
+// Theme resolution (see _includes/head_custom.html for the JS):
+//   - no choice saved  -> follows the OS via @media (prefers-color-scheme)
+//   - user toggles      -> <html data-theme="light|dark"> wins and persists
+//
+// Code blocks are styled as a terminal window (title bar + traffic-light dots)
+// and flip light/dark with the theme via --term-* / --syn-* tokens, with a
+// copy button injected by JS.
+// =============================================================================
 
-// Default content column is ~800px, which reads as a narrow half-window strip
-// on wide displays. Widen the main content area while keeping the nav fixed.
-.main {
-  max-width: 1100px;
+// ---------------------------------------------------------------------------
+// 1. Design tokens — light (default)
+// ---------------------------------------------------------------------------
+:root {
+    --bg: #ffffff;
+    --bg-blur: rgba(255, 255, 255, 0.72);
+    --surface: #ffffff;
+    --surface-2: #f7f8fa; // sidebar
+    --surface-subtle: #f1f3f6;
+    --text: #1b1a19;
+    --text-secondary: #5b6470;
+    --heading: #0b1320;
+    --border: #e6e8ec;
+    --border-strong: #cdd2da;
+
+    --accent: #1763e6;
+    --accent-hover: #0f4cc0;
+    --accent-2: #7c3aed; // violet, for gradients
+    --accent-soft: #eaf1fe;
+    --nav-active-bg: #eaf1fe;
+    --grad: linear-gradient(120deg, #1763e6 0%, #5b34e0 55%, #7c3aed 100%);
+    --grad-text: linear-gradient(120deg, #1763e6 0%, #7c3aed 100%);
+
+    --note: #1763e6;
+    --note-bg: #eef4fe;
+    --tip: #107c10;
+    --tip-bg: #eef8ee;
+    --important: #5c2d91;
+    --important-bg: #f6f1fb;
+    --warning: #b78700;
+    --warning-bg: #fff8e6;
+    --danger: #d13438;
+    --danger-bg: #fdf3f4;
+
+    // Terminal code window — now theme-aware (light values here, dark in the mixin)
+    --term-bg: #f6f8fa;
+    --term-bar: #eaedf1;
+    --term-edge: #d7dbe0;
+    --term-text: #1b1a19;
+    --term-btn-bg: #ffffff;
+    --term-btn-text: #5b6470;
+    --term-btn-border: #d7dbe0;
+    --term-scroll: #c2c8d0;
+
+    // Syntax palette — GitHub-light tokens (flip to VS Code Dark+ in the mixin)
+    --syn-comment: #6e7781;
+    --syn-keyword: #cf222e;
+    --syn-string: #0a3069;
+    --syn-op: #1f2328;
+    --syn-punct: #1f2328;
+    --syn-name: #1f2328;
+    --syn-func: #8250df;
+    --syn-class: #953800;
+    --syn-tag: #116329;
+    --syn-attr: #0550ae;
+    --syn-number: #0550ae;
+    --syn-prompt: #6e7781;
+    --syn-ins: #116329;
+    --syn-del: #cf222e;
+
+    --radius: 8px;
+    --radius-lg: 14px;
+    --header-h: 3.75rem;
+    --ms-font: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+    --ms-mono: 'Cascadia Code', 'SF Mono', 'Consolas', 'Liberation Mono', Menlo, monospace;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 6px 20px rgba(16, 24, 40, 0.08);
+    --shadow-lg: 0 12px 40px rgba(16, 24, 40, 0.16);
+    --ring: 0 0 0 3px rgba(23, 99, 230, 0.25);
 }
 
-// On large viewports give the content even more room.
-@media (min-width: 75rem) {
-  .main {
-    max-width: 1264px;
-  }
+// ---------------------------------------------------------------------------
+// 2. Design tokens — dark (system preference + manual override)
+// ---------------------------------------------------------------------------
+@mixin dark-tokens {
+    --bg: #0b0f17;
+    --bg-blur: rgba(11, 15, 23, 0.72);
+    --surface: #121826;
+    --surface-2: #0d121d;
+    --surface-subtle: #161d2c;
+    --text: #e6edf3;
+    --text-secondary: #93a0b4;
+    --heading: #f3f7fd;
+    --border: #232c3d;
+    --border-strong: #36415a;
+
+    --accent: #5b9dff;
+    --accent-hover: #86b8ff;
+    --accent-2: #b69bff;
+    --accent-soft: #15233c;
+    --nav-active-bg: rgba(91, 157, 255, 0.28);
+    --grad: linear-gradient(120deg, #2f7bff 0%, #6f6bff 55%, #b69bff 100%);
+    --grad-text: linear-gradient(120deg, #6aa6ff 0%, #c0a8ff 100%);
+
+    --note: #5b9dff;
+    --note-bg: #0f1d31;
+    --tip: #3fb950;
+    --tip-bg: #11261a;
+    --important: #bc8cff;
+    --important-bg: #1d1633;
+    --warning: #d8a200;
+    --warning-bg: #2a2410;
+    --danger: #ff7b72;
+    --danger-bg: #2d1517;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
+    --ring: 0 0 0 3px rgba(91, 157, 255, 0.3);
+
+    // Terminal code window — dark
+    --term-bg: #1b1f27;
+    --term-bar: #2a2f3a;
+    --term-edge: #11141a;
+    --term-text: #d4d4d4;
+    --term-btn-bg: #3a3a3c;
+    --term-btn-text: #cfcfcf;
+    --term-btn-border: #555;
+    --term-scroll: #4a4f5a;
+
+    // Syntax palette — VS Code Dark+
+    --syn-comment: #6a9955;
+    --syn-keyword: #569cd6;
+    --syn-string: #ce9178;
+    --syn-op: #d4d4d4;
+    --syn-punct: #d4d4d4;
+    --syn-name: #9cdcfe;
+    --syn-func: #dcdcaa;
+    --syn-class: #4ec9b0;
+    --syn-tag: #569cd6;
+    --syn-attr: #9cdcfe;
+    --syn-number: #b5cea8;
+    --syn-prompt: #6a9955;
+    --syn-ins: #3fb950;
+    --syn-del: #ff7b72;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+        @include dark-tokens;
+    }
+}
+:root[data-theme='dark'] {
+    @include dark-tokens;
+}
+
+// ---------------------------------------------------------------------------
+// 3. Base
+// ---------------------------------------------------------------------------
+body {
+    font-family: var(--ms-font);
+    color: var(--text);
+    background-color: var(--bg);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+.main-content-wrap {
+    padding-top: 1.5rem;
+    background-color: var(--bg);
+}
+
+.main-content {
+    color: var(--text);
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        font-family: var(--ms-font);
+        color: var(--heading);
+        font-weight: 650;
+        line-height: 1.3;
+        letter-spacing: -0.015em;
+        scroll-margin-top: calc(var(--header-h) + 1rem);
+    }
+    h1 {
+        font-size: 2.15rem;
+        margin-bottom: 0.6em;
+    }
+    h2 {
+        font-size: 1.55rem;
+        margin-top: 2.2rem;
+        padding-bottom: 0.35em;
+        border-bottom: 1px solid var(--border);
+    }
+    h3 {
+        font-size: 1.2rem;
+        margin-top: 1.6rem;
+    }
+    h4 {
+        font-size: 1.02rem;
+        margin-top: 1.3rem;
+    }
+    p,
+    li {
+        font-size: 1rem;
+    }
+
+    a:not(.btn):not(.card) {
+        color: var(--accent);
+        text-decoration: none;
+        &:hover {
+            color: var(--accent-hover);
+            text-decoration: underline;
+        }
+    }
+    h1 a,
+    h2 a,
+    h3 a,
+    h4 a,
+    h5 a,
+    h6 a {
+        color: var(--heading);
+    }
+
+    hr {
+        border: 0;
+        border-top: 1px solid var(--border);
+        margin: 2rem 0;
+        background: none;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 4. Left navigation + sidebar
+// ---------------------------------------------------------------------------
+.side-bar {
+    border-right: 1px solid var(--border);
+    background-color: var(--surface-2);
+    padding-top: 0;
+
+    .site-header {
+        min-height: var(--header-h);
+        display: flex;
+        align-items: center;
+        padding: 0 1.1rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .site-title {
+        font-weight: 700;
+        font-size: 1.18rem;
+        color: var(--heading);
+        padding: 0.55rem 0;
+        letter-spacing: -0.02em;
+        background: var(--grad-text);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    // SVG wordmark (config `logo:`). JtD 0.12 renders it as a *background-image*
+    // <div class="site-logo">, NOT an <img> — so it needs an explicit box +
+    // background-size or it collapses to 0 width and the title text shows instead.
+    // 720x180 (4:1) art: full sidebar width, capped height, left-aligned, contained.
+    .site-logo {
+        display: block;
+        width: 100%;
+        height: 4.2rem;
+        margin: 0.35rem 0;
+        background-size: contain;
+        background-position: left center;
+        background-repeat: no-repeat;
+    }
+
+    .nav-list {
+        .nav-list-item {
+            font-size: 0.875rem;
+
+            .nav-list-link {
+                color: var(--text);
+                border-radius: 6px;
+                padding-top: 0.34rem;
+                padding-bottom: 0.34rem;
+                line-height: 1.4;
+                transition:
+                    background-color 0.12s,
+                    color 0.12s;
+                // JtD paints a hardcoded light gradient via background-image on
+                // :hover/.active — kill it so our background-color (themed) shows.
+                &:hover {
+                    background-color: var(--surface-subtle);
+                    background-image: none;
+                    color: var(--heading);
+                }
+                &.active {
+                    color: var(--accent);
+                    font-weight: 650;
+                    background-color: var(--nav-active-bg);
+                    background-image: none;
+                    box-shadow: inset 3px 0 0 0 var(--accent);
+                }
+                &.active:hover {
+                    background-color: var(--nav-active-bg);
+                    background-image: none;
+                    color: var(--accent);
+                }
+            }
+            // nested (collapsible) items — JtD hardcodes the submenu link to #5c5962
+            // (5-class specificity), invisible in dark; match it and use a token.
+            .nav-list .nav-list-item {
+                font-size: 0.84rem;
+                .nav-list-link {
+                    padding-left: 1.4rem;
+                    color: var(--text-secondary);
+                    &:hover {
+                        color: var(--heading);
+                    }
+                    &:hover {
+                        background-image: none;
+                    }
+                    &.active {
+                        color: var(--accent);
+                        background-color: var(--nav-active-bg);
+                        background-image: none;
+                        box-shadow: inset 3px 0 0 0 var(--accent);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Top header (main-header) — sticky frosted bar
+// ---------------------------------------------------------------------------
+.main-header {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    min-height: var(--header-h);
+    display: flex;
+    align-items: center;
+    // Frosted glass: translucent surface + deep blur, hairline divider, soft lift.
+    background-color: var(--bg-blur);
+    -webkit-backdrop-filter: saturate(180%) blur(16px);
+    backdrop-filter: saturate(180%) blur(16px);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(16, 24, 40, 0.02);
+
+    // Animated gradient accent line riding the bottom edge — the "cool" signature.
+    &::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 2px;
+        background: var(--grad);
+        background-size: 220% 100%;
+        opacity: 0.85;
+        animation: header-accent-pan 9s linear infinite;
+    }
+}
+
+@keyframes header-accent-pan {
+    0% {
+        background-position: 0% 50%;
+    }
+    100% {
+        background-position: 220% 50%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .main-header::after {
+        animation: none;
+    }
+}
+
+// ---- Search: pill input w/ left icon + floating result dropdown ----------
+.search {
+    position: relative; // anchor the dropdown
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    max-width: 36rem;
+    height: 3rem !important; // beat theme's 3.5rem
+    margin: 0.5rem 1rem;
+}
+
+.search-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 2.5rem;
+    border-radius: 999px;
+    background-color: var(--surface-subtle) !important;
+    border: 1px solid var(--border-strong);
+    box-shadow: none;
+    transition:
+        border-color 0.18s,
+        box-shadow 0.18s,
+        background-color 0.18s;
+    &:hover {
+        border-color: var(--accent);
+        background-color: var(--surface) !important;
+    }
+    &:focus-within {
+        border-color: transparent;
+        background-color: var(--surface) !important;
+        // Gradient ring: glow halo + crisp gradient edge via layered shadows.
+        box-shadow:
+            var(--ring),
+            0 8px 28px -10px rgba(23, 99, 230, 0.55);
+        .search-icon {
+            color: var(--accent);
+            transform: scale(1.12);
+        }
+        // hide the "/" hint once focused
+        &::after {
+            opacity: 0;
+        }
+    }
+
+    // "/" keyboard-shortcut hint chip on the right (JS focuses input on "/")
+    &::after {
+        content: "/";
+        position: absolute;
+        right: 0.55rem;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.3rem;
+        height: 1.3rem;
+        padding: 0 0.35rem;
+        font: 600 0.78rem var(--ms-mono);
+        color: var(--text-secondary);
+        background: var(--surface);
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        pointer-events: none;
+        transition: opacity 0.15s;
+    }
+}
+
+.search-input,
+#search-input {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0 2.4rem 0 2.5rem !important; // room for left icon + right "/" hint
+    background-color: transparent !important;
+    color: var(--text) !important;
+    font-size: 0.9rem;
+    line-height: 2.5rem;
+    border: 0;
+    outline: none;
+    border-radius: inherit;
+    &::placeholder {
+        color: var(--text-secondary);
+    }
+}
+
+.search-active .search-input-wrap {
+    border-radius: 999px !important;
+}
+
+.search-active .search-input,
+.search-active #search-input {
+    border-radius: inherit;
+    outline: none;
+}
+
+#search-results[hidden] {
+    display: none !important;
+}
+
+// Icon sits in the label, vertically centered on the left
+.search-label {
+    position: absolute;
+    left: 0.85rem;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding-left: 0 !important; // kill theme's 2rem -> icon was pushed under the text
+    pointer-events: none;
+}
+.search-icon {
+    position: static;
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    color: var(--text-secondary);
+    fill: currentColor;
+    transition:
+        color 0.18s,
+        transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+// ---- Floating suggestion dropdown — solid panel, matches site cards --------
+// Solid surface, token radii, gradient hairline, themed scrollbar. No glass/zoom.
+.search-results {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    right: auto;
+    width: min(36rem, calc(100vw - 2rem));
+    max-height: min(68vh, 43rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0;
+    // solid surface — no glass/blur
+    background-color: var(--surface-2) !important;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow:
+        0 24px 60px rgba(15, 23, 42, 0.2),
+        0 2px 10px rgba(15, 23, 42, 0.08);
+    transform: none;
+    z-index: 1100;
+
+    // gradient top accent inside the panel
+    &::before {
+        content: "";
+        position: sticky;
+        top: 0;
+        display: block;
+        height: 2px;
+        margin: 0 0 0.2rem;
+        background: var(--grad);
+        border-radius: 12px 12px 0 0;
+        opacity: 0.55;
+    }
+
+    // thin themed scrollbar
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+    &::-webkit-scrollbar {
+        width: 8px;
+    }
+    &::-webkit-scrollbar-thumb {
+        background: var(--border-strong);
+        border-radius: 99px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }
+}
+
+.search-results-list {
+    display: grid;
+    gap: 0;
+    background-color: transparent;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+.search-results-list-item {
+    margin: 0;
+    padding: 0;
+}
+.search-results-list-item:last-child .search-result {
+    border-bottom: 0;
+}
+
+// Each hit follows the native two-column result layout: doc metadata + preview.
+.search-result {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(9.5rem, 12rem) minmax(0, 1fr);
+    gap: 0;
+    align-items: start;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background-color: transparent;
+    color: var(--text);
+    min-height: 0;
+    overflow: hidden;
+    transition:
+        background-color 0.12s,
+        box-shadow 0.12s;
+
+    // static gradient rail (left), shown only on hover/active — no motion
+    &::before {
+        content: "";
+        position: absolute;
+        left: 0.3rem;
+        top: 0.5rem;
+        bottom: 0.5rem;
+        width: 3px;
+        background: var(--grad);
+        border-radius: 99px;
+        opacity: 0;
+    }
+
+    &:hover,
+    &.active,
+    &:focus,
+    &:focus-visible {
+        background-color: var(--surface-subtle);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        outline: none;
+        text-decoration: none;
+        &::before {
+            opacity: 1;
+        }
+    }
+}
+
+// Parent doc → small uppercase badge with gradient icon chip
+.search-result-doc {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+}
+.search-result-doc.search-result-doc-parent {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.15rem;
+}
+.search-result-icon {
+    flex: 0 0 auto;
+    width: 0.9rem;
+    height: 0.9rem;
+    padding: 0;
+    color: var(--accent);
+    fill: currentColor;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+}
+.search-result-doc-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    color: var(--accent) !important;
+    color: color-mix(in srgb, var(--accent) 56%, var(--text-secondary)) !important;
+    font-size: 0.78rem;
+    font-weight: 550;
+    letter-spacing: 0;
+    line-height: 1.25;
+    text-transform: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+// Section = the headline of the hit
+.search-result-title {
+    color: var(--text);
+    width: auto !important;
+    max-width: 100% !important;
+    min-width: 0;
+    padding: 0.65rem 0.75rem 0.65rem 1.25rem;
+    overflow: hidden;
+}
+.search-result-section {
+    display: block;
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 0.88rem;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    max-width: 100%;
+}
+
+// Anchor URL = mono chip, dimmed
+.search-result-rel-url {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    margin-top: 0.12rem;
+    max-width: 100%;
+    box-sizing: border-box;
+    font-family: var(--ms-mono);
+    font-size: 0.66rem;
+    font-weight: 600;
+    color: var(--heading);
+    opacity: 0.95;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: ltr;
+}
+
+// Preview snippet — gradient left border, clamped
+.search-result-previews {
+    width: auto !important;
+    max-width: 100% !important;
+    margin-top: 0;
+    padding: 0.65rem 0.85rem;
+    color: var(--heading);
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.5;
+    border-left: 1px solid var(--border);
+    opacity: 0.96;
+    min-width: 0;
+    overflow: hidden;
+}
+.search-result-preview {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    color: var(--heading);
+    overflow: hidden;
+}
+.search-result-highlight {
+    color: var(--accent);
+    font-weight: 700;
+    background: var(--accent-soft);
+    border-radius: 3px;
+    padding: 0 0.12em;
+}
+.search-no-result {
+    color: var(--text-secondary);
+    padding: 1rem 0.9rem;
+    text-align: center;
+    font-size: 0.88rem;
+}
+
+@media (max-width: 48rem) {
+    .search {
+        max-width: none;
+        margin: 0.45rem 0.75rem;
+    }
+
+    .search-results {
+        left: 0;
+        width: calc(100vw - 1.5rem);
+        transform: none;
+        max-height: 72vh;
+    }
+
+    .search-result {
+        grid-template-columns: 1fr;
+        gap: 0.45rem;
+        min-height: 0;
+    }
+
+    .search-result-previews {
+        padding-left: 0;
+        border-left: 0;
+    }
+}
+
+.aux-nav {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding-right: 0.75rem;
+
+    .aux-nav-list {
+        display: flex;
+        align-items: center;
+        gap: 0.15rem;
+    }
+    .aux-nav-list-item {
+        display: inline-flex;
+        align-items: center;
+        padding: 0;
+    }
+    a:not(.btn) {
+        position: relative;
+        color: var(--text-secondary);
+        font-size: 0.86rem;
+        font-weight: 600;
+        padding: 0.4rem 0.75rem;
+        border-radius: 999px;
+        border: none;
+        transition:
+            color 0.16s,
+            background-color 0.16s,
+            border-color 0.16s,
+            transform 0.12s,
+            box-shadow 0.16s;
+        // gradient text on hover (clipped) + lifted pill with soft glow
+        &:hover {
+            color: var(--accent);
+            background-color:transparent !important;
+            border-color: transparent;
+            text-decoration: none;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px -8px rgba(23, 99, 230, 0.5);
+        }
+        &:active {
+            transform: translateY(0);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 6. Buttons + theme toggle
+// ---------------------------------------------------------------------------
+.btn {
+    border-radius: var(--radius);
+    font-weight: 600;
+    border: 1px solid var(--border-strong);
+    background-image: none;
+    background-color: var(--surface);
+    color: var(--accent);
+    box-shadow: none;
+    padding: 0.5rem 1.1rem;
+    transition:
+        background-color 0.15s,
+        border-color 0.15s,
+        color 0.15s,
+        transform 0.1s,
+        box-shadow 0.15s;
+    &:hover {
+        background-color: transparent !important;
+        border-color: var(--accent);
+        transform: translateY(-1px);
+    }
+    &:active {
+        transform: translateY(0);
+    }
+}
+.btn-primary {
+    position: relative;
+    background-image: var(--grad) !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    color: #fff !important;
+    box-shadow: 0 6px 18px rgba(23, 99, 230, 0.35);
+    &:hover {
+        filter: brightness(1.06);
+        box-shadow: 0 10px 26px rgba(23, 99, 230, 0.45);
+    }
+}
+
+// Back-to-top: fixed bottom-right pill, fades/slides in after scroll (JS adds
+// .btt-float + .is-visible). Tokens flip it light/dark.
+#back-to-top.btt-float {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 1000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.8rem;
+    height: 2.8rem;
+    padding: 0;
+    margin: 0;
+    color: #fff;
+    background-image: var(--grad);
+    border: 0;
+    border-radius: 999px;
+    box-shadow: var(--shadow-lg);
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.9);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease, filter 0.15s ease;
+    svg {
+        display: block;
+    }
+    &.is-visible {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        pointer-events: auto;
+    }
+    &:hover {
+        filter: brightness(1.08);
+        transform: translateY(-2px) scale(1.03);
+    }
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--ring), var(--shadow-lg);
+    }
+}
+
+@media (max-width: 66.4375rem) {
+    #back-to-top.btt-float {
+        bottom: 1rem;
+        right: 1rem;
+    }
+}
+
+#theme-toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    margin-left: 0.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    cursor: pointer;
+    padding: 0;
+    overflow: hidden;
+    transition:
+        color 0.18s,
+        border-color 0.18s,
+        background-color 0.18s,
+        transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+        box-shadow 0.18s;
+    // Gradient wash that fades in behind the icon on hover.
+    &::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: var(--grad);
+        opacity: 0;
+        transition: opacity 0.18s;
+    }
+    svg {
+        position: relative;
+        z-index: 1;
+        width: 1.05rem;
+        height: 1.05rem;
+        display: block;
+        transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    &:hover {
+        color: #fff;
+        border-color: transparent;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 18px -6px rgba(23, 99, 230, 0.6);
+        &::before {
+            opacity: 1;
+        }
+        svg {
+            transform: rotate(-25deg) scale(1.08);
+        }
+    }
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--ring);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Code — terminal window styling (theme-aware via --term-* / --syn-*)
+// ---------------------------------------------------------------------------
+.main-content {
+    code {
+        font-family: var(--ms-mono);
+        font-size: 0.88em;
+    }
+
+    // Inline code stays themed (not terminal). Blanket `:not(pre):not(figure) > code`
+    // matches the JtD theme's own selector (which hardcodes #fff / #eeebee) and
+    // beats it via .main-content scope, so EVERY inline code — incl. blockquote,
+    // dt/dd, summary — flips light/dark instead of leaking white.
+    :not(pre):not(figure) > code {
+        background-color: var(--surface-subtle);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0.2em 0.15em;
+        font-weight: 400;
+        color: var(--accent-hover);
+    }
+
+    // Block code -> terminal window
+    div.highlighter-rouge,
+    figure.highlight {
+        position: relative;
+        background-color: var(--term-bg);
+        border: 1px solid var(--term-edge);
+        border-radius: 10px;
+        margin: 1.25rem 0;
+        padding: 2.4rem 0 0; // space for the title bar
+        overflow: hidden;
+        box-shadow: var(--shadow);
+    }
+
+    // Title bar
+    div.highlighter-rouge::before,
+    figure.highlight::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2.4rem;
+        background-color: var(--term-bar);
+        border-bottom: 1px solid var(--term-edge);
+    }
+    // Traffic-light dots
+    div.highlighter-rouge::after,
+    figure.highlight::after {
+        content: '';
+        position: absolute;
+        top: 0.9rem;
+        left: 1rem;
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #ff5f56;
+        box-shadow:
+            18px 0 0 #ffbd2e,
+            36px 0 0 #27c93f;
+    }
+
+    div.highlighter-rouge .highlight,
+    pre.highlight,
+    figure.highlight pre {
+        background: transparent !important;
+        margin: 0;
+        padding: 0.9rem 1.1rem 1.1rem;
+        overflow-x: auto;
+        border: 0;
+    }
+    div.highlighter-rouge code,
+    figure.highlight code {
+        color: var(--term-text);
+        background: transparent;
+    }
+
+    // Copy button (injected by JS) — icon-only, tooltip on copy
+    .copy-btn {
+        position: absolute;
+        top: 0.4rem;
+        right: 0.5rem;
+        z-index: 2;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        color: var(--term-btn-text);
+        background: transparent;
+        border: none;
+        border-radius: 5px;
+        padding: 0;
+        cursor: pointer !important;
+        transition:
+            background 0.15s,
+            color 0.15s;
+        svg {
+            width: 1rem;
+            height: 1rem;
+            display: block;
+        }
+        &:hover {
+            background: transparent;
+            color: var(--accent);
+            border-color: transparent;
+        }
+        &.copied {
+            color: #27c93f;
+            border-color: none;
+        }
+
+        // "Copied" tooltip bubble
+        &::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            top: 50%;
+            right: calc(100% + 0.5rem);
+            transform: translateY(-50%);
+            white-space: nowrap;
+            font: 600 0.7rem var(--ms-font);
+            color: #fff;
+            background: #27c93f;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s;
+        }
+        &.copied::after {
+            opacity: 1;
+        }
+    }
+}
+
+// Terminal syntax palette — token-driven so it flips with the theme
+// (GitHub-light in :root, VS Code Dark+ in the dark mixin).
+.main-content .highlighter-rouge {
+    .highlight {
+        .c,
+        .c1,
+        .cm,
+        .cp,
+        .cs {
+            color: var(--syn-comment);
+            font-style: italic;
+        } // comments
+        .k,
+        .kd,
+        .kn,
+        .kp,
+        .kr,
+        .kt {
+            color: var(--syn-keyword);
+        } // keywords
+        .kc {
+            color: var(--syn-keyword);
+        } // true/false/null
+        .s,
+        .s1,
+        .s2,
+        .sb,
+        .sc,
+        .sd,
+        .se,
+        .sh,
+        .si,
+        .sx,
+        .dl {
+            color: var(--syn-string);
+        } // strings
+        .o,
+        .ow {
+            color: var(--syn-op);
+        } // operators
+        .p {
+            color: var(--syn-punct);
+        } // punctuation
+        .n,
+        .nx,
+        .nl,
+        .nv,
+        .vi {
+            color: var(--syn-name);
+        } // names / vars
+        .nf,
+        .nb,
+        .bp {
+            color: var(--syn-func);
+        } // functions
+        .nc,
+        .nn,
+        .no {
+            color: var(--syn-class);
+        } // classes / namespaces
+        .nt {
+            color: var(--syn-tag);
+        } // tags
+        .na {
+            color: var(--syn-attr);
+        } // attributes
+        .mi,
+        .mf,
+        .mh,
+        .mo,
+        .il {
+            color: var(--syn-number);
+        } // numbers
+        .gp {
+            color: var(--syn-prompt);
+        } // shell prompt
+        .gi {
+            color: var(--syn-ins);
+        }
+        .gd {
+            color: var(--syn-del);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 8. Tables
+// ---------------------------------------------------------------------------
+.main-content table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin: 1.25rem 0;
+    box-shadow: none;
+    background-color: var(--surface);
+
+    // JtD hardcodes `th,td { background-color:#fff }` — set a themed bg or odd
+    // rows stay white in dark mode.
+    th,
+    td {
+        border: 1px solid var(--border);
+        padding: 0.6rem 0.85rem;
+        font-size: 0.95rem !important;
+        vertical-align: top;
+        color: var(--text);
+        background-color: var(--surface);
+    }
+    thead th {
+        background-color: var(--surface-subtle);
+        color: var(--heading);
+        font-weight: 650;
+        border-bottom: 2px solid var(--border-strong);
+    }
+    tbody tr:nth-child(even) td,
+    tbody tr:nth-child(even) th {
+        background-color: var(--surface-subtle);
+    }
+    tbody tr:hover td,
+    tbody tr:hover th {
+        background-color: var(--accent-soft);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 9. Callouts / alerts
+// ---------------------------------------------------------------------------
+.main-content {
+    .note,
+    .tip,
+    .important,
+    .warning,
+    .danger {
+        position: relative;
+        margin: 1.25rem 0;
+        padding: 0.85rem 1rem 0.85rem 1.1rem;
+        border: 1px solid var(--border);
+        border-left-width: 4px;
+        border-radius: var(--radius);
+        color: var(--text);
+        > :first-child {
+            margin-top: 0;
+        }
+        > :last-child {
+            margin-bottom: 0;
+        }
+    }
+    .note {
+        border-left-color: var(--note);
+        background-color: var(--note-bg);
+    }
+    .tip {
+        border-left-color: var(--tip);
+        background-color: var(--tip-bg);
+    }
+    .important {
+        border-left-color: var(--important);
+        background-color: var(--important-bg);
+    }
+    .warning {
+        border-left-color: var(--warning);
+        background-color: var(--warning-bg);
+    }
+    .danger {
+        border-left-color: var(--danger);
+        background-color: var(--danger-bg);
+    }
+
+    blockquote:not(.note):not(.tip):not(.important):not(.warning):not(.danger) {
+        border-left: 4px solid var(--border-strong);
+        background-color: var(--surface-subtle);
+        color: var(--text-secondary);
+        padding: 0.6rem 1rem;
+        border-radius: 0 var(--radius) var(--radius) 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 10. Card grids
+// ---------------------------------------------------------------------------
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.card {
+    position: relative;
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.2rem 1.3rem;
+    background-color: var(--surface);
+    color: var(--text);
+    text-decoration: none !important;
+    overflow: hidden;
+    transition:
+        box-shadow 0.18s,
+        border-color 0.18s,
+        transform 0.18s;
+    // top accent bar reveals on hover
+    &::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: var(--grad);
+        transform: scaleX(0);
+        transform-origin: left;
+        transition: transform 0.25s ease;
+    }
+    &:hover {
+        border-color: var(--accent);
+        box-shadow: var(--shadow);
+        transform: translateY(-3px);
+        &::before {
+            transform: scaleX(1);
+        }
+    }
+    .card-title {
+        display: block;
+        font-weight: 650;
+        font-size: 1.05rem;
+        color: var(--heading);
+        margin-bottom: 0.4rem;
+    }
+    .card-desc {
+        display: block;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        line-height: 1.55;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 11. Landing page — hero, badges, stats, feature band
+// ---------------------------------------------------------------------------
+.hero {
+    position: relative;
+    margin: 0 0 2.5rem;
+    padding: 3.5rem 2.5rem 3rem;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    overflow: hidden;
+    background:
+        radial-gradient(900px 360px at 12% -10%, var(--accent-soft), transparent 70%),
+        radial-gradient(700px 320px at 100% 0%, rgba(124, 58, 237, 0.1), transparent 65%), var(--surface);
+    // faint grid overlay
+    &::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image:
+            linear-gradient(var(--border) 1px, transparent 1px),
+            linear-gradient(90deg, var(--border) 1px, transparent 1px);
+        background-size: 40px 40px;
+        -webkit-mask-image: radial-gradient(700px 360px at 20% 0%, #000, transparent 75%);
+        mask-image: radial-gradient(700px 360px at 20% 0%, #000, transparent 75%);
+        opacity: 0.5;
+        pointer-events: none;
+    }
+    > * {
+        position: relative;
+        z-index: 1;
+    }
+
+    .hero-eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--accent);
+        background: var(--accent-soft);
+        border: 1px solid var(--border);
+        padding: 0.3rem 0.7rem;
+        border-radius: 999px;
+        margin-bottom: 1.1rem;
+    }
+    .hero-title {
+        font-size: clamp(2.6rem, 6vw, 3.6rem);
+        font-weight: 800;
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+        margin: 0 0 0.6rem;
+        background: var(--grad-text);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .hero-title--logo {
+        max-width: 32rem;
+        background: none;
+        -webkit-text-fill-color: currentColor;
+    }
+    .hero-logo {
+        display: block;
+        width: min(100%, 32rem);
+        height: auto;
+    }
+    .hero-tagline {
+        font-size: 1.18rem;
+        color: var(--text-secondary);
+        max-width: 64ch;
+        margin: 0 0 1.5rem;
+        line-height: 1.55;
+    }
+    .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        margin-bottom: 1.4rem;
+    }
+    .hero-actions a {
+        margin: 0;
+    }
+}
+
+// Badge row (npm / license / deps)
+.hero-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--surface-subtle);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.32rem 0.7rem;
+    b {
+        color: var(--heading);
+        font-weight: 700;
+    }
+}
+
+// Stat strip
+.stat-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+    margin: 0 0 2.5rem;
+    padding: 1.4rem 1.2rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    .stat {
+        text-align: center;
+    }
+    .stat-num {
+        display: block;
+        font-size: 1.7rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        background: var(--grad-text);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .stat-label {
+        display: block;
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        margin-top: 0.2rem;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 12. Table of contents + misc
+// ---------------------------------------------------------------------------
+.main-content ul#markdown-toc {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background-color: var(--surface-subtle);
+    padding: 0.9rem 1.1rem 0.9rem 2rem;
+    margin: 1rem 0 2rem;
+    font-size: 0.92rem;
+    &::before {
+        content: 'In this article';
+        display: block;
+        margin: 0 0 0.4rem -0.9rem;
+        font-weight: 650;
+        color: var(--heading);
+    }
+    li {
+        margin: 0.15rem 0;
+    }
+}
+.main-content .fs-6 {
+    color: var(--text-secondary);
+}
+.site-footer {
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border);
+}
+
+// Hard-hide the theme's "Edit this page on GitHub" link + its wrapper,
+// independent of gh_edit_link config / theme version / stale builds.
+#edit-this-page {
+    display: none !important;
+}
+.d-flex.mt-2:has(#edit-this-page) {
+    display: none !important;
+}
+
+// Main-content page footer (_includes/footer_custom.html)
+.footer-custom {
+    margin-top: 3rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    p {
+        margin: 0.25rem 0;
+    }
+    &__line strong {
+        color: var(--heading);
+    }
+    &__links a {
+        margin: 0 0.15rem;
+    }
+    &__links span {
+        color: var(--border);
+        margin: 0 0.2rem;
+    }
+    &__copy {
+        color: var(--text-secondary);
+        opacity: 0.85;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 13. Layout sizing — tame Just the Docs' oversized wide-screen defaults
+// ---------------------------------------------------------------------------
+// JtD balloons the sidebar to fill the entire left gutter on wide monitors and
+// caps content at 800px. Pin a fixed sidebar + a comfortable content column.
+$nx-side: 17.5rem; // 280px fixed sidebar
+$nx-content: 76rem; // ~1216px reading/code column
+
+@media (min-width: 66.5rem) {
+    .side-bar {
+        width: $nx-side;
+        min-width: $nx-side;
+        max-width: $nx-side;
+        align-items: stretch;
+        flex-wrap: nowrap;
+    }
+    // JtD's `.side-bar + .main` (2-class) outranks a bare `.main`, so we must
+    // match that selector. Its default centering formula
+    //   max(16.5rem, (100% - 66.5rem)/2 + 16.5rem)
+    // balloons the left margin on wide screens. Replace with a flat margin that
+    // just clears the fixed sidebar — content then hugs it, no left gap.
+    .side-bar + .main {
+        margin-left: calc(#{$nx-side} + 4rem);
+        margin-right: calc(#{$nx-side} - 4rem);
+        max-width: none;
+    }
+    // Content column hugs the sidebar; cap width + right padding for a clean gap.
+    .main-content-wrap {
+        max-width: $nx-content;
+        margin-left: 0;
+        margin-right: auto;
+        padding-left: 2.5rem;
+        padding-right: 3.5rem;
+    }
+}
+
+@media (max-width: 66.4375rem) {
+    .side-bar {
+        width: 100%;
+    }
+    .site-header {
+        padding: 0 1rem;
+    }
+    .hero {
+        padding: 2.4rem 1.5rem;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 14. Dark-mode hardening
+// ---------------------------------------------------------------------------
+// Just the Docs' CSS is compiled from `color_scheme: light`, so every element we
+// haven't already themed keeps a hardcoded light color and leaks through in dark
+// mode. Route the remaining chrome through our tokens so it flips correctly.
+
+html,
+body {
+    background-color: var(--bg);
+}
+.main {
+    background-color: var(--bg);
+}
+.main-content-wrap {
+    background-color: var(--bg);
+    color: var(--text);
+}
+
+// JtD hardcodes `.side-bar + .main .main-header { background:#fff }` (3-class
+// specificity) — match it so the header bg follows the theme in dark mode.
+.side-bar + .main .main-header {
+    background-color: var(--surface-2);
+    border-bottom: 0;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+// Sidebar surfaces + the collapsible-section caret (invisible in dark otherwise)
+.side-bar,
+.site-header {
+    background-color: var(--surface-2);
+}
+.nav-list-expander {
+    color: var(--text-secondary);
+    svg {
+        color: var(--text-secondary);
+        fill: currentColor;
+    }
+    &:hover {
+        background-color: var(--surface-subtle);
+        color: var(--accent);
+    }
+}
+.nav-category {
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+}
+
+// Search: input, dropdown, hits, highlight
+.search-input {
+    background-color: transparent;
+    color: var(--text);
+}
+.search-results {
+    background-color: var(--surface-2);
+    border-color: var(--border);
+}
+.search-result {
+    color: var(--text);
+}
+.search-result-title {
+    color: var(--heading);
+}
+.search-result-rel-url {
+    color: var(--heading);
+}
+.search-result-preview {
+    color: var(--heading);
+}
+.search-result.active,
+.search-result:hover {
+    background-color: var(--surface-subtle);
+}
+.search-result-highlight {
+    color: var(--accent);
+    font-weight: 650;
+}
+.search-overlay {
+    background-color: rgba(0, 0, 0, 0.35);
+}
+
+// Mobile menu button + hamburger icon
+.site-button {
+    color: var(--text-secondary);
+    &:hover {
+        color: var(--accent);
+        background: transparent !important;
+    }
+}
+.menu-button,
+.icon {
+    color: var(--text-secondary);
+}
+
+// Misc JtD bits that ship light-only
+.table-wrapper {
+    box-shadow: none;
+    border: 0;
+}
+.label,
+.label-blue {
+    background-color: var(--accent);
+    color: #fff;
+}
+kbd {
+    background-color: var(--surface-subtle);
+    color: var(--text);
+    border-color: var(--border-strong);
+    box-shadow: none;
+}
+::selection {
+    background: var(--accent-soft);
+    color: var(--heading);
+}
+// Breadcrumb — pill bar with chevron separators, themed for light/dark.
+.breadcrumb-nav {
+    margin: 0 0 1.5rem;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    overflow-x: auto;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
+.breadcrumb-nav-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.82rem;
+    font-weight: 550;
+    line-height: 1.4;
+}
+.breadcrumb-nav-list-item {
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+    white-space: nowrap;
+
+    // Chevron separator before every item except the first
+    &::before {
+        display: none;
+        content: '';
+        width: 0.42rem;
+        height: 0.42rem;
+        margin: 0 0.5rem;
+        border-right: 1.5px solid var(--border-strong);
+        border-bottom: 1.5px solid var(--border-strong);
+        transform: rotate(-45deg);
+    }
+    &::after {
+        content: '' !important;
+        margin: 0 !important;
+
+    }
+    & + &::before {
+        display: inline-block;
+    }
+
+    // Ancestor links: subtle pill, accent on hover
+    a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        padding: 0.18rem 0.55rem;
+        border-radius: var(--radius);
+        transition:
+            color 0.12s,
+            background-color 0.12s;
+        &:hover {
+            color: var(--accent);
+            background-color: var(--surface);
+            text-decoration: none;
+        }
+    }
+
+    // Current page (last crumb, plain <span>): emphasized, not a link
+    span {
+        color: var(--heading);
+        font-weight: 650;
+        padding: 0.18rem 0.55rem;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 15. Scrollbars — themed via tokens, flips with light/dark
+// ---------------------------------------------------------------------------
+// Firefox
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+}
+
+// WebKit / Blink (page, sidebar, main, code blocks)
+::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+    border: 3px solid var(--bg); // gap so the thumb reads as a pill
+    background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+    background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+// Sidebar sits on --surface-2: match the thumb gap to that surface
+.side-bar ::-webkit-scrollbar-thumb,
+.side-bar::-webkit-scrollbar-thumb {
+    border-color: var(--surface-2);
+}
+
+// Code terminals follow the theme: match the thumb + its gap to the term bg
+.main-content div.highlighter-rouge ::-webkit-scrollbar-thumb,
+.main-content div.highlighter-rouge::-webkit-scrollbar-thumb,
+.main-content figure.highlight ::-webkit-scrollbar-thumb {
+    background: var(--term-scroll);
+    border-color: var(--term-bg);
 }

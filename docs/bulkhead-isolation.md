@@ -99,4 +99,3 @@ const api = neutrx.create({
 - **Circuit breaker** stops work entirely while an upstream is *failing*.
 
 See [Circuit Breaker](circuit-breaker.md) and [Retry Strategies](retries.md).
-</content>

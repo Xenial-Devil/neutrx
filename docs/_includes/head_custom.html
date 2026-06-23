@@ -1,0 +1,392 @@
+<link rel="icon" href="{{ '/favicon.ico' | relative_url }}" sizes="any">
+<link rel="icon" href="{{ '/favicon.svg' | relative_url }}" type="image/svg+xml">
+
+<script>
+  (function () {
+    var searchDataUrl = "{{ '/assets/js/search-data.json' | relative_url }}";
+    var open = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      if (url === '/assets/js/search-data.json') {
+        arguments[1] = searchDataUrl;
+      }
+      return open.apply(this, arguments);
+    };
+  })();
+</script>
+
+<script>
+  (function () {
+    var searchDataUrl = "{{ '/assets/js/search-data.json' | relative_url }}";
+    var docsPromise;
+
+    function loadDocs() {
+      if (!docsPromise) {
+        docsPromise = fetch(searchDataUrl).then(function (response) {
+          if (!response.ok) throw new Error('search-data request failed: ' + response.status);
+          return response.json();
+        });
+      }
+      return docsPromise;
+    }
+
+    function score(query, doc) {
+      var q = query.toLowerCase();
+      var title = String(doc.title || '').toLowerCase();
+      var content = String(doc.content || '').toLowerCase();
+      var relUrl = String(doc.relUrl || '');
+      var value = 0;
+      if (title === q) value += 100;
+      if (title.indexOf(q) !== -1) value += 50;
+      if (relUrl.toLowerCase().indexOf(q) !== -1) value += 20;
+      var index = content.indexOf(q);
+      if (index !== -1) value += 10 + Math.max(0, 10 - Math.floor(index / 120));
+      return value;
+    }
+
+    function excerpt(query, doc) {
+      var text = String(doc.content || '').replace(/\s+/g, ' ').trim();
+      if (!text) return '';
+      var index = text.toLowerCase().indexOf(query.toLowerCase());
+      if (index < 0) return text.slice(0, 180);
+      var start = Math.max(0, index - 70);
+      var end = Math.min(text.length, index + query.length + 110);
+      return (start > 0 ? '... ' : '') + text.slice(start, end) + (end < text.length ? ' ...' : '');
+    }
+
+    function renderFallback(query, docs, resultsNode) {
+      var results = Object.keys(docs)
+        .map(function (id) { return { doc: docs[id], score: score(query, docs[id]) }; })
+        .filter(function (item) { return item.score > 0; })
+        .sort(function (a, b) { return b.score - a.score; })
+        .slice(0, 8);
+
+      resultsNode.innerHTML = '';
+
+      if (!results.length) {
+        var empty = document.createElement('div');
+        empty.className = 'search-no-result';
+        empty.textContent = 'No results found';
+        resultsNode.appendChild(empty);
+        return;
+      }
+
+      var list = document.createElement('ul');
+      list.className = 'search-results-list';
+      resultsNode.appendChild(list);
+
+      results.forEach(function (item) {
+        var doc = item.doc;
+        var li = document.createElement('li');
+        li.className = 'search-results-list-item';
+        var link = document.createElement('a');
+        link.className = 'search-result';
+        link.href = doc.url || doc.relUrl || '#';
+
+        var title = document.createElement('div');
+        title.className = 'search-result-title';
+        link.appendChild(title);
+
+        var resultDoc = document.createElement('div');
+        resultDoc.className = 'search-result-doc';
+        resultDoc.innerHTML = '<svg viewBox="0 0 24 24" class="search-result-icon" aria-hidden="true"><use xlink:href="#svg-doc"></use></svg>';
+        title.appendChild(resultDoc);
+
+        var docTitle = document.createElement('div');
+        docTitle.className = 'search-result-doc-title';
+        docTitle.textContent = doc.doc || doc.title || 'Untitled';
+        resultDoc.appendChild(docTitle);
+
+        if (doc.doc && doc.title && doc.doc !== doc.title) {
+          resultDoc.classList.add('search-result-doc-parent');
+          var section = document.createElement('div');
+          section.className = 'search-result-section';
+          section.textContent = doc.title;
+          title.appendChild(section);
+        }
+
+        var relUrl = document.createElement('div');
+        relUrl.className = 'search-result-rel-url';
+        relUrl.textContent = doc.relUrl || doc.url || '';
+        title.appendChild(relUrl);
+
+        var previews = document.createElement('div');
+        previews.className = 'search-result-previews';
+        var preview = document.createElement('div');
+        preview.className = 'search-result-preview';
+        preview.textContent = excerpt(query, doc);
+        previews.appendChild(preview);
+        link.appendChild(previews);
+
+        li.appendChild(link);
+        list.appendChild(li);
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      var input = document.getElementById('search-input');
+      var results = document.getElementById('search-results');
+      if (!input || !results) return;
+
+      var searchBox = input.closest('.search') || results.parentElement;
+      var debounce;
+      var lastRenderedQuery = '';
+
+      function hideResults() {
+        clearTimeout(debounce);
+        document.documentElement.classList.remove('search-active');
+        results.hidden = true;
+      }
+
+      function clearResults() {
+        lastRenderedQuery = '';
+        results.innerHTML = '';
+        hideResults();
+      }
+
+      function showResults() {
+        results.hidden = false;
+        document.documentElement.classList.add('search-active');
+      }
+
+      function runFallbackSearch() {
+        var query = input.value.trim();
+        if (!query) { clearResults(); return; }
+        showResults();
+        if (query === lastRenderedQuery && results.children.length) return;
+        loadDocs()
+          .then(function (docs) {
+            lastRenderedQuery = query;
+            renderFallback(query, docs, results);
+          })
+          .catch(function () {
+            lastRenderedQuery = query;
+            results.innerHTML = '<div class="search-no-result">Search unavailable</div>';
+          });
+      }
+
+      input.addEventListener('input', function () {
+        var query = input.value.trim();
+        clearTimeout(debounce);
+        if (!query) { clearResults(); return; }
+        showResults();
+        debounce = setTimeout(runFallbackSearch, 120);
+      });
+
+      // Re-open existing results when the field regains focus.
+      input.addEventListener('focus', function () {
+        if (!input.value.trim()) return;
+        if (results.children.length && input.value.trim() === lastRenderedQuery) showResults();
+        else debounce = setTimeout(runFallbackSearch, 60);
+      });
+
+      // Hide when focus leaves the search box. Clicking a result moves focus to
+      // the link (still inside searchBox) so navigation isn't cut off.
+      if (searchBox) {
+        searchBox.addEventListener('focusout', function (e) {
+          if (e.relatedTarget && searchBox.contains(e.relatedTarget)) return;
+          setTimeout(function () {
+            if (!searchBox.contains(document.activeElement)) hideResults();
+          }, 0);
+        });
+
+        document.addEventListener('pointerdown', function (e) {
+          if (!searchBox.contains(e.target)) hideResults();
+        });
+      }
+
+      // Escape closes and drops focus.
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { hideResults(); input.blur(); }
+      });
+    });
+  })();
+</script>
+
+<!-- Neutrx docs: theme (light/dark, system default + manual toggle) and code copy buttons.
+     Loaded in <head> by Just the Docs. The first script runs synchronously to
+     apply a saved theme before paint (avoids a flash of the wrong theme). -->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('neutrx-theme');
+      if (saved === 'light' || saved === 'dark') {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    } catch (e) { /* localStorage unavailable -> fall back to OS preference */ }
+  })();
+</script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // ----- Theme toggle ----------------------------------------------------
+    function systemDark() {
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    function effectiveTheme() {
+      var explicit = document.documentElement.getAttribute('data-theme');
+      if (explicit === 'light' || explicit === 'dark') return explicit;
+      return systemDark() ? 'dark' : 'light';
+    }
+
+    var btn = document.createElement('button');
+    btn.id = 'theme-toggle';
+    btn.type = 'button';
+
+    var SUN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    var MOON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+
+    function render() {
+      var t = effectiveTheme();
+      // Show the icon of the theme you'll switch TO.
+      btn.innerHTML = (t === 'dark' ? SUN : MOON);
+      btn.setAttribute('title', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme');
+      btn.setAttribute('aria-label', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme');
+    }
+    function setTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      try { localStorage.setItem('neutrx-theme', t); } catch (e) {}
+      render();
+    }
+    btn.addEventListener('click', function () {
+      setTheme(effectiveTheme() === 'dark' ? 'light' : 'dark');
+    });
+    render();
+
+    // Place the toggle in the top-right aux nav (next to GitHub / npm links).
+    var auxList = document.querySelector('.aux-nav-list');
+    if (auxList) {
+      var li = document.createElement('li');
+      li.className = 'aux-nav-list-item';
+      li.appendChild(btn);
+      auxList.appendChild(li);
+    } else {
+      btn.style.position = 'fixed';
+      btn.style.top = '0.6rem';
+      btn.style.right = '0.8rem';
+      btn.style.zIndex = '1000';
+      document.body.appendChild(btn);
+    }
+
+    // Follow OS changes only while the user hasn't pinned a choice.
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+        if (!document.documentElement.getAttribute('data-theme')) render();
+      });
+    }
+
+    // ----- Back-to-top floating button -----------------------------------
+    // JtD renders <a id="back-to-top"> in the footer. Promote it to a fixed
+    // bottom-right pill, icon-only, revealed after the page scrolls a bit.
+    (function floatBackToTop() {
+      var btt = document.getElementById('back-to-top');
+      if (!btt) return;
+      btt.classList.add('btt-float');
+      btt.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+      btt.setAttribute('aria-label', 'Back to top');
+      btt.setAttribute('title', 'Back to top');
+
+      function onScroll() {
+        btt.classList.toggle('is-visible', window.scrollY > 400);
+      }
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+
+      // Smooth scroll; respect reduced-motion.
+      btt.addEventListener('click', function (e) {
+        e.preventDefault();
+        var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+      });
+    })();
+
+    // ----- Active sidebar item --------------------------------------------
+    // JtD marks the current nav link server-side, but under a baseurl (/neutrx)
+    // it compares the relative_url'd node.url against the raw page.url, so they
+    // never match and `.active` is never emitted. Re-derive it client-side by
+    // matching each link's resolved pathname to the current one (baseurl-proof).
+    (function markActiveNav() {
+      function norm(p) { return p.replace(/index\.html$/, '').replace(/\/+$/, '') || '/'; }
+      var here = norm(location.pathname);
+      var links = document.querySelectorAll('.side-bar .nav-list-link');
+      links.forEach(function (a) {
+        if (norm(a.pathname) !== here) return;
+        a.classList.add('active');
+        a.setAttribute('aria-current', 'page');
+        // Activate every ancestor nav-list-item (also reveals collapsed sections).
+        var li = a.closest('.nav-list-item');
+        while (li) {
+          li.classList.add('active');
+          li = li.parentElement ? li.parentElement.closest('.nav-list-item') : null;
+        }
+      });
+    })();
+
+    // ----- Copy buttons on code blocks ------------------------------------
+    var COPY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    var TICK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
+    var blocks = document.querySelectorAll('.main-content div.highlighter-rouge, .main-content figure.highlight');
+    blocks.forEach(function (block) {
+      var code = block.querySelector('code') || block.querySelector('pre');
+      if (!code) return;
+
+      var copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'copy-btn';
+      copy.innerHTML = COPY_ICON;
+      copy.setAttribute('data-tooltip', 'Copied');
+      copy.setAttribute('aria-label', 'Copy code to clipboard');
+      copy.setAttribute('title', 'Copy');
+
+      var resetTimer;
+      copy.addEventListener('click', function () {
+        var text = code.innerText.replace(/\n$/, '');
+        var done = function () {
+          copy.innerHTML = TICK_ICON;
+          copy.classList.add('copied');
+          copy.setAttribute('aria-label', 'Copied');
+          clearTimeout(resetTimer);
+          resetTimer = setTimeout(function () {
+            copy.innerHTML = COPY_ICON;
+            copy.classList.remove('copied');
+            copy.setAttribute('aria-label', 'Copy code to clipboard');
+          }, 3000);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(function () { fallback(text, done); });
+        } else {
+          fallback(text, done);
+        }
+      });
+
+      block.appendChild(copy);
+    });
+
+    function fallback(text, done) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+  });
+</script>
+<script>
+  document.addEventListener('keydown', function (e) {
+    var target = e.target;
+    var typing =
+      target &&
+      (target.closest('input, textarea, select') || target.closest('[contenteditable="true"]'));
+
+    if (typing || e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+
+    var input = document.getElementById('search-input');
+    if (!input) return;
+
+    e.preventDefault();
+    input.focus();
+  });
+</script>

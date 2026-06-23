@@ -166,4 +166,3 @@ const { data } = await api.get<User>('/users/1'); // data: User
 - [Migration](axios-migration.md) — moving from Axios
 - [Config Reference](config-reference.md) — every option
 - [API Reference](api.md) — methods, types, and the response shape
-</content>

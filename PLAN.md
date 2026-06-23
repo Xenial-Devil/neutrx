@@ -1,8 +1,11 @@
 # Neutrx — Execution Plan & Task List
 
-> Derived from `ROADMAP.md` (authored at commit 3 / v1.0.0) re-validated against **actual source at v1.4.0**.
-> ROADMAP is stale: most Milestone 1–3 work already shipped. This plan tracks only what is **still open**, plus regression-guard tasks.
-> Validated: 2026-06-17.
+> Derived from `ROADMAP.md` (authored at commit 3 / v1.0.0) re-validated against **actual source at v1.5.0**.
+> ROADMAP is stale: Milestone 1–4 work and all actionable §2/§5 items already shipped. This plan tracks only what is **still open**, plus regression-guard tasks.
+> Last re-validated: 2026-06-22 against `46134af` (release 1.5.0). Prior validation 2026-06-20 at v1.4.0.
+>
+> **Current gate (2026-06-22):** `npm run validate` green → "Package neutrx@1.5.0 validates." · build ✓ · typecheck ✓ · lint 0 err · docs ✓ · package:validate ✓ · tests **252 total / 251 pass / 1 skip / 0 fail**.
+> **One regression found:** `@types/node` reverted to `^24.10.1` (BUG-002 reopened — see §2f).
 
 ---
 
@@ -209,6 +212,53 @@ Three per-component storage interfaces already existed but unrelated: `CircuitSt
 
 ---
 
+## 2f. Re-validation pass — source moved v1.4.0 → v1.5.0 (2026-06-22)
+
+> PLAN was last validated at v1.4.0. The repo has since released **v1.5.0** (`46134af chore(release): 1.5.0`). This pass re-checks every prior claim against current source and folds in the new v1.5.0 work. All Batch D–I features (DataLoader, Redis/StateAdapter, AWS SigV4, HAR recorder, pagination strategies) remain present and validating.
+
+### v1.5.0 shipped — closes ROADMAP §5 "What Axios Has That Neutrx Lacks" gaps (untracked by prior PLAN)
+
+The v1.5.0 release (PRs #1–#6) added a large axios-parity surface. These were open §5 gaps; now closed in source:
+
+| ROADMAP §5 gap | Status in v1.5.0 | Evidence |
+|---|---|---|
+| FormData automatic detection | ✅ shipped | `src/core/formData.ts` (new, 231 LOC) |
+| Form serialization (urlencoded) + params serializer | ✅ shipped | `src/core/bodySerializer.ts` (expanded +158) |
+| Progress events (upload/download) | ✅ shipped | `src/core/progress.ts` + `onUploadProgress`/`onDownloadProgress` wired in all adapters (`http`/`http2`/`fetch`/`browser`) + `types.ts` |
+| CSRF / XSRF token protection | ✅ shipped | `xsrf`/`csrf` in `config.ts`, `defaults.ts`, `NeutrxClient.ts`, fetch/browser adapters |
+| Decompression (brotli, zstd, gzip, deflate) | ✅ shipped + **size-capped** (SW3 holds) | `src/core/responseParser.ts` — `gunzip`/`inflate`/`brotliDecompress`/feature-detected `zstdDecompress`; inflated size re-checked vs `maxContentLength` → `NeutrxResponseSizeError`. `Accept-Encoding` negotiated in `NeutrxClient.ts` L1188 (zstd only when runtime supports it) |
+| `mergeConfig` / config deep-merge parity | ✅ shipped | `src/core/mergeConfig.ts` (new) + `tests/unit/core/config-parity.test.ts` (new, 191 LOC) |
+| HTTP status-code helpers | ✅ shipped | `src/core/httpStatusCode.ts` (new) |
+| Same-origin / redirect-origin helpers | ✅ shipped | `src/core/sameOrigin.ts` (new) |
+| Adapter registry (pluggable adapter selection) | ✅ shipped | `src/core/adapterRegistry.ts` + `src/core/browserAdapterRegistry.ts` (new) |
+| Axios API-surface parity coverage | ✅ shipped | `tests/unit/core/axios-parity.test.ts` (new, 92 LOC) |
+
+`NeutrxError.ts` also expanded (+68) and `RateLimiter.ts` reworked (+128). No regression in those — `npm run validate` is green.
+
+### 🔴 Regression — re-opened
+
+| # | Task | Bug | Location | Status |
+|---|------|-----|----------|--------|
+| R1 | `@types/node` reverted from the BUG-002 pin back to `^24.10.1`. PLAN Batch A (task 4) had pinned it `^18.19.0` to match `engines.node >= 18`. It is once again `^24.10.1`, re-introducing the BUG-002 risk: Node-24-only type surface in a `>=18` project compiles but can crash at runtime on Node 18/20. | BUG-002 | `package.json` devDeps | 🔴 **OPEN / REGRESSED** |
+
+**Note before "fixing":** v1.5.0 deliberately uses Node-22+ APIs (zstd via `node:zlib`, feature-detected). If the maintainer intends a Node-22+ floor in practice, the correct fix is to **raise `engines.node` to match** (and document it) rather than silently shipping `@types/node@24` against a `>=18` declaration. Pick one and make `engines` + `@types/node` agree. **Decision required — do not auto-flip without maintainer sign-off, since the engine floor is a public contract.**
+
+### Re-verified still-true (no action)
+- All §1 P0/P1 tasks (signing nonce, redirect downgrade strip, decompression cap, lint globs, smoke assert) — still present in source.
+- All §2a–§2e features (AWS SigV4, HAR recorder, `StateAdapter`+`MemoryStateAdapter`+bridges, `RedisStateAdapter` via DI, DataLoader, pagination multi-strategy) — present, exported, validating.
+- 1 skipped test is pre-existing and unchanged.
+
+### Still open after this pass (unchanged — non-code / external, plus R1)
+| Item | Blocker |
+|---|---|
+| R1: `@types/node` vs `engines` mismatch | **Maintainer decision** — pin types to 18 *or* raise engine floor to 22. |
+| Benchmarks publish (neutrx vs axios/got/undici) | Non-code / external process. |
+| External security audit (SSRF + cert-pinning) | External process. |
+| HTTP/3 (QUIC) | Blocked on Node QUIC stabilization. Not actionable. |
+| Plugin discovery from `package.json` keywords | Recommend **drop** (supply-chain risk). |
+
+---
+
 ## 3. Order of Execution
 
 1. ~~**Batch A:** tasks 4, 5, 6 — toolchain hygiene.~~ ✅ DONE
@@ -220,7 +270,8 @@ Three per-component storage interfaces already existed but unrelated: `CircuitSt
 7. ~~**Batch G (user pick):** of DataLoader / Redis impl / release-prep DoD — built **release-prep DoD** (zero-dep, decision-free): verified all open DoD docs against source + ran full `npm run validate` green.~~ ✅ DONE & CERTIFIED 2026-06-20 — build ✓ · typecheck ✓ · lint 0 err · docs:build ✓ · package:validate ✓ · tests 238 pass / 1 skip / 0 fail (239 total). See §2c.
 8. ~~**Batch H (user pick):** of DataLoader / Redis impl — built **DataLoader as a standalone opt-in utility** (zero-dep, additive; resolves the prior "behavior-changing/M5" deferral by never wiring into the default pipeline). Redis impl still gated on new-dep sign-off.~~ ✅ DONE & CERTIFIED 2026-06-20 — build ✓ · typecheck ✓ · lint 0 err · tests 246 pass / 1 skip / 0 fail (247 total). See §2d.
 9. ~~**Batch I:** Redis `StateAdapter` backend impl — built via **dependency injection** (app supplies its own `ioredis`/`node-redis` client; core imports nothing → zero install-graph change, no sign-off needed). Reuses §2b bridges; Node-only; docs added.~~ ✅ DONE & CERTIFIED 2026-06-20 — build ✓ · typecheck ✓ · lint 0 err · tests 251 pass / 1 skip / 0 fail (252 total). See §2e.
-10. **All §2 roadmap work closed.** Only non-code / external-process items remain (benchmarks publish, external security audit, HTTP/3 blocked on Node QUIC stabilization) — nothing actionable in-repo.
+10. ~~**All §2 roadmap work closed.**~~ ✅ — confirmed still closed at v1.5.0.
+11. **Re-validation at v1.5.0 (§2f, 2026-06-22):** source advanced v1.4.0 → v1.5.0; all prior Batch D–I features intact + validating. v1.5.0 additionally closed the ROADMAP §5 axios-parity gaps (FormData, urlencoded/form serialization, progress events, CSRF/XSRF, brotli/zstd/gzip/deflate decompression, mergeConfig, status-code helpers, adapter registry). **One regression (R1): `@types/node` reverted to `^24.10.1` vs `engines>=18` — needs maintainer decision (pin types to 18 *or* raise engine floor).** Remaining open items are all non-code/external (benchmarks, audit, HTTP/3 on Node QUIC).
 
 ## 4. Per-Task Loop (enforced by CLAUDE.md)
 > Tests run against **built output**. After any `src/` edit:
@@ -230,9 +281,11 @@ Three per-component storage interfaces already existed but unrelated: `CircuitSt
 ## 5. Definition of Done
 - ✅ Tasks 1–7 closed; tasks 8–12 present (8 rewritten, 9–12 pre-existing).
 - ✅ Batch D: pagination multi-strategy. Batch E: AWS SigV4 + HAR recorder (§2a). Batch F: `StateAdapter` interface + `MemoryStateAdapter` + bridges (§2b). Batch H: `DataLoader` opt-in batch-aggregation utility (§2d). Batch I: `RedisStateAdapter` distributed backend via DI (§2e).
-- ✅ Build + lint (0 err) + tests (251 pass / 1 skip / 0 fail, 252 total) green as of 2026-06-20.
+- ✅ Build + lint (0 err) + tests (251 pass / 1 skip / 0 fail, 252 total) + full `npm run validate` green as of **2026-06-22 at v1.5.0** ("Package neutrx@1.5.0 validates.").
 - ✅ ROADMAP bug IDs annotated DONE/N/A/OPEN — §0 reality check stops re-litigation.
 - ✅ **Batch G (release-prep, §2c):** `npm run validate` full pass (typecheck + lint + tests + docs:build + package:validate → "Package neutrx@1.4.0 validates."); server-side nonce/timestamp replay contract documented (`THREATMODEL.md`); `createAwsSigV4Plugin` server contract + HAR redaction defaults documented (`docs/plugins.md`); `StateAdapter` interface + bridge wiring + best-effort/non-atomic caveat documented (`docs/config-reference.md`).
 - ✅ **Batch H (§2d):** DataLoader batch aggregation shipped as a standalone opt-in utility (zero-dep, additive) — the prior "M5 / behavior-changing" deferral is resolved since the default pipeline is never auto-wired to it.
 - ✅ **Batch I (§2e):** `RedisStateAdapter` distributed backend shipped via dependency injection (app brings its own client → zero install-graph change), resolving the prior "new runtime dep → sign-off" deferral. Bridges + docs included.
 - ✅ **All §2 roadmap features closed.** No code work remains behind a maintainer/dep decision. Only non-code / external items stay open: benchmarks publish, external security audit, HTTP/3 (blocked on Node QUIC stabilization).
+- ✅ **Re-validation §2f (2026-06-22, v1.5.0):** all Batch D–I features intact; v1.5.0 closed the ROADMAP §5 axios-parity gaps (FormData, form/urlencoded serialization, progress events, CSRF/XSRF, brotli/zstd/gzip/deflate decompression with size cap, mergeConfig, status-code helpers, adapter registry). Whole-suite re-run + full validate green.
+- 🔴 **One open regression (R1):** `@types/node` is `^24.10.1` against `engines.node >= 18.0.0` — BUG-002 re-opened. Needs a maintainer call: pin types to `^18` **or** raise the engine floor to 22 (v1.5.0 already uses Node-22+ zstd). Engine floor is a public contract → do not flip silently.

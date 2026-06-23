@@ -1,0 +1,890 @@
+
+
+<!DOCTYPE html>
+
+<html lang="en-US">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+
+  <link rel="stylesheet" href="/assets/css/just-the-docs-default.css">
+
+  <link rel="stylesheet" href="/assets/css/just-the-docs-head-nav.css" id="jtd-head-nav-stylesheet">
+
+  <style id="jtd-nav-activation">
+  
+
+    .site-nav > ul.nav-list:first-child > li > a,
+    
+    .site-nav > ul.nav-list:first-child > li > ul > li:not(:nth-child(4)) > a,
+    .site-nav > ul.nav-list:first-child > li > ul > li > ul > li a {
+      background-image: none;
+    }
+
+    .site-nav > ul.nav-list:not(:first-child) a,
+    .site-nav li.external a {
+      background-image: none;
+    }
+
+    .site-nav > ul.nav-list:first-child > li:nth-child(7) > ul > li:nth-child(4) > a {
+      font-weight: 600;
+      text-decoration: none;
+    }.site-nav > ul.nav-list:first-child > li:nth-child(7) > button svg,
+    .site-nav > ul.nav-list:first-child > li:nth-child(7) > ul > li:nth-child(4) > button svg {
+      transform: rotate(-90deg);
+    }.site-nav > ul.nav-list:first-child > li.nav-list-item:nth-child(7) > ul.nav-list,
+    .site-nav > ul.nav-list:first-child > li.nav-list-item:nth-child(7) > ul.nav-list > li.nav-list-item:nth-child(4) > ul.nav-list {
+      display: block;
+    }
+  </style>
+
+  
+
+  
+    <script src="/assets/js/vendor/lunr.min.js"></script>
+  
+
+  <script src="/assets/js/just-the-docs.js"></script>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
+
+
+
+  <!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>Release Testing | Neutrx</title>
+<meta name="generator" content="Jekyll v4.4.1" />
+<meta property="og:title" content="Release Testing" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends." />
+<meta name="twitter:description" property="og:description" content="Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends." />
+<link rel="canonical" href="http://localhost:4000/release-testing.html" />
+<meta property="og:url" content="http://localhost:4000/release-testing.html" />
+<meta property="og:site_name" content="Neutrx" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Release Testing" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","description":"Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends.","headline":"Release Testing","publisher":{"@type":"Organization","logo":{"@type":"ImageObject","url":"http://localhost:4000/assets/neutrx-logo.svg"}},"url":"http://localhost:4000/release-testing.html"}</script>
+<!-- End Jekyll SEO tag -->
+
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+<script>
+  (function () {
+    var searchDataUrl = "/assets/js/search-data.json";
+    var open = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      if (url === '/assets/js/search-data.json') {
+        arguments[1] = searchDataUrl;
+      }
+      return open.apply(this, arguments);
+    };
+  })();
+</script>
+
+<script>
+  (function () {
+    var searchDataUrl = "/assets/js/search-data.json";
+    var docsPromise;
+
+    function loadDocs() {
+      if (!docsPromise) {
+        docsPromise = fetch(searchDataUrl).then(function (response) {
+          if (!response.ok) throw new Error('search-data request failed: ' + response.status);
+          return response.json();
+        });
+      }
+      return docsPromise;
+    }
+
+    function score(query, doc) {
+      var q = query.toLowerCase();
+      var title = String(doc.title || '').toLowerCase();
+      var content = String(doc.content || '').toLowerCase();
+      var relUrl = String(doc.relUrl || '');
+      var value = 0;
+      if (title === q) value += 100;
+      if (title.indexOf(q) !== -1) value += 50;
+      if (relUrl.toLowerCase().indexOf(q) !== -1) value += 20;
+      var index = content.indexOf(q);
+      if (index !== -1) value += 10 + Math.max(0, 10 - Math.floor(index / 120));
+      return value;
+    }
+
+    function excerpt(query, doc) {
+      var text = String(doc.content || '').replace(/\s+/g, ' ').trim();
+      if (!text) return '';
+      var index = text.toLowerCase().indexOf(query.toLowerCase());
+      if (index < 0) return text.slice(0, 180);
+      var start = Math.max(0, index - 70);
+      var end = Math.min(text.length, index + query.length + 110);
+      return (start > 0 ? '... ' : '') + text.slice(start, end) + (end < text.length ? ' ...' : '');
+    }
+
+    function renderFallback(query, docs, resultsNode) {
+      var results = Object.keys(docs)
+        .map(function (id) { return { doc: docs[id], score: score(query, docs[id]) }; })
+        .filter(function (item) { return item.score > 0; })
+        .sort(function (a, b) { return b.score - a.score; })
+        .slice(0, 8);
+
+      resultsNode.innerHTML = '';
+
+      if (!results.length) {
+        var empty = document.createElement('div');
+        empty.className = 'search-no-result';
+        empty.textContent = 'No results found';
+        resultsNode.appendChild(empty);
+        return;
+      }
+
+      var list = document.createElement('ul');
+      list.className = 'search-results-list';
+      resultsNode.appendChild(list);
+
+      results.forEach(function (item) {
+        var doc = item.doc;
+        var li = document.createElement('li');
+        li.className = 'search-results-list-item';
+        var link = document.createElement('a');
+        link.className = 'search-result';
+        link.href = doc.url || doc.relUrl || '#';
+
+        var title = document.createElement('div');
+        title.className = 'search-result-title';
+        link.appendChild(title);
+
+        var resultDoc = document.createElement('div');
+        resultDoc.className = 'search-result-doc';
+        resultDoc.innerHTML = '<svg viewBox="0 0 24 24" class="search-result-icon" aria-hidden="true"><use xlink:href="#svg-doc"></use></svg>';
+        title.appendChild(resultDoc);
+
+        var docTitle = document.createElement('div');
+        docTitle.className = 'search-result-doc-title';
+        docTitle.textContent = doc.doc || doc.title || 'Untitled';
+        resultDoc.appendChild(docTitle);
+
+        if (doc.doc && doc.title && doc.doc !== doc.title) {
+          resultDoc.classList.add('search-result-doc-parent');
+          var section = document.createElement('div');
+          section.className = 'search-result-section';
+          section.textContent = doc.title;
+          title.appendChild(section);
+        }
+
+        var relUrl = document.createElement('div');
+        relUrl.className = 'search-result-rel-url';
+        relUrl.textContent = doc.relUrl || doc.url || '';
+        title.appendChild(relUrl);
+
+        var previews = document.createElement('div');
+        previews.className = 'search-result-previews';
+        var preview = document.createElement('div');
+        preview.className = 'search-result-preview';
+        preview.textContent = excerpt(query, doc);
+        previews.appendChild(preview);
+        link.appendChild(previews);
+
+        li.appendChild(link);
+        list.appendChild(li);
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      var input = document.getElementById('search-input');
+      var results = document.getElementById('search-results');
+      if (!input || !results) return;
+
+      var searchBox = input.closest('.search') || results.parentElement;
+      var debounce;
+      var lastRenderedQuery = '';
+
+      function hideResults() {
+        clearTimeout(debounce);
+        document.documentElement.classList.remove('search-active');
+        results.hidden = true;
+      }
+
+      function clearResults() {
+        lastRenderedQuery = '';
+        results.innerHTML = '';
+        hideResults();
+      }
+
+      function showResults() {
+        results.hidden = false;
+        document.documentElement.classList.add('search-active');
+      }
+
+      function runFallbackSearch() {
+        var query = input.value.trim();
+        if (!query) { clearResults(); return; }
+        showResults();
+        if (query === lastRenderedQuery && results.children.length) return;
+        loadDocs()
+          .then(function (docs) {
+            lastRenderedQuery = query;
+            renderFallback(query, docs, results);
+          })
+          .catch(function () {
+            lastRenderedQuery = query;
+            results.innerHTML = '<div class="search-no-result">Search unavailable</div>';
+          });
+      }
+
+      input.addEventListener('input', function () {
+        var query = input.value.trim();
+        clearTimeout(debounce);
+        if (!query) { clearResults(); return; }
+        showResults();
+        debounce = setTimeout(runFallbackSearch, 120);
+      });
+
+      // Re-open existing results when the field regains focus.
+      input.addEventListener('focus', function () {
+        if (!input.value.trim()) return;
+        if (results.children.length && input.value.trim() === lastRenderedQuery) showResults();
+        else debounce = setTimeout(runFallbackSearch, 60);
+      });
+
+      // Hide when focus leaves the search box. Clicking a result moves focus to
+      // the link (still inside searchBox) so navigation isn't cut off.
+      if (searchBox) {
+        searchBox.addEventListener('focusout', function (e) {
+          if (e.relatedTarget && searchBox.contains(e.relatedTarget)) return;
+          setTimeout(function () {
+            if (!searchBox.contains(document.activeElement)) hideResults();
+          }, 0);
+        });
+
+        document.addEventListener('pointerdown', function (e) {
+          if (!searchBox.contains(e.target)) hideResults();
+        });
+      }
+
+      // Escape closes and drops focus.
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { hideResults(); input.blur(); }
+      });
+    });
+  })();
+</script>
+
+<!-- Neutrx docs: theme (light/dark, system default + manual toggle) and code copy buttons.
+     Loaded in <head> by Just the Docs. The first script runs synchronously to
+     apply a saved theme before paint (avoids a flash of the wrong theme). -->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('neutrx-theme');
+      if (saved === 'light' || saved === 'dark') {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    } catch (e) { /* localStorage unavailable -> fall back to OS preference */ }
+  })();
+</script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // ----- Theme toggle ----------------------------------------------------
+    function systemDark() {
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    function effectiveTheme() {
+      var explicit = document.documentElement.getAttribute('data-theme');
+      if (explicit === 'light' || explicit === 'dark') return explicit;
+      return systemDark() ? 'dark' : 'light';
+    }
+
+    var btn = document.createElement('button');
+    btn.id = 'theme-toggle';
+    btn.type = 'button';
+
+    var SUN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    var MOON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+
+    function render() {
+      var t = effectiveTheme();
+      // Show the icon of the theme you'll switch TO.
+      btn.innerHTML = (t === 'dark' ? SUN : MOON);
+      btn.setAttribute('title', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme');
+      btn.setAttribute('aria-label', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme');
+    }
+    function setTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      try { localStorage.setItem('neutrx-theme', t); } catch (e) {}
+      render();
+    }
+    btn.addEventListener('click', function () {
+      setTheme(effectiveTheme() === 'dark' ? 'light' : 'dark');
+    });
+    render();
+
+    // Place the toggle in the top-right aux nav (next to GitHub / npm links).
+    var auxList = document.querySelector('.aux-nav-list');
+    if (auxList) {
+      var li = document.createElement('li');
+      li.className = 'aux-nav-list-item';
+      li.appendChild(btn);
+      auxList.appendChild(li);
+    } else {
+      btn.style.position = 'fixed';
+      btn.style.top = '0.6rem';
+      btn.style.right = '0.8rem';
+      btn.style.zIndex = '1000';
+      document.body.appendChild(btn);
+    }
+
+    // Follow OS changes only while the user hasn't pinned a choice.
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+        if (!document.documentElement.getAttribute('data-theme')) render();
+      });
+    }
+
+    // ----- Back-to-top floating button -----------------------------------
+    // JtD renders <a id="back-to-top"> in the footer. Promote it to a fixed
+    // bottom-right pill, icon-only, revealed after the page scrolls a bit.
+    (function floatBackToTop() {
+      var btt = document.getElementById('back-to-top');
+      if (!btt) return;
+      btt.classList.add('btt-float');
+      btt.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+      btt.setAttribute('aria-label', 'Back to top');
+      btt.setAttribute('title', 'Back to top');
+
+      function onScroll() {
+        btt.classList.toggle('is-visible', window.scrollY > 400);
+      }
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+
+      // Smooth scroll; respect reduced-motion.
+      btt.addEventListener('click', function (e) {
+        e.preventDefault();
+        var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+      });
+    })();
+
+    // ----- Active sidebar item --------------------------------------------
+    // JtD marks the current nav link server-side, but under a baseurl (/neutrx)
+    // it compares the relative_url'd node.url against the raw page.url, so they
+    // never match and `.active` is never emitted. Re-derive it client-side by
+    // matching each link's resolved pathname to the current one (baseurl-proof).
+    (function markActiveNav() {
+      function norm(p) { return p.replace(/index\.html$/, '').replace(/\/+$/, '') || '/'; }
+      var here = norm(location.pathname);
+      var links = document.querySelectorAll('.side-bar .nav-list-link');
+      links.forEach(function (a) {
+        if (norm(a.pathname) !== here) return;
+        a.classList.add('active');
+        a.setAttribute('aria-current', 'page');
+        // Activate every ancestor nav-list-item (also reveals collapsed sections).
+        var li = a.closest('.nav-list-item');
+        while (li) {
+          li.classList.add('active');
+          li = li.parentElement ? li.parentElement.closest('.nav-list-item') : null;
+        }
+      });
+    })();
+
+    // ----- Copy buttons on code blocks ------------------------------------
+    var COPY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    var TICK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
+    var blocks = document.querySelectorAll('.main-content div.highlighter-rouge, .main-content figure.highlight');
+    blocks.forEach(function (block) {
+      var code = block.querySelector('code') || block.querySelector('pre');
+      if (!code) return;
+
+      var copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'copy-btn';
+      copy.innerHTML = COPY_ICON;
+      copy.setAttribute('data-tooltip', 'Copied');
+      copy.setAttribute('aria-label', 'Copy code to clipboard');
+      copy.setAttribute('title', 'Copy');
+
+      var resetTimer;
+      copy.addEventListener('click', function () {
+        var text = code.innerText.replace(/\n$/, '');
+        var done = function () {
+          copy.innerHTML = TICK_ICON;
+          copy.classList.add('copied');
+          copy.setAttribute('aria-label', 'Copied');
+          clearTimeout(resetTimer);
+          resetTimer = setTimeout(function () {
+            copy.innerHTML = COPY_ICON;
+            copy.classList.remove('copied');
+            copy.setAttribute('aria-label', 'Copy code to clipboard');
+          }, 3000);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(function () { fallback(text, done); });
+        } else {
+          fallback(text, done);
+        }
+      });
+
+      block.appendChild(copy);
+    });
+
+    function fallback(text, done) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+  });
+</script>
+<script>
+  document.addEventListener('keydown', function (e) {
+    var target = e.target;
+    var typing =
+      target &&
+      (target.closest('input, textarea, select') || target.closest('[contenteditable="true"]'));
+
+    if (typing || e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+
+    var input = document.getElementById('search-input');
+    if (!input) return;
+
+    e.preventDefault();
+    input.focus();
+  });
+</script>
+
+
+</head>
+
+<body>
+  <a class="skip-to-main" href="#main-content">Skip to main content</a>
+  <svg xmlns="http://www.w3.org/2000/svg" class="d-none">
+  <symbol id="svg-link" viewBox="0 0 24 24">
+  <title>Link</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-link">
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+  </svg>
+</symbol>
+
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+  <title>Menu</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-menu">
+    <line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line>
+  </svg>
+</symbol>
+
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+  <title>Expand</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-chevron-right">
+    <polyline points="9 18 15 12 9 6"></polyline>
+  </svg>
+</symbol>
+
+  <!-- Feather. MIT License: https://github.com/feathericons/feather/blob/master/LICENSE -->
+<symbol id="svg-external-link" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-external-link">
+  <title id="svg-external-link-title">(external link)</title>
+  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line>
+</symbol>
+
+  
+    <symbol id="svg-doc" viewBox="0 0 24 24">
+  <title>Document</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-file">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline>
+  </svg>
+</symbol>
+
+    <symbol id="svg-search" viewBox="0 0 24 24">
+  <title>Search</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-search">
+    <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+  </svg>
+</symbol>
+
+  
+  
+    <!-- Bootstrap Icons. MIT License: https://github.com/twbs/icons/blob/main/LICENSE.md -->
+<symbol id="svg-copy" viewBox="0 0 16 16">
+  <title>Copy</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard" viewBox="0 0 16 16">
+    <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
+    <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>
+  </svg>
+</symbol>
+<symbol id="svg-copied" viewBox="0 0 16 16">
+  <title>Copied</title>
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard-check-fill" viewBox="0 0 16 16">
+    <path d="M6.5 0A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3Zm3 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3Z"/>
+    <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1A2.5 2.5 0 0 1 9.5 5h-3A2.5 2.5 0 0 1 4 2.5v-1Zm6.854 7.354-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 0 1 .708-.708L7.5 10.793l2.646-2.647a.5.5 0 0 1 .708.708Z"/>
+  </svg>
+</symbol>
+
+  
+</svg>
+
+  
+    <header class="side-bar">
+  <div class="site-header">
+    <a href="/" class="site-title lh-tight">
+  <div class="site-logo" role="img" aria-label="Neutrx"></div>
+
+</a>
+    <button id="menu-button" class="site-button btn-reset" aria-label="Menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" class="icon" aria-hidden="true"><use xlink:href="#svg-menu"></use></svg>
+    </button>
+  </div>
+
+  <nav aria-label="Main" id="site-nav" class="site-nav">
+  
+  
+    <ul class="nav-list"><li class="nav-list-item"><a href="/" class="nav-list-link">Home</a></li><li class="nav-list-item"><a href="/getting-started.html" class="nav-list-link">Getting Started</a></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Guides submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/guides.html" class="nav-list-link">Guides</a><ul class="nav-list"><li class="nav-list-item"><a href="/node-usage.html" class="nav-list-link">Node Usage</a></li><li class="nav-list-item"><a href="/node-infrastructure.html" class="nav-list-link">Node Infrastructure</a></li><li class="nav-list-item"><a href="/browser-usage.html" class="nav-list-link">Browser Usage</a></li><li class="nav-list-item"><a href="/retries.html" class="nav-list-link">Retry Strategies</a></li><li class="nav-list-item"><a href="/circuit-breaker.html" class="nav-list-link">Circuit Breaker</a></li><li class="nav-list-item"><a href="/bulkhead-isolation.html" class="nav-list-link">Bulkhead Isolation</a></li><li class="nav-list-item"><a href="/cache.html" class="nav-list-link">Cache & Deduplication</a></li><li class="nav-list-item"><a href="/pagination.html" class="nav-list-link">Pagination</a></li><li class="nav-list-item"><a href="/data-loader.html" class="nav-list-link">Request Batching (DataLoader)</a></li><li class="nav-list-item"><a href="/plugins.html" class="nav-list-link">Plugins</a></li><li class="nav-list-item"><a href="/observability.html" class="nav-list-link">Observability</a></li></ul></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Security submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/security-model.html" class="nav-list-link">Security</a><ul class="nav-list"><li class="nav-list-item"><a href="/security-features.html" class="nav-list-link">Security Features</a></li><li class="nav-list-item"><a href="/security.html" class="nav-list-link">Security Guide</a></li><li class="nav-list-item"><a href="/secure-egress.html" class="nav-list-link">Secure Egress</a></li><li class="nav-list-item"><a href="/adapter-security-contract.html" class="nav-list-link">Adapter Security Contract</a></li></ul></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Migration submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/axios-migration.html" class="nav-list-link">Migration</a><ul class="nav-list"><li class="nav-list-item"><a href="/axios-migration-matrix.html" class="nav-list-link">Axios Migration Matrix</a></li><li class="nav-list-item"><a href="/legacy-http-client-migration.html" class="nav-list-link">Legacy HTTP Client Migration</a></li><li class="nav-list-item"><a href="/full-stack-frontend-migration.html" class="nav-list-link">Full-Stack Frontend Migration</a></li></ul></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Examples submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/examples.html" class="nav-list-link">Examples</a><ul class="nav-list"><li class="nav-list-item"><a href="/examples/rest-api-request.html" class="nav-list-link">REST API Request</a></li><li class="nav-list-item"><a href="/examples/auth-token.html" class="nav-list-link">Auth Token</a></li><li class="nav-list-item"><a href="/examples/file-upload.html" class="nav-list-link">File Upload</a></li><li class="nav-list-item"><a href="/examples/request-retry.html" class="nav-list-link">Request Retry</a></li><li class="nav-list-item"><a href="/examples/otel-tracing.html" class="nav-list-link">OTel Tracing</a></li><li class="nav-list-item"><a href="/examples/schema-validation.html" class="nav-list-link">Schema Validation</a></li><li class="nav-list-item"><a href="/examples/docker-socket-request.html" class="nav-list-link">Docker Socket Request</a></li><li class="nav-list-item"><a href="/recipes/backend-recipes.html" class="nav-list-link">Backend Recipes</a></li></ul></li><li class="nav-list-item"><button class="nav-list-expander btn-reset" aria-label="Reference submenu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use xlink:href="#svg-arrow-right"></use></svg>
+      </button><a href="/reference.html" class="nav-list-link">Reference</a><ul class="nav-list"><li class="nav-list-item"><a href="/api.html" class="nav-list-link">API Reference</a></li><li class="nav-list-item"><a href="/config-reference.html" class="nav-list-link">Config Reference</a></li><li class="nav-list-item"><a href="/errors.html" class="nav-list-link">Errors</a></li><li class="nav-list-item"><a href="/release-testing.html" class="nav-list-link">Release Testing</a></li><li class="nav-list-item"><a href="/release-security.html" class="nav-list-link">Release Security</a></li></ul></li><li class="nav-list-item"><a href="/why-neutrx.html" class="nav-list-link">Why Neutrx</a></li><li class="nav-list-item"><a href="/support.html" class="nav-list-link">Support</a></li></ul>
+  
+</nav>
+
+
+<div class="d-md-block d-none site-footer">
+  
+  
+    <p class="text-small text-grey-dk-000 mb-0">Released under the MIT License. &copy; Neutrx contributors.</p>
+
+  
+  </div>
+</header>
+
+  
+  <div class="main" id="top">
+    <div id="main-header" class="main-header">
+  
+    
+
+<div class="search" role="search">
+  <div class="search-input-wrap">
+    <input type="text" id="search-input" class="search-input" tabindex="0" placeholder="Search Neutrx" autocomplete="off">
+    <label for="search-input" class="search-label">
+      <span class="sr-only">Search Neutrx</span>
+      <svg viewBox="0 0 24 24" class="search-icon" aria-hidden="true"><use xlink:href="#svg-search"></use></svg>
+    </label>
+  </div>
+  <div id="search-results" class="search-results"></div>
+</div>
+
+  
+  
+  
+    <nav aria-label="Auxiliary" class="aux-nav">
+  <ul class="aux-nav-list">
+    
+      <li class="aux-nav-list-item">
+        <a href="https://github.com/Xenial-Devil/neutrx" class="site-button"
+          
+          target="_blank" rel="noopener noreferrer"
+          
+        >
+          GitHub
+        </a>
+      </li>
+    
+      <li class="aux-nav-list-item">
+        <a href="https://www.npmjs.com/package/neutrx" class="site-button"
+          
+          target="_blank" rel="noopener noreferrer"
+          
+        >
+          npm
+        </a>
+      </li>
+    
+  </ul>
+</nav>
+
+  
+</div>
+
+    <div class="main-content-wrap">
+      <nav aria-label="Breadcrumb" class="breadcrumb-nav">
+  <ol class="breadcrumb-nav-list">
+    <li class="breadcrumb-nav-list-item"><a href="/reference.html">Reference</a></li>
+    <li class="breadcrumb-nav-list-item"><span>Release Testing</span></li>
+  </ol>
+</nav>
+
+
+      <div id="main-content" class="main-content">
+        <main>
+          
+            <h1 id="release-testing">
+  
+  
+    <a href="#release-testing" class="anchor-heading" aria-labelledby="release-testing"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Release Testing
+  
+  
+</h1>
+    
+
+<p>Run the full local release gate before publishing:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>npm ci
+npm run release:validate
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">npm run release:validate</code> runs lint, typecheck, tests, coverage, docs build, package validation, and the packed-package smoke test. CI runs the same checks on Node 18, 20, and 22.</p>
+<h2 id="per-release-checklist">
+  
+  
+    <a href="#per-release-checklist" class="anchor-heading" aria-labelledby="per-release-checklist"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Per-Release Checklist
+  
+  
+</h2>
+    
+
+<p>Copy this checklist into the release issue or pull request. Check automated items after <code class="language-plaintext highlighter-rouge">npm run release:validate</code> and the Node.js CI matrix pass. Browser and edge target testing remains conditional on transport changes.</p>
+<h3 id="package-compatibility">
+  
+  
+    <a href="#package-compatibility" class="anchor-heading" aria-labelledby="package-compatibility"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Package Compatibility
+  
+  
+</h3>
+    
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />ESM import works.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />CommonJS require works.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />TypeScript types resolve.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Package works after <code class="language-plaintext highlighter-rouge">npm pack</code>.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Subpath exports work: <code class="language-plaintext highlighter-rouge">neutrx</code>, <code class="language-plaintext highlighter-rouge">neutrx/plugins</code>, and <code class="language-plaintext highlighter-rouge">neutrx/errors</code>.</li>
+</ul>
+<h3 id="runtime-compatibility">
+  
+  
+    <a href="#runtime-compatibility" class="anchor-heading" aria-labelledby="runtime-compatibility"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Runtime Compatibility
+  
+  
+</h3>
+    
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Node 18 passes.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Node 20 passes.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Node 22 passes.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Browser bundler smoke test passes.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Edge/fetch runtime behavior is documented or tested.</li>
+</ul>
+<h3 id="http-behavior">
+  
+  
+    <a href="#http-behavior" class="anchor-heading" aria-labelledby="http-behavior"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> HTTP Behavior
+  
+  
+</h3>
+    
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />GET request.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />POST JSON request.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Form upload.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />File/buffer upload.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Timeout.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Abort signal.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Redirect.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Decompression.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Progress events.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Error response.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Retry behavior.</li>
+</ul>
+<h3 id="security-behavior">
+  
+  
+    <a href="#security-behavior" class="anchor-heading" aria-labelledby="security-behavior"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Security Behavior
+  
+  
+</h3>
+    
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />SSRF protection still works.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Private IP blocking still works in the Node adapter.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Header injection guard still works.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Prototype pollution guard still works.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Certificate pinning still works in the Node adapter.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Browser limitations are documented.</li>
+</ul>
+<h3 id="resilience-behavior">
+  
+  
+    <a href="#resilience-behavior" class="anchor-heading" aria-labelledby="resilience-behavior"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Resilience Behavior
+  
+  
+</h3>
+    
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Circuit breaker opens after threshold.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Circuit breaker resets after timeout.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Bulkhead limits concurrency.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Fixed, linear, exponential, and fibonacci retry strategies work.</li>
+</ul>
+<h3 id="observability-behavior">
+  
+  
+    <a href="#observability-behavior" class="anchor-heading" aria-labelledby="observability-behavior"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Observability Behavior
+  
+  
+</h3>
+    
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Prometheus metrics still work.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Request timing still works.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />OpenTelemetry spans work when OpenTelemetry is installed.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />OpenTelemetry integration is a no-op when OpenTelemetry is not installed.</li>
+</ul>
+<h2 id="automated-release-checklist">
+  
+  
+    <a href="#automated-release-checklist" class="anchor-heading" aria-labelledby="automated-release-checklist"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Automated Release Checklist
+  
+  
+</h2>
+    
+
+<p>Package compatibility:</p>
+
+<ul>
+  <li>ESM import and CommonJS require are tested from built output and from an installed <code class="language-plaintext highlighter-rouge">npm pack</code> artifact.</li>
+  <li>Published TypeScript declarations are compiled from the installed packed artifact.</li>
+  <li>Packed ESM, CJS, and types resolve for <code class="language-plaintext highlighter-rouge">neutrx</code>, <code class="language-plaintext highlighter-rouge">neutrx/plugins</code>, and <code class="language-plaintext highlighter-rouge">neutrx/errors</code>.</li>
+  <li>The packed root export is bundled with esbuild under the <code class="language-plaintext highlighter-rouge">browser</code> condition and checked for Node core imports.</li>
+</ul>
+
+<p>Runtime and HTTP behavior:</p>
+
+<ul>
+  <li>CI covers Node 18, 20, and 22.</li>
+  <li>Local-server tests cover GET, POST JSON, multipart forms, file and buffer bodies, timeout, abort, redirects, decompression, progress events, error responses, and retries.</li>
+  <li>Browser-entry tests cover fetch, timeout, abort, progress, XSRF behavior, and an edge-like runtime without <code class="language-plaintext highlighter-rouge">window</code>, <code class="language-plaintext highlighter-rouge">document</code>, or <code class="language-plaintext highlighter-rouge">location</code>.</li>
+</ul>
+
+<p>Security behavior:</p>
+
+<ul>
+  <li>SSRF and private-address blocking are tested at URL validation and Node DNS lookup boundaries.</li>
+  <li>Redirect downgrade/private-target blocking and credential stripping are tested.</li>
+  <li>Header CRLF injection and prototype pollution guards are tested.</li>
+  <li>Certificate pin validation is tested in the Node security manager and wired into the Node HTTP and HTTP/2 adapters.</li>
+</ul>
+
+<p>Resilience and observability:</p>
+
+<ul>
+  <li>Circuit opening and timeout reset behavior are tested.</li>
+  <li>Bulkhead concurrency and queuing behavior are tested.</li>
+  <li>Fixed, linear, exponential, and fibonacci retry delays are tested explicitly.</li>
+  <li>Request timing, Prometheus output, OpenTelemetry spans, and the no-OpenTelemetry no-op path are tested.</li>
+</ul>
+<h2 id="browser-and-edge-limits">
+  
+  
+    <a href="#browser-and-edge-limits" class="anchor-heading" aria-labelledby="browser-and-edge-limits"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Browser And Edge Limits
+  
+  
+</h2>
+    
+
+<p>The browser build is a secondary compatibility surface. Normal browser JavaScript cannot provide Node adapter guarantees for DNS resolution, private-IP inspection, certificate pinning, custom CA, mTLS, proxy tunneling, or raw socket controls.</p>
+
+<p>The browser and edge-like fetch behavior is automated, but a release that changes browser transport behavior should also be exercised in the target application’s supported browsers and bundler. See <a href="/browser-usage.html">Browser Usage</a> and <a href="/adapter-security-contract.html">Adapter Security Contract</a>.</p>
+<h2 id="manual-release-review">
+  
+  
+    <a href="#manual-release-review" class="anchor-heading" aria-labelledby="manual-release-review"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Manual Release Review
+  
+  
+</h2>
+    
+
+<p>After automated validation:</p>
+
+<ul>
+  <li>Review <code class="language-plaintext highlighter-rouge">npm pack --dry-run</code> output for unexpected files.</li>
+  <li>Confirm the release notes call out security, runtime, package-export, resilience, or observability changes.</li>
+  <li>Confirm the GitHub Actions matrix is green for Node 18, 20, and 22.</li>
+  <li>Confirm the published package and provenance record match the intended version.</li>
+</ul>
+
+          
+
+          
+            
+          
+        </main>
+        
+<hr>
+<footer>
+  
+    <p><a href="#top" id="back-to-top">Back to top</a></p>
+  
+
+  <!-- Main-content page footer. Replaces Just the Docs' default edit-link/timestamp footer. -->
+<div class="footer-custom">
+  <p class="footer-custom__line">
+    <strong>Neutrx</strong> — security-first, zero-runtime-dependency HTTP client for Node.js 18+.
+  </p>
+  <p class="footer-custom__links">
+    <a href="https://github.com/Xenial-Devil/neutrx">GitHub</a>
+    <span aria-hidden="true">·</span>
+    <a href="https://www.npmjs.com/package/neutrx">npm</a>
+    <span aria-hidden="true">·</span>
+    <a href="https://github.com/Xenial-Devil/neutrx/blob/main/LICENSE">MIT License</a>
+  </p>
+  <p class="footer-custom__copy">
+    Released under the MIT License. &copy; 2026 Neutrx contributors.
+  </p>
+</div>
+
+
+  <div class="d-md-none mt-4 fs-2">
+    
+    
+      <p class="text-small text-grey-dk-000 mb-0">Released under the MIT License. &copy; Neutrx contributors.</p>
+
+    
+  </div>
+</footer>
+
+      </div>
+    </div>
+    
+      
+
+<div class="search-overlay"></div>
+
+    
+  </div>
+
+  
+</body>
+</html>
+

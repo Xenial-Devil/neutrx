@@ -16,5 +16,10 @@ jobs:
 
       - name: Review dependency changes
         uses: actions/dependency-review-action@v4
+        # Soft-fail until the repo's Dependency Graph is enabled
+        # (Settings -> Code security and analysis -> Dependency graph).
+        # Without it the action errors with "Dependency review is not
+        # supported on this repository" and would block every PR.
+        continue-on-error: true
         with:
           fail-on-severity: high

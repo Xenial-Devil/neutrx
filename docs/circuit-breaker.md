@@ -116,4 +116,3 @@ const api = neutrx.create({
 - **Bulkhead** keeps a slow upstream from starving everything else.
 
 See [Bulkhead Isolation](bulkhead-isolation.md) and [Retry Strategies](retries.md).
-</content>
