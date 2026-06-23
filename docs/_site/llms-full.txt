@@ -67,7 +67,7 @@ Set with neutrx.create({ security: { profile: 'strict' } }).
 
 ================================================================================
 # REST API Request
-URL: https://xenial-devil.github.io/examples/rest-api-request.html
+URL: http://localhost:4000/examples/rest-api-request.html
 Summary: Make REST API requests with Neutrx using typed clients, params, JSON bodies, redacted errors, and secure backend defaults.
 ================================================================================
 
@@ -75,7 +75,7 @@ REST API Request Create one client for the upstream API, then use verb helpers f
 
 ================================================================================
 # API Reference
-URL: https://xenial-devil.github.io/api.html
+URL: http://localhost:4000/api.html
 Summary: Reference Neutrx imports, client creation, request methods, configuration, response validation, security, resilience, performance, plugins, headers, and errors.
 ================================================================================
 
@@ -83,7 +83,7 @@ Neutrx API Reference Import import neutrx, { HttpAdapter, NeutrxError, NeutrxHTT
 
 ================================================================================
 # Home
-URL: https://xenial-devil.github.io/
+URL: http://localhost:4000/
 Summary: Neutrx is a security-first TypeScript HTTP client for Node.js 18+ with SSRF protection, retries, circuit breaking, OTel hooks, and zero runtime dependencies.
 ================================================================================
 
@@ -91,7 +91,7 @@ Summary: Neutrx is a security-first TypeScript HTTP client for Node.js 18+ with 
 
 ================================================================================
 # Axios Migration Matrix
-URL: https://xenial-devil.github.io/axios-migration-matrix.html
+URL: http://localhost:4000/axios-migration-matrix.html
 Summary: Map Axios request options to Neutrx equivalents, including auth aliases, URL-encoded forms, unsafe patterns, and safer secure-client defaults.
 ================================================================================
 
@@ -99,7 +99,7 @@ Axios Migration Matrix This guide maps common Axios backend usage to Neutrx. Neu
 
 ================================================================================
 # Node Usage
-URL: https://xenial-devil.github.io/node-usage.html
+URL: http://localhost:4000/node-usage.html
 Summary: Use Neutrx in Node.js backend services with secure clients, request helpers, HTTP/2, TLS pinning, Unix sockets, progress, and bandwidth limits.
 ================================================================================
 
@@ -107,7 +107,7 @@ Node Usage TOC Neutrx is backend-first. The Node entry uses the built-in Node HT
 
 ================================================================================
 # Security Features
-URL: https://xenial-devil.github.io/security-features.html
+URL: http://localhost:4000/security-features.html
 Summary: Review Neutrx security controls including profiles, SSRF protections, egress policy, redirect safety, certificate pinning, rate limits, and redaction.
 ================================================================================
 
@@ -115,7 +115,7 @@ Security Features Security profiles Exact per-profile defaults All security opti
 
 ================================================================================
 # Legacy HTTP Client Migration
-URL: https://xenial-devil.github.io/legacy-http-client-migration.html
+URL: http://localhost:4000/legacy-http-client-migration.html
 Summary: Move from node-fetch, request, got, or custom wrappers to Neutrx with safer defaults, interceptors, typed errors, and migration profiles.
 ================================================================================
 
@@ -123,7 +123,7 @@ Legacy HTTP Client Migration Neutrx keeps an ergonomic request API while focusin
 
 ================================================================================
 # Node Infrastructure
-URL: https://xenial-devil.github.io/node-infrastructure.html
+URL: http://localhost:4000/node-infrastructure.html
 Summary: Configure Neutrx for Node infrastructure needs including Unix sockets, proxies, redirect hooks, decompression, response encoding, absolute URLs, and max rate.
 ================================================================================
 
@@ -131,7 +131,7 @@ Node Infrastructure Usage Neutrx can be used for Docker Engine calls, local prox
 
 ================================================================================
 # Getting Started
-URL: https://xenial-devil.github.io/getting-started.html
+URL: http://localhost:4000/getting-started.html
 Summary: Install Neutrx, send your first request, create secure clients, choose security profiles, handle redacted errors, and add retries or caching.
 ================================================================================
 
@@ -139,7 +139,7 @@ Getting Started Install Your first request Create a dedicated client Pick a secu
 
 ================================================================================
 # Auth Token
-URL: https://xenial-devil.github.io/examples/auth-token.html
+URL: http://localhost:4000/examples/auth-token.html
 Summary: Attach service tokens and request-scoped bearer tokens in Neutrx while keeping per-client defaults and per-request overrides clear.
 ================================================================================
 
@@ -147,7 +147,7 @@ Auth Token Use setAuth() for service-wide bearer tokens, or pass request-specifi
 
 ================================================================================
 # Config Reference
-URL: https://xenial-devil.github.io/config-reference.html
+URL: http://localhost:4000/config-reference.html
 Summary: Explore every Neutrx configuration block for core requests, security, egress, discovery, WebSocket, resilience, performance, and instrumentation.
 ================================================================================
 
@@ -155,7 +155,7 @@ Config Reference Neutrx merges config in this order: library defaults from neutr
 
 ================================================================================
 # Security Guide
-URL: https://xenial-devil.github.io/security.html
+URL: http://localhost:4000/security.html
 Summary: Configure Neutrx security profiles, SSRF protection, Unix socket policy, secure egress, redirect safety, browser boundaries, and redacted errors.
 ================================================================================
 
@@ -163,7 +163,7 @@ Neutrx Security Guide Profiles import neutrx from 'neutrx'; const strict = neutr
 
 ================================================================================
 # Errors
-URL: https://xenial-devil.github.io/errors.html
+URL: http://localhost:4000/errors.html
 Summary: Handle Neutrx typed errors with categories, codes, hierarchy, redacted toJSON output, validation failures, and safe logging patterns.
 ================================================================================
 
@@ -171,7 +171,7 @@ Errors Base shape Categories Error hierarchy Common codes Redaction Validation e
 
 ================================================================================
 # Browser Usage
-URL: https://xenial-devil.github.io/browser-usage.html
+URL: http://localhost:4000/browser-usage.html
 Summary: Use the Neutrx browser build with native fetch while understanding which Node-level SSRF, DNS, TLS, and transport controls do not apply.
 ================================================================================
 
@@ -179,7 +179,7 @@ Browser Usage Browser support exists through neutrx/browser and the package brow
 
 ================================================================================
 # File Upload
-URL: https://xenial-devil.github.io/examples/file-upload.html
+URL: http://localhost:4000/examples/file-upload.html
 Summary: Upload files with Neutrx form helpers in Node.js or browser-style runtimes while preserving headers, body serialization, and response handling.
 ================================================================================
 
@@ -187,7 +187,7 @@ File Upload Use form helpers for multipart uploads. In Node, plain objects are s
 
 ================================================================================
 # Full-Stack Frontend Migration
-URL: https://xenial-devil.github.io/full-stack-frontend-migration.html
+URL: http://localhost:4000/full-stack-frontend-migration.html
 Summary: Choose Neutrx Node, browser, and fetch adapters for full-stack migrations while handling headers, defaults, interceptors, progress, and runtime limits.
 ================================================================================
 
@@ -195,7 +195,7 @@ Full-Stack And Frontend Migration Use this guide when you want Neutrx request er
 
 ================================================================================
 # Guides
-URL: https://xenial-devil.github.io/guides.html
+URL: http://localhost:4000/guides.html
 Summary: Guides for secure Node.js HTTP clients with Neutrx, covering runtime setup, security, resilience, caching, plugins, and observability.
 ================================================================================
 
@@ -203,7 +203,7 @@ Guides Task-focused guides for building and operating a Neutrx client. Start wit
 
 ================================================================================
 # Secure Egress
-URL: https://xenial-devil.github.io/secure-egress.html
+URL: http://localhost:4000/secure-egress.html
 Summary: Design Neutrx secure egress policies for webhooks, public APIs, and internal service clients using allowed hosts, CIDRs, ports, and audit output.
 ================================================================================
 
@@ -211,7 +211,7 @@ Secure Egress Policy egressPolicy makes outbound network intent reviewable in on
 
 ================================================================================
 # Retry Strategies
-URL: https://xenial-devil.github.io/retries.html
+URL: http://localhost:4000/retries.html
 Summary: Configure Neutrx retries with backoff, jitter, idempotency rules, Retry-After handling, deadlines, shared retry budgets, and observability.
 ================================================================================
 
@@ -219,7 +219,7 @@ Retry Strategies Defaults at a glance Backoff strategies Idempotency: POST and P
 
 ================================================================================
 # Adapter Security Contract
-URL: https://xenial-devil.github.io/adapter-security-contract.html
+URL: http://localhost:4000/adapter-security-contract.html
 Summary: Build or evaluate custom Neutrx adapters against required security invariants, secure wrappers, and cases where custom adapters are unsafe.
 ================================================================================
 
@@ -227,7 +227,7 @@ Adapter Security Contract Custom adapters are powerful and risky. Neutrx can val
 
 ================================================================================
 # Security
-URL: https://xenial-devil.github.io/security-model.html
+URL: http://localhost:4000/security-model.html
 Summary: Understand the Neutrx security model for SSRF protection, redirect safety, redaction, Unix sockets, runtime limits, and security profiles.
 ================================================================================
 
@@ -235,7 +235,7 @@ Security Model Neutrx is designed for Node.js 18+ backend services making outbou
 
 ================================================================================
 # Release Testing
-URL: https://xenial-devil.github.io/release-testing.html
+URL: http://localhost:4000/release-testing.html
 Summary: Run the Neutrx release testing checklist for package compatibility, runtime support, HTTP behavior, security, resilience, observability, and browser limits.
 ================================================================================
 
@@ -243,7 +243,7 @@ Release Testing Run the full local release gate before publishing: npm ci npm ru
 
 ================================================================================
 # Request Retry
-URL: https://xenial-devil.github.io/examples/request-retry.html
+URL: http://localhost:4000/examples/request-retry.html
 Summary: Add Neutrx retry policy to outbound requests with idempotent methods, exponential backoff, failure thresholds, and typed error handling.
 ================================================================================
 
@@ -251,7 +251,7 @@ Request Retry Retries are enabled by default for idempotent methods. Configure t
 
 ================================================================================
 # Migration
-URL: https://xenial-devil.github.io/axios-migration.html
+URL: http://localhost:4000/axios-migration.html
 Summary: Migrate from Axios and legacy HTTP clients to Neutrx while preserving ergonomics and adding backend-focused security, resilience, and observability.
 ================================================================================
 
@@ -259,7 +259,7 @@ Axios Migration Guide This guide covers the common Axios backend migration path.
 
 ================================================================================
 # OTel Tracing
-URL: https://xenial-devil.github.io/examples/otel-tracing.html
+URL: http://localhost:4000/examples/otel-tracing.html
 Summary: Bridge Neutrx requests to OpenTelemetry with client spans, trace context propagation, lifecycle events, and redacted attributes.
 ================================================================================
 
@@ -267,7 +267,7 @@ OTel Tracing Neutrx can create OpenTelemetry-friendly spans and propagation head
 
 ================================================================================
 # Release Security
-URL: https://xenial-devil.github.io/release-security.html
+URL: http://localhost:4000/release-security.html
 Summary: Review Neutrx release security controls for publishing posture, changelogs, GitHub releases, package contents, and dependency rules.
 ================================================================================
 
@@ -275,7 +275,7 @@ Release Security Neutrx’s release path should match its security-first product
 
 ================================================================================
 # Circuit Breaker
-URL: https://xenial-devil.github.io/circuit-breaker.html
+URL: http://localhost:4000/circuit-breaker.html
 Summary: Protect upstream services with Neutrx circuit breakers, failure thresholds, half-open probes, state inspection, and shared worker state.
 ================================================================================
 
@@ -283,7 +283,7 @@ Circuit Breaker Defaults States When the circuit is open Inspect circuit state S
 
 ================================================================================
 # Bulkhead Isolation
-URL: https://xenial-devil.github.io/bulkhead-isolation.html
+URL: http://localhost:4000/bulkhead-isolation.html
 Summary: Limit concurrent outbound calls per origin with Neutrx bulkhead isolation, queueing, adaptive concurrency, and circuit breaker pairing.
 ================================================================================
 
@@ -291,7 +291,7 @@ Bulkhead Isolation Defaults How it works Adaptive concurrency Pair with the circ
 
 ================================================================================
 # Examples
-URL: https://xenial-devil.github.io/examples.html
+URL: http://localhost:4000/examples.html
 Summary: Practical Neutrx examples for REST calls, auth tokens, file uploads, retries, OpenTelemetry tracing, schema validation, Docker sockets, and backend recipes.
 ================================================================================
 
@@ -299,7 +299,7 @@ Examples Copy-paste recipes for common tasks. See Backend Recipes for longer end
 
 ================================================================================
 # Schema Validation
-URL: https://xenial-devil.github.io/examples/schema-validation.html
+URL: http://localhost:4000/examples/schema-validation.html
 Summary: Validate Neutrx responses with schemas or validation plugins and handle typed validation failures without leaking sensitive data.
 ================================================================================
 
@@ -307,7 +307,7 @@ Schema Validation Use schema to validate and optionally transform parsed respons
 
 ================================================================================
 # Docker Socket Request
-URL: https://xenial-devil.github.io/examples/docker-socket-request.html
+URL: http://localhost:4000/examples/docker-socket-request.html
 Summary: Call Docker Engine through a Unix socket with Neutrx while keeping SSRF protections, socket allowlists, and backend-only runtime boundaries clear.
 ================================================================================
 
@@ -315,7 +315,7 @@ Docker Socket Request Use socketPath for trusted local HTTP-over-Unix-socket ser
 
 ================================================================================
 # Reference
-URL: https://xenial-devil.github.io/reference.html
+URL: http://localhost:4000/reference.html
 Summary: Reference material for Neutrx APIs, configuration, typed errors, release testing, and release security controls.
 ================================================================================
 
@@ -323,7 +323,7 @@ Reference Complete reference material for the API surface, configuration, and er
 
 ================================================================================
 # Cache & Deduplication
-URL: https://xenial-devil.github.io/cache.html
+URL: http://localhost:4000/cache.html
 Summary: Use Neutrx response caching and in-flight request deduplication with Cache-Control, stale-while-revalidate, stale-if-error, custom stores, and metrics.
 ================================================================================
 
@@ -331,7 +331,7 @@ Cache &amp; Deduplication Response cache Options What gets cached Strategies Man
 
 ================================================================================
 # Backend Recipes
-URL: https://xenial-devil.github.io/recipes/backend-recipes.html
+URL: http://localhost:4000/recipes/backend-recipes.html
 Summary: Use Neutrx backend recipes for webhooks, internal APIs, discovery, OAuth2, idempotent retries, mTLS, GraphQL, Prometheus, and SSRF-safe previews.
 ================================================================================
 
@@ -339,7 +339,7 @@ Backend Recipes Secure Webhook Fetcher const webhooks = neutrx.create({ security
 
 ================================================================================
 # Pagination
-URL: https://xenial-devil.github.io/pagination.html
+URL: http://localhost:4000/pagination.html
 Summary: Iterate paginated APIs with Neutrx helpers for has-more, total-count, cursor, and Link header strategies using typed async iteration.
 ================================================================================
 
@@ -347,7 +347,7 @@ Pagination api.paginate(url, options?) returns an async generator that walks pag
 
 ================================================================================
 # Why Neutrx
-URL: https://xenial-devil.github.io/why-neutrx.html
+URL: http://localhost:4000/why-neutrx.html
 Summary: Learn when to choose Neutrx over Axios or native fetch for secure Node.js service-to-service HTTP with SSRF protection, resilience, and observability.
 ================================================================================
 
@@ -355,7 +355,7 @@ Why Neutrx The problem it solves Choose Neutrx when Keep Axios or native fetch w
 
 ================================================================================
 # Support
-URL: https://xenial-devil.github.io/support.html
+URL: http://localhost:4000/support.html
 Summary: Find Neutrx public support channels, security report handling, maintenance expectations, sponsorship options, and sustainability policy.
 ================================================================================
 
@@ -363,7 +363,7 @@ Support And Sustainability Neutrx is maintained as an open-source project for se
 
 ================================================================================
 # Request Batching (DataLoader)
-URL: https://xenial-devil.github.io/data-loader.html
+URL: http://localhost:4000/data-loader.html
 Summary: Batch and cache high-volume key lookups with Neutrx DataLoader-style request batching, key normalization, scheduling, and batch size bounds.
 ================================================================================
 
@@ -371,7 +371,7 @@ Request Batching with DataLoader DataLoader&lt;K, V, C&gt; coalesces many indivi
 
 ================================================================================
 # Plugins
-URL: https://xenial-devil.github.io/plugins.html
+URL: http://localhost:4000/plugins.html
 Summary: Extend Neutrx with first-party plugins for logging, trace context, OpenTelemetry, validation, OAuth2, GraphQL, mocking, AWS SigV4, and HAR recording.
 ================================================================================
 
@@ -379,7 +379,7 @@ Plugins Plugins extend client behavior without adding required runtime dependenc
 
 ================================================================================
 # Observability
-URL: https://xenial-devil.github.io/observability.html
+URL: http://localhost:4000/observability.html
 Summary: Observe Neutrx clients with metrics, latency percentiles, lifecycle events, structured redacted logs, trace context propagation, and OpenTelemetry spans.
 ================================================================================
 

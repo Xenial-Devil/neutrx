@@ -1,122 +1,122 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url>
-    <loc>https://xenial-devil.github.io/adapter-security-contract.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/adapter-security-contract.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/api.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/api.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/examples/auth-token.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/examples/auth-token.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/axios-migration-matrix.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/axios-migration-matrix.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/axios-migration.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/axios-migration.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.7</priority></url><url>
-    <loc>https://xenial-devil.github.io/recipes/backend-recipes.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/recipes/backend-recipes.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/browser-usage.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/browser-usage.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/bulkhead-isolation.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/bulkhead-isolation.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/cache.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/cache.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/circuit-breaker.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/circuit-breaker.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/config-reference.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/config-reference.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/data-loader.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/data-loader.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/examples/docker-socket-request.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/examples/docker-socket-request.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/errors.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/errors.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/examples.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/examples.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.7</priority></url><url>
-    <loc>https://xenial-devil.github.io/examples/file-upload.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/examples/file-upload.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/full-stack-frontend-migration.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/full-stack-frontend-migration.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/getting-started.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/getting-started.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.7</priority></url><url>
-    <loc>https://xenial-devil.github.io/guides.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/guides.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.7</priority></url><url>
-    <loc>https://xenial-devil.github.io/</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>weekly</changefreq>
+    <loc>http://localhost:4000/</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>weekly</changefreq>
     <priority>1.0</priority></url><url>
-    <loc>https://xenial-devil.github.io/legacy-http-client-migration.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/legacy-http-client-migration.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/node-infrastructure.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/node-infrastructure.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/node-usage.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/node-usage.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/observability.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/observability.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/examples/otel-tracing.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/examples/otel-tracing.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/pagination.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/pagination.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/plugins.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/plugins.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/reference.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/reference.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.7</priority></url><url>
-    <loc>https://xenial-devil.github.io/release-security.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/release-security.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/release-testing.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/release-testing.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/examples/request-retry.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/examples/request-retry.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/examples/rest-api-request.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/examples/rest-api-request.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/retries.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/retries.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/examples/schema-validation.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/examples/schema-validation.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/secure-egress.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/secure-egress.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/security-features.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/security-features.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/security-model.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/security-model.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.7</priority></url><url>
-    <loc>https://xenial-devil.github.io/security.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/security.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.8</priority></url><url>
-    <loc>https://xenial-devil.github.io/support.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/support.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.7</priority></url><url>
-    <loc>https://xenial-devil.github.io/why-neutrx.html</loc>
-    <lastmod>2026-06-23T13:42:40+00:00</lastmod><changefreq>monthly</changefreq>
+    <loc>http://localhost:4000/why-neutrx.html</loc>
+    <lastmod>2026-06-23T13:43:48+00:00</lastmod><changefreq>monthly</changefreq>
     <priority>0.7</priority></url></urlset>
