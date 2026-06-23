@@ -1,5 +1,6 @@
 ---
 title: Errors
+description: "Handle Neutrx typed errors with categories, codes, hierarchy, redacted toJSON output, validation failures, and safe logging patterns."
 parent: Reference
 nav_order: 3
 ---

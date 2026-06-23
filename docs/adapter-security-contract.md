@@ -1,5 +1,6 @@
 ---
 title: Adapter Security Contract
+description: "Build or evaluate custom Neutrx adapters against required security invariants, secure wrappers, and cases where custom adapters are unsafe."
 parent: Security
 nav_order: 4
 ---

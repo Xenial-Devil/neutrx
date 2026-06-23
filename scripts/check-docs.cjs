@@ -5,8 +5,9 @@
  * Dependency-free docs validator for the GitHub Pages (Jekyll / just-the-docs)
  * site served directly from /docs. No build step — this just verifies:
  *   1. every Markdown page starts with a YAML front-matter block,
- *   2. every relative Markdown link resolves to an existing file,
- *   3. parent/child nav wiring is consistent (every `parent:` has a matching
+ *   2. every page has a useful SEO description,
+ *   3. every relative Markdown link resolves to an existing file,
+ *   4. parent/child nav wiring is consistent (every `parent:` has a matching
  *      `title:` on a `has_children: true` page).
  * Exits non-zero on any problem so it can gate `validate` / `ci`.
  */
@@ -57,6 +58,11 @@ for (const file of files) {
   const text = fs.readFileSync(file, 'utf8');
   const fm = parseFrontMatter(text, rel);
   if (fm.title) titles.add(fm.title);
+  if (!fm.description) {
+    errors.push(`${rel}: missing SEO description`);
+  } else if (fm.description.length < 50 || fm.description.length > 180) {
+    errors.push(`${rel}: SEO description should be 50-180 characters`);
+  }
   if (String(fm.has_children) === 'true' && fm.title) hasChildrenTitles.add(fm.title);
   if (fm.parent) parents.push({ rel, parent: fm.parent });
 

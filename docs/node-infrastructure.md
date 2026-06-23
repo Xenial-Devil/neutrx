@@ -1,5 +1,6 @@
 ---
 title: Node Infrastructure
+description: "Configure Neutrx for Node infrastructure needs including Unix sockets, proxies, redirect hooks, decompression, response encoding, absolute URLs, and max rate."
 parent: Guides
 nav_order: 2
 ---

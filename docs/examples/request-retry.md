@@ -1,5 +1,6 @@
 ---
 title: Request Retry
+description: "Add Neutrx retry policy to outbound requests with idempotent methods, exponential backoff, failure thresholds, and typed error handling."
 parent: Examples
 nav_order: 4
 ---

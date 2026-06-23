@@ -1,5 +1,6 @@
 ---
 title: Schema Validation
+description: "Validate Neutrx responses with schemas or validation plugins and handle typed validation failures without leaking sensitive data."
 parent: Examples
 nav_order: 6
 ---

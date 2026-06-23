@@ -1,5 +1,6 @@
 ---
 title: Retry Strategies
+description: "Configure Neutrx retries with backoff, jitter, idempotency rules, Retry-After handling, deadlines, shared retry budgets, and observability."
 parent: Guides
 nav_order: 4
 ---

@@ -1,5 +1,6 @@
 ---
 title: Security Features
+description: "Review Neutrx security controls including profiles, SSRF protections, egress policy, redirect safety, certificate pinning, rate limits, and redaction."
 parent: Security
 nav_order: 1
 ---

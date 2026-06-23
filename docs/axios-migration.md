@@ -1,5 +1,6 @@
 ---
 title: Migration
+description: "Migrate from Axios and legacy HTTP clients to Neutrx while preserving ergonomics and adding backend-focused security, resilience, and observability."
 nav_order: 5
 has_children: true
 ---

@@ -1,5 +1,6 @@
 ---
 title: Home
+description: "Neutrx is a security-first TypeScript HTTP client for Node.js 18+ backends with SSRF protection, retries, circuit breaking, OTel hooks, and zero runtime dependencies."
 nav_order: 1
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: Circuit Breaker
+description: "Protect upstream services with Neutrx circuit breakers, failure thresholds, half-open probes, state inspection, and shared worker state."
 parent: Guides
 nav_order: 5
 ---

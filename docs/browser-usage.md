@@ -1,5 +1,6 @@
 ---
 title: Browser Usage
+description: "Use the Neutrx browser build with native fetch while understanding which Node-level SSRF, DNS, TLS, and transport controls do not apply."
 parent: Guides
 nav_order: 3
 ---

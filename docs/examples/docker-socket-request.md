@@ -1,5 +1,6 @@
 ---
 title: Docker Socket Request
+description: "Call Docker Engine through a Unix socket with Neutrx while keeping SSRF protections, socket allowlists, and backend-only runtime boundaries clear."
 parent: Examples
 nav_order: 7
 ---

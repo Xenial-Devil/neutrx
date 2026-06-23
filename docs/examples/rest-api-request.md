@@ -1,5 +1,6 @@
 ---
 title: REST API Request
+description: "Make REST API requests with Neutrx using typed clients, params, JSON bodies, redacted errors, and secure backend defaults."
 parent: Examples
 nav_order: 1
 ---

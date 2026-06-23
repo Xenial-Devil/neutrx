@@ -1,5 +1,6 @@
 ---
 title: Pagination
+description: "Iterate paginated APIs with Neutrx helpers for has-more, total-count, cursor, and Link header strategies using typed async iteration."
 parent: Guides
 nav_order: 8
 ---

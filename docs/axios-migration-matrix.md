@@ -1,5 +1,6 @@
 ---
 title: Axios Migration Matrix
+description: "Map Axios request options to Neutrx equivalents, including auth aliases, URL-encoded forms, unsafe patterns, and safer secure-client defaults."
 parent: Migration
 nav_order: 1
 ---

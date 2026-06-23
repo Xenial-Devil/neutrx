@@ -1,5 +1,6 @@
 ---
 title: Cache & Deduplication
+description: "Use Neutrx response caching and in-flight request deduplication with Cache-Control, stale-while-revalidate, stale-if-error, custom stores, and metrics."
 parent: Guides
 nav_order: 7
 ---

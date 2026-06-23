@@ -1,5 +1,56 @@
 <link rel="icon" href="{{ '/favicon.ico' | relative_url }}" sizes="any">
 <link rel="icon" href="{{ '/favicon.svg' | relative_url }}" type="image/svg+xml">
+<meta name="application-name" content="{{ site.title }}">
+<meta name="robots" content="{% if page.noindex %}noindex,nofollow{% else %}{{ page.robots | default: 'index,follow,max-image-preview:large' }}{% endif %}">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0f17">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Neutrx secure Node.js HTTP client documentation">
+<meta name="twitter:image:alt" content="Neutrx secure Node.js HTTP client documentation">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "@id": {{ '/#software' | absolute_url | jsonify }},
+  "name": {{ site.title | jsonify }},
+  "alternateName": "Neutrx HTTP client",
+  "description": {{ site.description | jsonify }},
+  "url": {{ '/' | absolute_url | jsonify }},
+  "codeRepository": "https://github.com/Xenial-Devil/neutrx",
+  "downloadUrl": "https://www.npmjs.com/package/neutrx",
+  "license": "https://github.com/Xenial-Devil/neutrx/blob/main/LICENSE",
+  "programmingLanguage": "TypeScript",
+  "runtimePlatform": "Node.js >=18",
+  "applicationCategory": "DeveloperApplication",
+  "keywords": [
+    "Node.js HTTP client",
+    "TypeScript HTTP client",
+    "SSRF protection",
+    "secure egress",
+    "circuit breaker",
+    "OpenTelemetry"
+  ],
+  "sameAs": [
+    "https://github.com/Xenial-Devil/neutrx",
+    "https://www.npmjs.com/package/neutrx"
+  ]
+}
+</script>
+{% unless page.url == '/' or page.noindex %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": {{ page.title | default: site.title | jsonify }},
+  "description": {{ page.description | default: site.description | jsonify }},
+  "url": {{ page.url | absolute_url | jsonify }},
+  "about": { "@id": {{ '/#software' | absolute_url | jsonify }} },
+  "isPartOf": { "@type": "WebSite", "name": {{ site.title | jsonify }}, "url": {{ '/' | absolute_url | jsonify }} }
+}
+</script>
+{% endunless %}
 
 <script>
   (function () {

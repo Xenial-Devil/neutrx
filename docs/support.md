@@ -1,5 +1,6 @@
 ---
 title: Support
+description: "Find Neutrx public support channels, security report handling, maintenance expectations, sponsorship options, and sustainability policy."
 nav_order: 9
 ---
 

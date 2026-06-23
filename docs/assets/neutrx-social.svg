@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Neutrx secure Node.js HTTP client</title>
+  <desc id="desc">Security-first TypeScript HTTP client for Node.js 18+ backends with SSRF protection, redirect safety, retries, circuit breaking, and observability.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="0.52" stop-color="#0f2447"/>
+      <stop offset="1" stop-color="#172554"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5b9dff"/>
+      <stop offset="0.55" stop-color="#7c7cff"/>
+      <stop offset="1" stop-color="#b69bff"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#020617" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <path d="M0 118C165 54 304 56 462 104c153 46 301 98 476 57 99-24 190-68 262-113v582H0z" fill="#0b1220" opacity="0.54"/>
+  <path d="M90 92h1020v446H90z" rx="32" fill="#0f172a" opacity="0.72" filter="url(#soft)"/>
+  <path d="M90 92h1020v446H90z" rx="32" fill="none" stroke="#334155" stroke-width="2"/>
+  <g transform="translate(150 150)">
+    <path d="M79 0 158 35v67c0 67-42 121-79 140C42 223 0 169 0 102V35z" fill="url(#brand)"/>
+    <path d="M78 42v150M42 82h74M42 126h74" fill="none" stroke="#f8fafc" stroke-width="18" stroke-linecap="round"/>
+  </g>
+  <g fill="#f8fafc" font-family="Segoe UI, Inter, Arial, sans-serif">
+    <text x="340" y="222" font-size="86" font-weight="800" letter-spacing="-2">Neutrx</text>
+    <text x="344" y="286" font-size="36" font-weight="600" fill="#bfdbfe">Secure-by-default HTTP for Node.js backends</text>
+    <text x="344" y="358" font-size="28" fill="#cbd5e1">SSRF protection  |  redirect safety  |  retries</text>
+    <text x="344" y="405" font-size="28" fill="#cbd5e1">circuit breaker  |  cache metrics  |  OpenTelemetry hooks</text>
+  </g>
+  <g font-family="Segoe UI, Inter, Arial, sans-serif" font-size="24" font-weight="700">
+    <rect x="150" y="462" width="150" height="48" rx="24" fill="#172554" stroke="#60a5fa"/>
+    <text x="182" y="494" fill="#dbeafe">Node 18+</text>
+    <rect x="322" y="462" width="178" height="48" rx="24" fill="#172554" stroke="#60a5fa"/>
+    <text x="354" y="494" fill="#dbeafe">Zero deps</text>
+    <rect x="522" y="462" width="190" height="48" rx="24" fill="#172554" stroke="#60a5fa"/>
+    <text x="554" y="494" fill="#dbeafe">TypeScript</text>
+  </g>
+</svg>

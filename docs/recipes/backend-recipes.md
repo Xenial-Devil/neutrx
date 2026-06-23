@@ -1,5 +1,6 @@
 ---
 title: Backend Recipes
+description: "Use Neutrx backend recipes for webhooks, internal APIs, discovery, OAuth2, idempotent retries, mTLS, GraphQL, Prometheus, and SSRF-safe previews."
 parent: Examples
 nav_order: 8
 ---

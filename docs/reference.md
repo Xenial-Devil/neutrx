@@ -1,5 +1,6 @@
 ---
 title: Reference
+description: "Reference material for Neutrx APIs, configuration, typed errors, release testing, and release security controls."
 nav_order: 7
 has_children: true
 ---
