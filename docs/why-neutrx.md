@@ -2,6 +2,13 @@
 title: Why Neutrx
 description: "Learn when to choose Neutrx over Axios or native fetch for secure Node.js service-to-service HTTP with SSRF protection, resilience, and observability."
 nav_order: 8
+faq:
+  - q: When should I use Neutrx instead of Axios?
+    a: "Choose Neutrx for Node.js service-to-service HTTP where untrusted URLs, redirects, or egress are involved. It blocks SSRF by default, validates every redirect hop, pins DNS, and redacts secrets in errors — controls Axios leaves to you."
+  - q: When should I use Neutrx instead of native fetch?
+    a: "Use Neutrx when you need built-in resilience and security: retries, circuit breaking, bulkheads, caching, metrics, SSRF protection, and redacted typed errors. Native fetch provides none of these out of the box."
+  - q: Is Neutrx a drop-in replacement for Axios?
+    a: "Neutrx offers Axios-like ergonomics and a migration guide, but it is security-first by default, so some permissive behaviors require explicitly choosing the `legacy` profile. See the Axios migration guide for the mapping."
 ---
 
 # Why Neutrx
@@ -73,3 +80,5 @@ See [Security Features](security-features.md) for exact per-profile values.
 Axios-like ergonomics for Node.js backends — with SSRF protection, redirect safety, redacted typed errors, retries, circuit breaking, caching, metrics, and observability built in, and nothing required at runtime.
 
 Ready? → [Getting Started](getting-started.md)
+
+{% include faq.html %}

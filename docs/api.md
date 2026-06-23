@@ -3,6 +3,15 @@ title: API Reference
 description: "Reference Neutrx imports, client creation, request methods, configuration, response validation, security, resilience, performance, plugins, headers, and errors."
 parent: Reference
 nav_order: 1
+faq:
+  - q: How do I create a Neutrx client instance?
+    a: "Call `neutrx.create(config)` to get an instance with its own defaults — `baseURL`, `headers`, security profile, retries, caching, and timeouts. Per-request options override instance defaults, which override library defaults."
+  - q: What HTTP methods does Neutrx support?
+    a: "Neutrx supports `get`, `post`, `put`, `patch`, `delete`, `head`, and `options`, plus the callable form `neutrx(url, config)` and a low-level `request(config)` funnel that every verb routes through."
+  - q: What does a Neutrx response contain?
+    a: "A response exposes `data` (parsed body), `status`, `statusText`, `headers`, and the resolved `config`. Response parsing and size limits are enforced before the body is returned."
+  - q: How do I validate response data with Neutrx?
+    a: "Pass a schema validator in the request config so the parsed body is checked before the promise resolves. Validation failures raise a typed Neutrx error instead of returning unverified data."
 ---
 
 # Neutrx API Reference
@@ -521,3 +530,5 @@ try {
 HTTP failures throw `NeutrxHTTPError` subclasses unless `validateStatus` accepts the status or `throwHttpErrors: false` is set.
 
 Typed errors expose a stable `category`, request and trace identity, retryability, and a redacted `toJSON()` representation. `toStructuredError(error)` safely normalizes non-Neutrx errors for structured logging.
+
+{% include faq.html %}

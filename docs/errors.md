@@ -3,6 +3,15 @@ title: Errors
 description: "Handle Neutrx typed errors with categories, codes, hierarchy, redacted toJSON output, validation failures, and safe logging patterns."
 parent: Reference
 nav_order: 3
+faq:
+  - q: How does Neutrx error handling work?
+    a: "Every failure is a typed error in a hierarchy rooted at `NeutrxError`, each with a stable `code`, a `category`, and a redacting `toJSON()`. Use `isNeutrxError(err)` to narrow and `toStructuredError(err)` to normalize unknown errors for logging."
+  - q: What error types does Neutrx throw?
+    a: "Specific subclasses include `NeutrxSSRFError`, `NeutrxHTTPError`, `NeutrxConnectTimeoutError`, `NeutrxResponseTimeoutError`, `NeutrxMaxRetriesError`, `NeutrxCircuitBreakerError`, `NeutrxBulkheadError`, `NeutrxRateLimitError`, `NeutrxCertPinError`, and `NeutrxRequestSizeError`, among others."
+  - q: Does Neutrx leak secrets in error messages?
+    a: "No. `toJSON()` redacts secrets from URLs, headers, and error causes according to the active security profile, so serialized or logged errors do not expose credentials or tokens."
+  - q: How do I check if an error is retryable?
+    a: "Typed Neutrx errors carry retryability and request/trace identity. Inspect the error's `category` and retryable flag rather than matching on message strings."
 ---
 
 # Errors
@@ -133,3 +142,5 @@ All of these are exported from `neutrx` and `neutrx/errors`.
 
 - [API Reference → Errors](api.md) · [Getting Started → Handle errors safely](getting-started.md)
 - [Security Features → Error redaction](security-features.md)
+
+{% include faq.html %}

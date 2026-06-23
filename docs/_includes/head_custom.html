@@ -38,6 +38,34 @@
   ]
 }
 </script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "@id": {{ '/#org' | absolute_url | jsonify }},
+  "name": {{ site.title | jsonify }},
+  "url": {{ '/' | absolute_url | jsonify }},
+  "logo": {{ '/assets/neutrx-logo.svg' | absolute_url | jsonify }},
+  "sameAs": [
+    "https://github.com/Xenial-Devil/neutrx",
+    "https://www.npmjs.com/package/neutrx"
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": {{ '/#website' | absolute_url | jsonify }},
+  "name": {{ site.title | jsonify }},
+  "alternateName": "Neutrx docs",
+  "description": {{ site.description | jsonify }},
+  "url": {{ '/' | absolute_url | jsonify }},
+  "inLanguage": "en",
+  "publisher": { "@id": {{ '/#org' | absolute_url | jsonify }} },
+  "about": { "@id": {{ '/#software' | absolute_url | jsonify }} }
+}
+</script>
 {% unless page.url == '/' or page.noindex %}
 <script type="application/ld+json">
 {
@@ -46,11 +74,80 @@
   "headline": {{ page.title | default: site.title | jsonify }},
   "description": {{ page.description | default: site.description | jsonify }},
   "url": {{ page.url | absolute_url | jsonify }},
+  "dateModified": {{ site.time | date_to_xmlschema | jsonify }},
+  "inLanguage": "en",
   "about": { "@id": {{ '/#software' | absolute_url | jsonify }} },
-  "isPartOf": { "@type": "WebSite", "name": {{ site.title | jsonify }}, "url": {{ '/' | absolute_url | jsonify }} }
+  "isPartOf": { "@id": {{ '/#website' | absolute_url | jsonify }} },
+  "publisher": { "@id": {{ '/#org' | absolute_url | jsonify }} }
+}
+</script>
+{%- comment -%} BreadcrumbList: Home > parent (resolved by title) > grand-parent chain > page (AEO). {%- endcomment -%}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": "Home", "item": {{ '/' | absolute_url | jsonify }} }
+    {%- assign crumb_pos = 1 -%}
+    {%- if page.grand_parent -%}
+      {%- assign gp = site.html_pages | where: "title", page.grand_parent | first -%}
+      {%- assign crumb_pos = crumb_pos | plus: 1 -%}
+      ,{ "@type": "ListItem", "position": {{ crumb_pos }}, "name": {{ page.grand_parent | jsonify }}{% if gp %}, "item": {{ gp.url | absolute_url | jsonify }}{% endif %} }
+    {%- endif -%}
+    {%- if page.parent -%}
+      {%- assign pp = site.html_pages | where: "title", page.parent | first -%}
+      {%- assign crumb_pos = crumb_pos | plus: 1 -%}
+      ,{ "@type": "ListItem", "position": {{ crumb_pos }}, "name": {{ page.parent | jsonify }}{% if pp %}, "item": {{ pp.url | absolute_url | jsonify }}{% endif %} }
+    {%- endif -%}
+    {%- assign crumb_pos = crumb_pos | plus: 1 -%}
+    ,{ "@type": "ListItem", "position": {{ crumb_pos }}, "name": {{ page.title | default: site.title | jsonify }}, "item": {{ page.url | absolute_url | jsonify }} }
+  ]
 }
 </script>
 {% endunless %}
+{%- comment -%} FAQPage from page.faq frontmatter (list of {q, a}) — drives rich results + answer engines. {%- endcomment -%}
+{% if page.faq %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "url": {{ page.url | absolute_url | jsonify }},
+  "mainEntity": [
+    {%- for item in page.faq -%}
+    {%- unless forloop.first %},{% endunless %}
+    {
+      "@type": "Question",
+      "name": {{ item.q | jsonify }},
+      "acceptedAnswer": { "@type": "Answer", "text": {{ item.a | strip_newlines | jsonify }} }
+    }
+    {%- endfor -%}
+  ]
+}
+</script>
+{% endif %}
+{%- comment -%} HowTo from page.howto frontmatter ({ name, steps:[{ name, text, url }] }) — tutorial rich result. {%- endcomment -%}
+{% if page.howto %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": {{ page.howto.name | default: page.title | jsonify }},
+  "description": {{ page.description | default: site.description | jsonify }},
+  "step": [
+    {%- for s in page.howto.steps -%}
+    {%- unless forloop.first %},{% endunless %}
+    {
+      "@type": "HowToStep",
+      "position": {{ forloop.index }},
+      "name": {{ s.name | jsonify }},
+      "text": {{ s.text | strip_newlines | jsonify }}
+      {%- if s.url %}, "url": {{ s.url | prepend: page.url | absolute_url | jsonify }}{% endif %}
+    }
+    {%- endfor -%}
+  ]
+}
+</script>
+{% endif %}
 
 <script>
   (function () {

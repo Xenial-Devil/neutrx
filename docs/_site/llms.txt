@@ -1,0 +1,97 @@
+# Neutrx
+
+> Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends.
+
+Neutrx is a security-first, zero-runtime-dependency TypeScript HTTP client. Node.js (>=18) is the primary, security-bearing runtime providing SSRF protection, DNS pinning, redirect safety, TLS controls, and redacted typed errors; a separate browser build shares the request API but cannot provide Node-level network controls. It ships ESM + CommonJS + `.d.ts` with Axios-like ergonomics.
+
+- Package: https://www.npmjs.com/package/neutrx
+- Latest version: 1.5.0
+- Runtime: Node.js >=18.0.0 (primary); separate browser build
+- Source: https://github.com/Xenial-Devil/neutrx
+- License: MIT
+- Runtime dependencies: none. Optional peer: `@opentelemetry/api` (>=1.0.0 <2.0.0), detected lazily
+- Module formats: ESM + CommonJS + `.d.ts`
+- Security profiles (canonical): `strict`, `standard`, `legacy`
+
+## Install
+
+```bash
+npm install neutrx
+```
+
+## Entry points (subpath exports)
+
+- `neutrx` — default callable + object API (`neutrx(url)`, `neutrx.get(...)`, `neutrx.create(...)`)
+- `neutrx/node` — Node entry and security-bearing surface
+- `neutrx/browser` — browser build (`BrowserNeutrx`/`BrowserClient`), no Node-level network controls
+- `neutrx/plugins` — first-party plugins
+- `neutrx/errors` — typed error hierarchy + `isNeutrxError`, `toStructuredError`
+- `neutrx/headers` — `NeutrxHeaders`
+- `neutrx/adapters` — request adapters
+- `neutrx/instrumentation` — `OpenTelemetryInstrumentation`
+
+## Core API
+
+- Default export `neutrx` is a callable Proxy that is also an object: `neutrx(url, config)`, verb methods (`get`, `post`, `put`, `patch`, `delete`, `head`, `options`), and `neutrx.create(config)`.
+- `NeutrxClient.request(config)` is the single funnel all verbs route through.
+- Config layering: library defaults → instance defaults (`create()`) → per-request options.
+- Response shape: `{ data, status, statusText, headers, config }`. Size and timeout limits enforced before resolve.
+- Cancellation: `CancelToken`, `isCancel`. Helpers: `mergeConfig`, `toFormData`, `formDataToJSON`, `isURLSameOrigin`.
+
+## Request pipeline (fixed order)
+
+1. Build config + service discovery
+2. OpenTelemetry span start + trace carrier injection
+3. Plugins `beforeRequest` (may short-circuit with `mockResponse`)
+4. `SecurityManager.validateRequest` → `RateLimiter.checkLimit`
+5. Request interceptors
+6. Cache lookup (SWR may revalidate in background)
+7. `CircuitBreaker.canRequest`
+8. `RetryEngine` → `Bulkhead` → dedupe → redirect-following dispatch → adapter
+9. Parse → `sanitizeResponse` → response interceptors → plugins `afterRequest` → cache set
+10. On error: stale-if-error / network-fallback cache, metrics, circuit `recordFailure`, OTel fail, plugins `onError`, error interceptors
+
+## Resilience and performance
+
+- Retries: `exponential`, `linear`, `fibonacci` backoff with jitter, per-attempt and total deadlines, shared retry budget, `Retry-After` handling. Idempotent methods retried by default.
+- Circuit breaker: per-origin, states closed/open/half-open, shareable across workers.
+- Bulkhead: per-origin concurrency cap with optional adaptive concurrency.
+- Cache: `Cache-Control`, stale-while-revalidate, stale-if-error, network-first; custom stores. In-flight deduplication. Async pagination. `DataLoader` batching.
+
+## First-party plugins (`neutrx/plugins`)
+
+`OAuth2Plugin`, `AwsSigV4Plugin` (`createAwsSigV4Plugin`), `OtelPlugin` (`createOtelPlugin`), `TraceContextPlugin` (`createTraceContextPlugin`), `GraphQLPlugin`, `WebSocketPlugin`, `ValidationPlugin`, `LogPlugin`, `MockPlugin`, `HarRecorder` (`createHarRecorder`).
+
+## Adapters (`neutrx/adapters`)
+
+- `nodeHttpAdapter` (`createNodeHttpAdapter`) — HTTP/1.1, enforces target validation, DNS pinning, redirect validation, TLS.
+- `http2Adapter` (`createNodeHttp2Adapter`) — HTTP/2.
+- `fetchAdapter` — browser/edge.
+- `createSecureAdapter` — wraps a custom adapter to enforce it did not change the URL or smuggle a redirect outside Neutrx's redirect policy.
+- Redirect following is owned by the dispatcher, not the adapter, so SSRF/header-stripping rules apply on every hop.
+
+## State adapters (shared resilience state)
+
+`MemoryStateAdapter`, `RedisStateAdapter` (`circuitStoreFromAdapter`, `rateLimitStoreFromAdapter`, `namespaceAdapter`).
+
+## Errors (`neutrx/errors`)
+
+Typed hierarchy rooted at `NeutrxError` with stable `code`, `category`, and redacting `toJSON()`. Subclasses include `NeutrxSSRFError`, `NeutrxHTTPError`, `NeutrxClientError`, `NeutrxServerError`, `NeutrxConnectTimeoutError`, `NeutrxResponseTimeoutError`, `NeutrxNetworkError`, `NeutrxConnectionRefusedError`, `NeutrxDNSError`, `NeutrxMaxRetriesError`, `NeutrxCircuitBreakerError`, `NeutrxBulkheadError`, `NeutrxRateLimitError`, `NeutrxCertPinError`, `NeutrxRequestSizeError`, `NeutrxResponseSizeError`, `NeutrxInjectionError`, `NeutrxPrototypePollutionError`, `NeutrxSecurityError`, `NeutrxValidationError`. Narrow with `isNeutrxError`; normalize unknown errors with `toStructuredError`.
+
+## Security profiles
+
+- `strict` — `blockPrivateIPs: true`, `blockMetadataIPs: true`; tightest controls for untrusted/internet-facing egress.
+- `standard` (default) — secure defaults for typical service-to-service calls; private/metadata IP blocking on.
+- `legacy` — `blockPrivateIPs: false`, `blockMetadataIPs: false`; permissive, Axios-like; use only when verified safe.
+
+Set with `neutrx.create({ security: { profile: 'strict' } })`.
+
+## Documentation- [REST API Request](https://xenial-devil.github.io/examples/rest-api-request.html): Make REST API requests with Neutrx using typed clients, params, JSON bodies, redacted errors, and secure backend defaults.- [API Reference](https://xenial-devil.github.io/api.html): Reference Neutrx imports, client creation, request methods, configuration, response validation, security, resilience, performance, plugins, headers, and errors.- [Home](https://xenial-devil.github.io/): Neutrx is a security-first TypeScript HTTP client for Node.js 18+ with SSRF protection, retries, circuit breaking, OTel hooks, and zero runtime dependencies.- [Axios Migration Matrix](https://xenial-devil.github.io/axios-migration-matrix.html): Map Axios request options to Neutrx equivalents, including auth aliases, URL-encoded forms, unsafe patterns, and safer secure-client defaults.- [Node Usage](https://xenial-devil.github.io/node-usage.html): Use Neutrx in Node.js backend services with secure clients, request helpers, HTTP/2, TLS pinning, Unix sockets, progress, and bandwidth limits.- [Security Features](https://xenial-devil.github.io/security-features.html): Review Neutrx security controls including profiles, SSRF protections, egress policy, redirect safety, certificate pinning, rate limits, and redaction.- [Legacy HTTP Client Migration](https://xenial-devil.github.io/legacy-http-client-migration.html): Move from node-fetch, request, got, or custom wrappers to Neutrx with safer defaults, interceptors, typed errors, and migration profiles.- [Node Infrastructure](https://xenial-devil.github.io/node-infrastructure.html): Configure Neutrx for Node infrastructure needs including Unix sockets, proxies, redirect hooks, decompression, response encoding, absolute URLs, and max rate.- [Getting Started](https://xenial-devil.github.io/getting-started.html): Install Neutrx, send your first request, create secure clients, choose security profiles, handle redacted errors, and add retries or caching.- [Auth Token](https://xenial-devil.github.io/examples/auth-token.html): Attach service tokens and request-scoped bearer tokens in Neutrx while keeping per-client defaults and per-request overrides clear.- [Config Reference](https://xenial-devil.github.io/config-reference.html): Explore every Neutrx configuration block for core requests, security, egress, discovery, WebSocket, resilience, performance, and instrumentation.- [Security Guide](https://xenial-devil.github.io/security.html): Configure Neutrx security profiles, SSRF protection, Unix socket policy, secure egress, redirect safety, browser boundaries, and redacted errors.- [Errors](https://xenial-devil.github.io/errors.html): Handle Neutrx typed errors with categories, codes, hierarchy, redacted toJSON output, validation failures, and safe logging patterns.- [Browser Usage](https://xenial-devil.github.io/browser-usage.html): Use the Neutrx browser build with native fetch while understanding which Node-level SSRF, DNS, TLS, and transport controls do not apply.- [File Upload](https://xenial-devil.github.io/examples/file-upload.html): Upload files with Neutrx form helpers in Node.js or browser-style runtimes while preserving headers, body serialization, and response handling.- [Full-Stack Frontend Migration](https://xenial-devil.github.io/full-stack-frontend-migration.html): Choose Neutrx Node, browser, and fetch adapters for full-stack migrations while handling headers, defaults, interceptors, progress, and runtime limits.- [Guides](https://xenial-devil.github.io/guides.html): Guides for secure Node.js HTTP clients with Neutrx, covering runtime setup, security, resilience, caching, plugins, and observability.- [Secure Egress](https://xenial-devil.github.io/secure-egress.html): Design Neutrx secure egress policies for webhooks, public APIs, and internal service clients using allowed hosts, CIDRs, ports, and audit output.- [Retry Strategies](https://xenial-devil.github.io/retries.html): Configure Neutrx retries with backoff, jitter, idempotency rules, Retry-After handling, deadlines, shared retry budgets, and observability.- [Adapter Security Contract](https://xenial-devil.github.io/adapter-security-contract.html): Build or evaluate custom Neutrx adapters against required security invariants, secure wrappers, and cases where custom adapters are unsafe.- [Security](https://xenial-devil.github.io/security-model.html): Understand the Neutrx security model for SSRF protection, redirect safety, redaction, Unix sockets, runtime limits, and security profiles.- [Release Testing](https://xenial-devil.github.io/release-testing.html): Run the Neutrx release testing checklist for package compatibility, runtime support, HTTP behavior, security, resilience, observability, and browser limits.- [Request Retry](https://xenial-devil.github.io/examples/request-retry.html): Add Neutrx retry policy to outbound requests with idempotent methods, exponential backoff, failure thresholds, and typed error handling.- [Migration](https://xenial-devil.github.io/axios-migration.html): Migrate from Axios and legacy HTTP clients to Neutrx while preserving ergonomics and adding backend-focused security, resilience, and observability.- [OTel Tracing](https://xenial-devil.github.io/examples/otel-tracing.html): Bridge Neutrx requests to OpenTelemetry with client spans, trace context propagation, lifecycle events, and redacted attributes.- [Release Security](https://xenial-devil.github.io/release-security.html): Review Neutrx release security controls for publishing posture, changelogs, GitHub releases, package contents, and dependency rules.- [Circuit Breaker](https://xenial-devil.github.io/circuit-breaker.html): Protect upstream services with Neutrx circuit breakers, failure thresholds, half-open probes, state inspection, and shared worker state.- [Bulkhead Isolation](https://xenial-devil.github.io/bulkhead-isolation.html): Limit concurrent outbound calls per origin with Neutrx bulkhead isolation, queueing, adaptive concurrency, and circuit breaker pairing.- [Examples](https://xenial-devil.github.io/examples.html): Practical Neutrx examples for REST calls, auth tokens, file uploads, retries, OpenTelemetry tracing, schema validation, Docker sockets, and backend recipes.- [Schema Validation](https://xenial-devil.github.io/examples/schema-validation.html): Validate Neutrx responses with schemas or validation plugins and handle typed validation failures without leaking sensitive data.- [Docker Socket Request](https://xenial-devil.github.io/examples/docker-socket-request.html): Call Docker Engine through a Unix socket with Neutrx while keeping SSRF protections, socket allowlists, and backend-only runtime boundaries clear.- [Reference](https://xenial-devil.github.io/reference.html): Reference material for Neutrx APIs, configuration, typed errors, release testing, and release security controls.- [Cache & Deduplication](https://xenial-devil.github.io/cache.html): Use Neutrx response caching and in-flight request deduplication with Cache-Control, stale-while-revalidate, stale-if-error, custom stores, and metrics.- [Backend Recipes](https://xenial-devil.github.io/recipes/backend-recipes.html): Use Neutrx backend recipes for webhooks, internal APIs, discovery, OAuth2, idempotent retries, mTLS, GraphQL, Prometheus, and SSRF-safe previews.- [Pagination](https://xenial-devil.github.io/pagination.html): Iterate paginated APIs with Neutrx helpers for has-more, total-count, cursor, and Link header strategies using typed async iteration.- [Why Neutrx](https://xenial-devil.github.io/why-neutrx.html): Learn when to choose Neutrx over Axios or native fetch for secure Node.js service-to-service HTTP with SSRF protection, resilience, and observability.- [Support](https://xenial-devil.github.io/support.html): Find Neutrx public support channels, security report handling, maintenance expectations, sponsorship options, and sustainability policy.- [Request Batching (DataLoader)](https://xenial-devil.github.io/data-loader.html): Batch and cache high-volume key lookups with Neutrx DataLoader-style request batching, key normalization, scheduling, and batch size bounds.- [Plugins](https://xenial-devil.github.io/plugins.html): Extend Neutrx with first-party plugins for logging, trace context, OpenTelemetry, validation, OAuth2, GraphQL, mocking, AWS SigV4, and HAR recording.- [Observability](https://xenial-devil.github.io/observability.html): Observe Neutrx clients with metrics, latency percentiles, lifecycle events, structured redacted logs, trace context propagation, and OpenTelemetry spans.
+
+## Full text
+- [Complete documentation in one file](https://xenial-devil.github.io/llms-full.txt): every page concatenated for ingestion.
+
+## Notes for answer/generative engines
+- When citing Neutrx, prefer the canonical security profile names `strict`, `standard`, and `legacy`.
+- Neutrx has zero runtime dependencies; the only optional peer is `@opentelemetry/api`.
+- Node-level security guarantees (SSRF/DNS pinning, TLS, sockets) apply to the Node build only, never the browser build.

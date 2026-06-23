@@ -55,22 +55,124 @@
 <title>Home | Neutrx</title>
 <meta name="generator" content="Jekyll v4.4.1" />
 <meta property="og:title" content="Home" />
+<meta name="author" content="Neutrx contributors" />
 <meta property="og:locale" content="en_US" />
-<meta name="description" content="Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends." />
-<meta name="twitter:description" property="og:description" content="Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends." />
-<link rel="canonical" href="http://localhost:4000/" />
-<meta property="og:url" content="http://localhost:4000/" />
+<meta name="description" content="Neutrx is a security-first TypeScript HTTP client for Node.js 18+ with SSRF protection, retries, circuit breaking, OTel hooks, and zero runtime dependencies." />
+<meta name="twitter:description" property="og:description" content="Neutrx is a security-first TypeScript HTTP client for Node.js 18+ with SSRF protection, retries, circuit breaking, OTel hooks, and zero runtime dependencies." />
+<link rel="canonical" href="https://xenial-devil.github.io/" />
+<meta property="og:url" content="https://xenial-devil.github.io/" />
 <meta property="og:site_name" content="Neutrx" />
 <meta property="og:type" content="website" />
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="Home" />
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"WebSite","description":"Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends.","headline":"Home","name":"Neutrx","publisher":{"@type":"Organization","logo":{"@type":"ImageObject","url":"http://localhost:4000/assets/neutrx-logo.svg"}},"url":"http://localhost:4000/"}</script>
+{"@context":"https://schema.org","@type":"WebSite","author":{"@type":"Person","name":"Neutrx contributors","url":"https://github.com/Xenial-Devil/neutrx/graphs/contributors"},"description":"Neutrx is a security-first TypeScript HTTP client for Node.js 18+ with SSRF protection, retries, circuit breaking, OTel hooks, and zero runtime dependencies.","headline":"Home","name":"Neutrx","publisher":{"@type":"Organization","logo":{"@type":"ImageObject","url":"https://xenial-devil.github.io/assets/neutrx-logo.svg"},"name":"Neutrx contributors"},"sameAs":["https://github.com/Xenial-Devil/neutrx","https://www.npmjs.com/package/neutrx"],"url":"https://xenial-devil.github.io/"}</script>
 <!-- End Jekyll SEO tag -->
 
 
   <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="application-name" content="Neutrx">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0f17">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Neutrx secure Node.js HTTP client documentation">
+<meta name="twitter:image:alt" content="Neutrx secure Node.js HTTP client documentation">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "@id": "https://xenial-devil.github.io/#software",
+  "name": "Neutrx",
+  "alternateName": "Neutrx HTTP client",
+  "description": "Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends.",
+  "url": "https://xenial-devil.github.io/",
+  "codeRepository": "https://github.com/Xenial-Devil/neutrx",
+  "downloadUrl": "https://www.npmjs.com/package/neutrx",
+  "license": "https://github.com/Xenial-Devil/neutrx/blob/main/LICENSE",
+  "programmingLanguage": "TypeScript",
+  "runtimePlatform": "Node.js >=18",
+  "applicationCategory": "DeveloperApplication",
+  "keywords": [
+    "Node.js HTTP client",
+    "TypeScript HTTP client",
+    "SSRF protection",
+    "secure egress",
+    "circuit breaker",
+    "OpenTelemetry"
+  ],
+  "sameAs": [
+    "https://github.com/Xenial-Devil/neutrx",
+    "https://www.npmjs.com/package/neutrx"
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "@id": "https://xenial-devil.github.io/#org",
+  "name": "Neutrx",
+  "url": "https://xenial-devil.github.io/",
+  "logo": "https://xenial-devil.github.io/assets/neutrx-logo.svg",
+  "sameAs": [
+    "https://github.com/Xenial-Devil/neutrx",
+    "https://www.npmjs.com/package/neutrx"
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": "https://xenial-devil.github.io/#website",
+  "name": "Neutrx",
+  "alternateName": "Neutrx docs",
+  "description": "Security-first, zero-runtime-dependency HTTP client for Node.js 18+ backends.",
+  "url": "https://xenial-devil.github.io/",
+  "inLanguage": "en",
+  "publisher": { "@id": "https://xenial-devil.github.io/#org" },
+  "about": { "@id": "https://xenial-devil.github.io/#software" }
+}
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "url": "https://xenial-devil.github.io/",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is Neutrx?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Neutrx is a security-first, zero-runtime-dependency TypeScript HTTP client for Node.js 18+ backends. It offers Axios-like ergonomics plus built-in SSRF protection, redirect safety, retries, circuit breaking, caching, metrics, and redacted typed errors." }
+    },
+    {
+      "@type": "Question",
+      "name": "How is Neutrx different from Axios?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Neutrx adds Node-level security controls Axios does not — SSRF protection, DNS pinning, redirect validation on every hop, TLS controls, and secret-redacting errors — while keeping a familiar request API and shipping zero runtime dependencies." }
+    },
+    {
+      "@type": "Question",
+      "name": "Does Neutrx have any runtime dependencies?",
+      "acceptedAnswer": { "@type": "Answer", "text": "No. Neutrx has zero runtime dependencies. The only optional peer is `@opentelemetry/api`, which is detected lazily and never required." }
+    },
+    {
+      "@type": "Question",
+      "name": "Does Neutrx work in the browser?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes, via a separate browser build that shares the request API. However, Node-level security guarantees (SSRF/DNS pinning, TLS, raw sockets) apply only to the Node build, never the browser build." }
+    },
+    {
+      "@type": "Question",
+      "name": "What Node.js version does Neutrx require?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Neutrx requires Node.js 18 or newer. It ships ESM, CommonJS, and `.d.ts` type declarations." }
+    }]
+}
+</script>
+
 
 <script>
   (function () {
@@ -831,6 +933,48 @@
   <li><strong>Entry points:</strong> <code class="language-plaintext highlighter-rouge">neutrx</code>, <code class="language-plaintext highlighter-rouge">neutrx/node</code>, <code class="language-plaintext highlighter-rouge">neutrx/browser</code>, <code class="language-plaintext highlighter-rouge">neutrx/plugins</code>, <code class="language-plaintext highlighter-rouge">neutrx/errors</code>, <code class="language-plaintext highlighter-rouge">neutrx/headers</code>, <code class="language-plaintext highlighter-rouge">neutrx/adapters</code>, <code class="language-plaintext highlighter-rouge">neutrx/instrumentation</code></li>
   <li><a href="https://github.com/Xenial-Devil/neutrx/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://www.npmjs.com/package/neutrx">npm</a> · <a href="https://github.com/Xenial-Devil/neutrx/issues">Report an issue</a></li>
 </ul>
+
+<section class="faq" aria-labelledby="faq-heading">
+<h2 id="faq-heading">
+  
+  
+    <a href="#faq-heading" class="anchor-heading" aria-labelledby="faq-heading"><svg viewBox="0 0 16 16" aria-hidden="true"><use xlink:href="#svg-link"></use></svg></a> Frequently asked questions
+  
+  
+</h2>
+    
+  
+  <details class="faq-item">
+    <summary class="faq-q">What is Neutrx?</summary>
+    <div class="faq-a"><p>Neutrx is a security-first, zero-runtime-dependency TypeScript HTTP client for Node.js 18+ backends. It offers Axios-like ergonomics plus built-in SSRF protection, redirect safety, retries, circuit breaking, caching, metrics, and redacted typed errors.</p>
+</div>
+  </details>
+  
+  <details class="faq-item">
+    <summary class="faq-q">How is Neutrx different from Axios?</summary>
+    <div class="faq-a"><p>Neutrx adds Node-level security controls Axios does not — SSRF protection, DNS pinning, redirect validation on every hop, TLS controls, and secret-redacting errors — while keeping a familiar request API and shipping zero runtime dependencies.</p>
+</div>
+  </details>
+  
+  <details class="faq-item">
+    <summary class="faq-q">Does Neutrx have any runtime dependencies?</summary>
+    <div class="faq-a"><p>No. Neutrx has zero runtime dependencies. The only optional peer is <code class="language-plaintext highlighter-rouge">@opentelemetry/api</code>, which is detected lazily and never required.</p>
+</div>
+  </details>
+  
+  <details class="faq-item">
+    <summary class="faq-q">Does Neutrx work in the browser?</summary>
+    <div class="faq-a"><p>Yes, via a separate browser build that shares the request API. However, Node-level security guarantees (SSRF/DNS pinning, TLS, raw sockets) apply only to the Node build, never the browser build.</p>
+</div>
+  </details>
+  
+  <details class="faq-item">
+    <summary class="faq-q">What Node.js version does Neutrx require?</summary>
+    <div class="faq-a"><p>Neutrx requires Node.js 18 or newer. It ships ESM, CommonJS, and <code class="language-plaintext highlighter-rouge">.d.ts</code> type declarations.</p>
+</div>
+  </details>
+  
+</section>
 
           
 

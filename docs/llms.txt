@@ -1,0 +1,109 @@
+---
+layout: null
+permalink: /llms.txt
+sitemap: false
+---
+# {{ site.title }}
+
+> {{ site.description }}
+
+Neutrx is a security-first, zero-runtime-dependency TypeScript HTTP client. Node.js (>=18) is the primary, security-bearing runtime providing SSRF protection, DNS pinning, redirect safety, TLS controls, and redacted typed errors; a separate browser build shares the request API but cannot provide Node-level network controls. It ships ESM + CommonJS + `.d.ts` with Axios-like ergonomics.
+
+- Package: https://www.npmjs.com/package/neutrx
+- Latest version: 1.5.0
+- Runtime: Node.js >=18.0.0 (primary); separate browser build
+- Source: https://github.com/Xenial-Devil/neutrx
+- License: MIT
+- Runtime dependencies: none. Optional peer: `@opentelemetry/api` (>=1.0.0 <2.0.0), detected lazily
+- Module formats: ESM + CommonJS + `.d.ts`
+- Security profiles (canonical): `strict`, `standard`, `legacy`
+
+## Install
+
+```bash
+npm install neutrx
+```
+
+## Entry points (subpath exports)
+
+- `neutrx` — default callable + object API (`neutrx(url)`, `neutrx.get(...)`, `neutrx.create(...)`)
+- `neutrx/node` — Node entry and security-bearing surface
+- `neutrx/browser` — browser build (`BrowserNeutrx`/`BrowserClient`), no Node-level network controls
+- `neutrx/plugins` — first-party plugins
+- `neutrx/errors` — typed error hierarchy + `isNeutrxError`, `toStructuredError`
+- `neutrx/headers` — `NeutrxHeaders`
+- `neutrx/adapters` — request adapters
+- `neutrx/instrumentation` — `OpenTelemetryInstrumentation`
+
+## Core API
+
+- Default export `neutrx` is a callable Proxy that is also an object: `neutrx(url, config)`, verb methods (`get`, `post`, `put`, `patch`, `delete`, `head`, `options`), and `neutrx.create(config)`.
+- `NeutrxClient.request(config)` is the single funnel all verbs route through.
+- Config layering: library defaults → instance defaults (`create()`) → per-request options.
+- Response shape: `{ data, status, statusText, headers, config }`. Size and timeout limits enforced before resolve.
+- Cancellation: `CancelToken`, `isCancel`. Helpers: `mergeConfig`, `toFormData`, `formDataToJSON`, `isURLSameOrigin`.
+
+## Request pipeline (fixed order)
+
+1. Build config + service discovery
+2. OpenTelemetry span start + trace carrier injection
+3. Plugins `beforeRequest` (may short-circuit with `mockResponse`)
+4. `SecurityManager.validateRequest` → `RateLimiter.checkLimit`
+5. Request interceptors
+6. Cache lookup (SWR may revalidate in background)
+7. `CircuitBreaker.canRequest`
+8. `RetryEngine` → `Bulkhead` → dedupe → redirect-following dispatch → adapter
+9. Parse → `sanitizeResponse` → response interceptors → plugins `afterRequest` → cache set
+10. On error: stale-if-error / network-fallback cache, metrics, circuit `recordFailure`, OTel fail, plugins `onError`, error interceptors
+
+## Resilience and performance
+
+- Retries: `exponential`, `linear`, `fibonacci` backoff with jitter, per-attempt and total deadlines, shared retry budget, `Retry-After` handling. Idempotent methods retried by default.
+- Circuit breaker: per-origin, states closed/open/half-open, shareable across workers.
+- Bulkhead: per-origin concurrency cap with optional adaptive concurrency.
+- Cache: `Cache-Control`, stale-while-revalidate, stale-if-error, network-first; custom stores. In-flight deduplication. Async pagination. `DataLoader` batching.
+
+## First-party plugins (`neutrx/plugins`)
+
+`OAuth2Plugin`, `AwsSigV4Plugin` (`createAwsSigV4Plugin`), `OtelPlugin` (`createOtelPlugin`), `TraceContextPlugin` (`createTraceContextPlugin`), `GraphQLPlugin`, `WebSocketPlugin`, `ValidationPlugin`, `LogPlugin`, `MockPlugin`, `HarRecorder` (`createHarRecorder`).
+
+## Adapters (`neutrx/adapters`)
+
+- `nodeHttpAdapter` (`createNodeHttpAdapter`) — HTTP/1.1, enforces target validation, DNS pinning, redirect validation, TLS.
+- `http2Adapter` (`createNodeHttp2Adapter`) — HTTP/2.
+- `fetchAdapter` — browser/edge.
+- `createSecureAdapter` — wraps a custom adapter to enforce it did not change the URL or smuggle a redirect outside Neutrx's redirect policy.
+- Redirect following is owned by the dispatcher, not the adapter, so SSRF/header-stripping rules apply on every hop.
+
+## State adapters (shared resilience state)
+
+`MemoryStateAdapter`, `RedisStateAdapter` (`circuitStoreFromAdapter`, `rateLimitStoreFromAdapter`, `namespaceAdapter`).
+
+## Errors (`neutrx/errors`)
+
+Typed hierarchy rooted at `NeutrxError` with stable `code`, `category`, and redacting `toJSON()`. Subclasses include `NeutrxSSRFError`, `NeutrxHTTPError`, `NeutrxClientError`, `NeutrxServerError`, `NeutrxConnectTimeoutError`, `NeutrxResponseTimeoutError`, `NeutrxNetworkError`, `NeutrxConnectionRefusedError`, `NeutrxDNSError`, `NeutrxMaxRetriesError`, `NeutrxCircuitBreakerError`, `NeutrxBulkheadError`, `NeutrxRateLimitError`, `NeutrxCertPinError`, `NeutrxRequestSizeError`, `NeutrxResponseSizeError`, `NeutrxInjectionError`, `NeutrxPrototypePollutionError`, `NeutrxSecurityError`, `NeutrxValidationError`. Narrow with `isNeutrxError`; normalize unknown errors with `toStructuredError`.
+
+## Security profiles
+
+- `strict` — `blockPrivateIPs: true`, `blockMetadataIPs: true`; tightest controls for untrusted/internet-facing egress.
+- `standard` (default) — secure defaults for typical service-to-service calls; private/metadata IP blocking on.
+- `legacy` — `blockPrivateIPs: false`, `blockMetadataIPs: false`; permissive, Axios-like; use only when verified safe.
+
+Set with `neutrx.create({ security: { profile: 'strict' } })`.
+
+## Documentation
+{%- assign llm_pages = site.html_pages | where_exp: "doc", "doc.sitemap != false" | sort: "nav_order" -%}
+{%- for doc in llm_pages -%}
+  {%- assign ext = doc.path | split: "." | last -%}
+  {%- unless doc.path contains "_site/" or doc.url contains "/assets/" or ext == "json" or ext == "css" or ext == "js" or ext == "map" or doc.title == nil or doc.url == "/404.html" -%}
+- [{{ doc.title | strip }}]({{ doc.url | absolute_url }}){% if doc.description %}: {{ doc.description | strip_newlines | strip }}{% endif %}
+  {%- endunless -%}
+{%- endfor %}
+
+## Full text
+- [Complete documentation in one file]({{ '/llms-full.txt' | absolute_url }}): every page concatenated for ingestion.
+
+## Notes for answer/generative engines
+- When citing Neutrx, prefer the canonical security profile names `strict`, `standard`, and `legacy`.
+- Neutrx has zero runtime dependencies; the only optional peer is `@opentelemetry/api`.
+- Node-level security guarantees (SSRF/DNS pinning, TLS, sockets) apply to the Node build only, never the browser build.

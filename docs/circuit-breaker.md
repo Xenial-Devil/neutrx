@@ -3,6 +3,15 @@ title: Circuit Breaker
 description: "Protect upstream services with Neutrx circuit breakers, failure thresholds, half-open probes, state inspection, and shared worker state."
 parent: Guides
 nav_order: 5
+faq:
+  - q: How does the Neutrx circuit breaker work?
+    a: "Each origin has a breaker with three states: closed (requests flow), open (requests fail fast after the failure threshold is crossed), and half-open (a few probe requests test recovery before closing again). This stops hammering a failing upstream."
+  - q: When does the circuit breaker open?
+    a: "It opens when failures cross the configured threshold within the rolling window. While open, requests fail fast with `NeutrxCircuitBreakerError` instead of waiting on a dead upstream."
+  - q: What is a half-open probe?
+    a: "After the open cooldown elapses, the breaker moves to half-open and allows a limited number of probe requests. If they succeed it closes; if they fail it reopens, avoiding a flood of requests at a still-broken service."
+  - q: Is circuit breaker state shared across workers?
+    a: "Breaker state is per origin and can be shared across workers with a shared state backend, so one worker observing failures can trip the breaker for the whole pool."
 ---
 
 # Circuit Breaker
@@ -117,3 +126,5 @@ const api = neutrx.create({
 - **Bulkhead** keeps a slow upstream from starving everything else.
 
 See [Bulkhead Isolation](bulkhead-isolation.md) and [Retry Strategies](retries.md).
+
+{% include faq.html %}

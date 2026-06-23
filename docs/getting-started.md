@@ -2,6 +2,29 @@
 title: Getting Started
 description: "Install Neutrx, send your first request, create secure clients, choose security profiles, handle redacted errors, and add retries or caching."
 nav_order: 2
+howto:
+  name: How to get started with Neutrx
+  steps:
+    - name: Install Neutrx
+      text: "Run npm install neutrx. Neutrx requires Node.js 18+, has zero runtime dependencies, and ships ESM, CommonJS, and .d.ts declarations."
+      url: "#install"
+    - name: Send your first request
+      text: "Import the default export and call a verb method, for example await neutrx.get('https://api.example.com/data'), then read data, status, and headers from the response."
+    - name: Create a secure client
+      text: "Call neutrx.create() with baseURL, headers, and a security profile to get a reusable instance whose defaults layer over the library defaults and are overridable per request."
+    - name: Choose a security profile
+      text: "Select strict for untrusted egress, standard for typical service-to-service calls, or legacy only for verified permissive Axios-like behavior."
+    - name: Handle redacted errors
+      text: "Catch typed Neutrx errors, narrow with isNeutrxError, and log toJSON() output, which redacts secrets from URLs, headers, and causes."
+faq:
+  - q: How do I install Neutrx?
+    a: "Run `npm install neutrx`. It requires Node.js 18 or newer, has zero runtime dependencies, and ships ESM, CommonJS, and `.d.ts` declarations plus a separate browser build."
+  - q: How do I send my first request with Neutrx?
+    a: "Import the default export and call it like a function or use verb methods: `import neutrx from 'neutrx'; const res = await neutrx.get('https://api.example.com/data');`. The response exposes `data`, `status`, and `headers`."
+  - q: Which security profile should I choose?
+    a: "Use `strict` for untrusted or internet-facing egress, `standard` (the default) for typical service-to-service calls, and `legacy` only when you need permissive Axios-like behavior and have verified it is safe."
+  - q: How do I create a configured client?
+    a: "Call `neutrx.create({ ... })` to get an instance with its own defaults — base URL, headers, security profile, retries, and caching — layered over the library defaults and overridable per request."
 ---
 
 # Getting Started
@@ -167,3 +190,5 @@ const { data } = await api.get<User>('/users/1'); // data: User
 - [Migration](axios-migration.md) — moving from Axios
 - [Config Reference](config-reference.md) — every option
 - [API Reference](api.md) — methods, types, and the response shape
+
+{% include faq.html %}

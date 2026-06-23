@@ -1,6 +1,6 @@
 ---
 title: Examples
-description: "Copy practical Neutrx examples for REST calls, auth tokens, file uploads, retries, OpenTelemetry tracing, schema validation, Docker sockets, and backend recipes."
+description: "Practical Neutrx examples for REST calls, auth tokens, file uploads, retries, OpenTelemetry tracing, schema validation, Docker sockets, and backend recipes."
 nav_order: 6
 has_children: true
 ---

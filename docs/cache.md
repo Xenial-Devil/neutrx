@@ -3,6 +3,15 @@ title: Cache & Deduplication
 description: "Use Neutrx response caching and in-flight request deduplication with Cache-Control, stale-while-revalidate, stale-if-error, custom stores, and metrics."
 parent: Guides
 nav_order: 7
+faq:
+  - q: How does caching work in Neutrx?
+    a: "Neutrx caches responses according to `Cache-Control` semantics and supports stale-while-revalidate (serve stale, refresh in background), stale-if-error (serve stale when the origin fails), and network-first modes, backed by a default or custom store."
+  - q: What is request deduplication in Neutrx?
+    a: "In-flight deduplication collapses identical concurrent requests into a single network call, so N callers asking for the same resource at once share one response instead of issuing N requests."
+  - q: Can I use a custom cache store?
+    a: "Yes. Provide a store implementing the cache interface (for example Redis or an LRU) to share cached responses across workers or processes instead of the default in-memory store."
+  - q: What is stale-if-error?
+    a: "stale-if-error serves a previously cached response when a fresh request to the origin fails, trading absolute freshness for availability during upstream outages."
 ---
 
 # Cache & Deduplication
@@ -134,3 +143,5 @@ Joined requests count in `api.getMetrics().requests.deduplicated` and the `neutr
 
 - [Pagination](pagination.md) · [Request Batching (DataLoader)](data-loader.md)
 - [Config Reference](config-reference.md) — full performance schema
+
+{% include faq.html %}
